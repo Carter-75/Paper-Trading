@@ -16,6 +16,7 @@ import sys
 import time
 import datetime as dt
 from typing import List, Optional, Tuple
+from dotenv import load_dotenv
 
 import pytz
 from alpaca_trade_api import REST
@@ -23,6 +24,14 @@ from alpaca_trade_api.rest import APIError
 from alpaca_trade_api.rest import TimeFrame
 
 import config
+
+# Load environment variables from .env
+load_dotenv()
+
+# Now your env keys are accessible
+ALPACA_API_KEY = os.getenv("ALPACA_API_KEY")
+ALPACA_API_SECRET = os.getenv("ALPACA_API_SECRET")
+POLYGON_API_KEY = os.getenv("POLYGON_API_KEY")
 
 # ------- Logging setup (writes to bot.log and console). Keep backward-compatible bot.log use -------
 LOG = logging.getLogger("paper_trading_bot")

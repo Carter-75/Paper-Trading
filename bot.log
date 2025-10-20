@@ -19,3 +19,86 @@ Traceback (most recent call last):
     from alpaca_trade_api import REST
     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 ImportError: cannot import name 'APIError' from 'alpaca_trade_api' (C:\Python312\Lib\site-packages\alpaca_trade_api\__init__.py)
+2025-10-20T17:20:10.196698+00:00 EXC - Failed to create Alpaca client
+2025-10-20T17:20:22.920300+00:00 EXC - Failed to create Alpaca client
+2025-10-20 12:20:22,917 ERROR - Failed to create Alpaca client
+Traceback (most recent call last):
+  File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\runner.py", line 544, in main
+    client = make_client(allow_missing=args.allow_missing_keys, go_live=args.go_live)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\runner.py", line 145, in make_client
+    raise RuntimeError("Missing Alpaca API keys")
+RuntimeError: Missing Alpaca API keys
+2025-10-20T17:20:36.175306+00:00 EXC - Failed to create Alpaca client
+2025-10-20 12:20:36,173 ERROR - Failed to create Alpaca client
+Traceback (most recent call last):
+  File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\runner.py", line 544, in main
+    client = make_client(allow_missing=args.allow_missing_keys, go_live=args.go_live)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\runner.py", line 145, in make_client
+    raise RuntimeError("Missing Alpaca API keys")
+RuntimeError: Missing Alpaca API keys
+2025-10-20T17:20:50.406606+00:00 EXC - Failed to create Alpaca client
+2025-10-20 12:20:50,403 ERROR - Failed to create Alpaca client
+Traceback (most recent call last):
+  File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\runner.py", line 544, in main
+    client = make_client(allow_missing=args.allow_missing_keys, go_live=args.go_live)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\runner.py", line 145, in make_client
+    raise RuntimeError("Missing Alpaca API keys")
+RuntimeError: Missing Alpaca API keys
+2025-10-20T17:21:03.835803+00:00 EXC - Failed to create Alpaca client
+2025-10-20 12:21:03,832 ERROR - Failed to create Alpaca client
+Traceback (most recent call last):
+  File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\runner.py", line 544, in main
+    client = make_client(allow_missing=args.allow_missing_keys, go_live=args.go_live)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\runner.py", line 145, in make_client
+    raise RuntimeError("Missing Alpaca API keys")
+RuntimeError: Missing Alpaca API keys
+2025-10-20T17:21:17.343311+00:00 EXC - Failed to create Alpaca client
+2025-10-20 12:21:17,339 ERROR - Failed to create Alpaca client
+Traceback (most recent call last):
+  File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\runner.py", line 544, in main
+    client = make_client(allow_missing=args.allow_missing_keys, go_live=args.go_live)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\runner.py", line 145, in make_client
+    raise RuntimeError("Missing Alpaca API keys")
+RuntimeError: Missing Alpaca API keys
+2025-10-20T17:21:31.062889+00:00 EXC - Failed to create Alpaca client
+2025-10-20 12:21:31,058 ERROR - Failed to create Alpaca client
+Traceback (most recent call last):
+  File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\runner.py", line 544, in main
+    client = make_client(allow_missing=args.allow_missing_keys, go_live=args.go_live)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\runner.py", line 145, in make_client
+    raise RuntimeError("Missing Alpaca API keys")
+RuntimeError: Missing Alpaca API keys
+2025-10-20T17:21:44.308471+00:00 EXC - Failed to create Alpaca client
+2025-10-20 12:21:44,305 ERROR - Failed to create Alpaca client
+Traceback (most recent call last):
+  File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\runner.py", line 544, in main
+    client = make_client(allow_missing=args.allow_missing_keys, go_live=args.go_live)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\runner.py", line 145, in make_client
+    raise RuntimeError("Missing Alpaca API keys")
+RuntimeError: Missing Alpaca API keys
+2025-10-20T17:21:57.999732+00:00 EXC - Failed to create Alpaca client
+2025-10-20 12:21:57,997 ERROR - Failed to create Alpaca client
+Traceback (most recent call last):
+  File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\runner.py", line 544, in main
+    client = make_client(allow_missing=args.allow_missing_keys, go_live=args.go_live)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\runner.py", line 145, in make_client
+    raise RuntimeError("Missing Alpaca API keys")
+RuntimeError: Missing Alpaca API keys
+2025-10-20T17:22:11.957511+00:00 EXC - Failed to create Alpaca client
+2025-10-20T17:22:25.701803+00:00 EXC - Failed to create Alpaca client
+2025-10-20 12:22:25,694 ERROR - Failed to create Alpaca client
+Traceback (most recent call last):
+  File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\runner.py", line 549, in main
+    log_warn("Attempted to go live without CONFIRM_GO_LIVE=YES. Aborting.")
+  File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\runner.py", line 150, in make_client
+    if not config.wants_live_mode(cli_flag_go_live=True):
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: Missing Alpaca API keys
