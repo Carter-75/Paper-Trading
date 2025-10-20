@@ -1,64 +1,99 @@
+# config.py
 """
-Configuration for Alpaca paper trading bot.
+Merged & improved config for Paper-Trading bot.
 
-For local use only. You may hardcode keys below as this is not production.
+Keep secrets in environment variables or .env (not committed).
+This file defines run bases and safe bounds for dynamic tuning.
 """
 
-# --- API Keys ---
-# Prefer environment variables; fall back to empty strings if unset to force a startup warning.
-import os as _os
-try:  # optional dotenv support
-    from dotenv import load_dotenv as _load_dotenv  # type: ignore
-    _load_dotenv()
+from typing import Optional
+import os
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
 except Exception:
     pass
 
-ALPACA_API_KEY: str = _os.getenv("ALPACA_API_KEY", "")
-ALPACA_API_SECRET: str = _os.getenv("ALPACA_API_SECRET", "")
-POLYGON_API_KEY: str = _os.getenv("POLYGON_API_KEY", "")
+# -------------------
+# API / Environment
+# -------------------
+ALPACA_API_KEY: str = os.getenv("ALPACA_API_KEY", "")
+ALPACA_SECRET_KEY: str = os.getenv("ALPACA_SECRET_KEY", "")
+ALPACA_BASE_URL: str = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
+POLYGON_API_KEY: str = os.getenv("POLYGON_API_KEY", "")
 
-# --- Endpoints ---
-# Paper trading base URL by default; later you can switch to live trading
-# Note: The client appends /v2 internally; providing the host is sufficient.
-ALPACA_BASE_URL: str = "https://paper-api.alpaca.markets"
+# Confirmation env var required to go live
+CONFIRM_GO_LIVE: str = os.getenv("CONFIRM_GO_LIVE", "")
 
-# --- Trading Settings ---
-TICKER: str = "TSLA"
+# -------------------
+# Strategy / runtime bases (these remain as user-configured defaults)
+# -------------------
+DEFAULT_TICKER: str = os.getenv("DEFAULT_TICKER", "TSLA")
+DEFAULT_INTERVAL_SECONDS: float = float(os.getenv("DEFAULT_INTERVAL_SECONDS", "30"))  # recommended >= 30
+SHORT_WINDOW: int = int(os.getenv("SHORT_WINDOW", "5"))
+LONG_WINDOW: int = int(os.getenv("LONG_WINDOW", "20"))
 
-# On first run, allocate this USD notional into the ticker.
-INITIAL_NOTIONAL_USD: float = 100.0
+# sizing
+TRADE_SIZE_FRAC_OF_CAP: float = float(os.getenv("TRADE_SIZE_FRAC_OF_CAP", "0.25"))
+FIXED_TRADE_USD: float = float(os.getenv("FIXED_TRADE_USD", "0.0"))
 
-# Each buy dynamically sizes up to remaining cap; no fixed per-buy amount.
+# per-symbol cap (USD)
+MAX_CAP_USD: float = float(os.getenv("MAX_CAP_USD", "1000.0"))
 
-# Strategy uses EMA crossover on hourly closes
-SHORT_EMA_HOURS: int = 10  # slower, fewer false buys
-LONG_EMA_HOURS: int = 50   # stronger trend confirmation
-HOURS_BACK_FOR_TREND: int = 120  # more history for stability
+# TP/SL base percents
+TAKE_PROFIT_PERCENT: float = float(os.getenv("TAKE_PROFIT_PERCENT", "1.5") or 0.0)
+STOP_LOSS_PERCENT: float = float(os.getenv("STOP_LOSS_PERCENT", "1.0") or 0.0)
+TRAILING_STOP_PERCENT: float = float(os.getenv("TRAILING_STOP_PERCENT", "0.0") or 0.0)
 
-# Runner defaults
-DEFAULT_MAX_RUNTIME_HOURS: int = 24
+# Confidence sizing
+CONFIDENCE_MULTIPLIER: float = float(os.getenv("CONFIDENCE_MULTIPLIER", "5.0"))
+MIN_CONFIDENCE_TO_TRADE: float = float(os.getenv("MIN_CONFIDENCE_TO_TRADE", "0.01"))
 
-# --- Risk/exit settings ---
-# Trailing stop percent for protective sells after buys (e.g., 3.0 for 3%)
-TRAILING_STOP_PERCENT: float = 3.0  # protective trailing stop
+# Volatility filter
+VOLATILITY_WINDOW: int = int(os.getenv("VOLATILITY_WINDOW", "30"))
+VOLATILITY_PCT_THRESHOLD: float = float(os.getenv("VOLATILITY_PCT_THRESHOLD", "0.08"))
 
-# Optional bracket order settings for new buys. If both are > 0, buys will use
-# a bracket order with take-profit and stop-loss attached instead of a plain
-# market order. Prices are derived from the latest trade price.
-TAKE_PROFIT_PERCENT: float = 8.0   # optional bracket TP
-STOP_LOSS_PERCENT: float = 4.0     # optional bracket SL
+# Sell partial
+SELL_PARTIAL_ENABLED: bool = os.getenv("SELL_PARTIAL_ENABLED", "0") in ("1", "true", "True")
 
-# Max allowed drawdown on an open position (negative percent). Example: 5.0 => -5%
-MAX_DRAWDOWN_PERCENT: float = 6.0  # force exit if drawdown exceeds this
+# Safety
+MAX_DRAWDOWN_PERCENT: float = float(os.getenv("MAX_DRAWDOWN_PERCENT", "6.0") or 0.0)
+MAX_POSITION_AGE_HOURS: float = float(os.getenv("MAX_POSITION_AGE_HOURS", "72.0") or 0.0)
+DAILY_LOSS_LIMIT_USD: float = float(os.getenv("DAILY_LOSS_LIMIT_USD", "0.0") or 0.0)
 
-# Max position age in hours before forcing an exit; 0 disables
-MAX_POSITION_AGE_HOURS: float = 72.0  # exit stale positions after 3 days
+# Runtime clamp bounds for auto-tuning
+MIN_TAKE_PROFIT_PERCENT: float = float(os.getenv("MIN_TAKE_PROFIT_PERCENT", "0.25"))
+MAX_TAKE_PROFIT_PERCENT: float = float(os.getenv("MAX_TAKE_PROFIT_PERCENT", "10.0"))
+MIN_STOP_LOSS_PERCENT: float = float(os.getenv("MIN_STOP_LOSS_PERCENT", "0.25"))
+MAX_STOP_LOSS_PERCENT: float = float(os.getenv("MAX_STOP_LOSS_PERCENT", "10.0"))
+MIN_TRADE_SIZE_FRAC: float = float(os.getenv("MIN_TRADE_SIZE_FRAC", "0.01"))
+MAX_TRADE_SIZE_FRAC: float = float(os.getenv("MAX_TRADE_SIZE_FRAC", "0.5"))
 
+# Interval suggestion
+INTERVAL_SUGGESTION_WINDOW_BARS: int = int(os.getenv("INTERVAL_SUGGESTION_WINDOW_BARS", "500"))
+SUGGESTION_MAX_TRADES_PER_DAY: float = float(os.getenv("SUGGESTION_MAX_TRADES_PER_DAY", "20"))
 
-# --- Logging ---
-# Path to the main log file and the maximum age before it is rotated (cleared).
-# The controller deletes the log once at startup; the runner also clears it if
-# it grows older than this threshold during a long-running session.
-LOG_PATH: str = "bot.log"
-LOG_MAX_AGE_HOURS: float = 48.0
+# Logging & ledger
+LOG_PATH: str = os.getenv("LOG_PATH", "bot.log")
+LOG_MAX_AGE_HOURS: float = float(os.getenv("LOG_MAX_AGE_HOURS", "48.0") or 0.0)
+PNL_LEDGER_PATH: str = os.getenv("PNL_LEDGER_PATH", "pnl_ledger.json")
 
+# Behavior
+ALLOW_MISSING_KEYS_FOR_DEBUG: bool = os.getenv("ALLOW_MISSING_KEYS_FOR_DEBUG", "0") in ("1", "true", "True")
+ENABLE_MARKET_HOURS_ONLY: bool = os.getenv("ENABLE_MARKET_HOURS_ONLY", "1") in ("1", "true", "True")
+
+# -------------------
+# Helpers
+# -------------------
+def validate_config(allow_missing_api_keys: bool = False) -> Optional[str]:
+    missing = []
+    if not ALPACA_API_KEY or not ALPACA_SECRET_KEY:
+        if not allow_missing_api_keys and not ALLOW_MISSING_KEYS_FOR_DEBUG:
+            missing.append("ALPACA_API_KEY and/or ALPACA_SECRET_KEY")
+    if missing:
+        return f"Missing configuration: {', '.join(missing)}. Set env vars or enable debug override."
+    return None
+
+def wants_live_mode(cli_flag_go_live: bool = False) -> bool:
+    return bool(cli_flag_go_live and CONFIRM_GO_LIVE == "YES")
