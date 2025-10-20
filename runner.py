@@ -55,8 +55,9 @@ def append_to_log_line(line: str):
     try:
         with open(FILE_LOG_PATH, "a", encoding="utf-8") as fh:
             fh.write(line + "\n")
-    except Exception:
-        LOG.exception("Failed to append to log file")
+    except PermissionError:
+        # OneDrive is probably syncing; just print instead of logging again
+        print(f"WARNING: Could not write to bot.log: {line}")
 
 # Truncation/rotation: keep last N lines if file too large or older than LOG_MAX_AGE_HOURS
 def truncate_log_if_needed(max_bytes: int = 5 * 1024 * 1024, keep_lines: int = 2000):

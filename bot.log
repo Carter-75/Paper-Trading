@@ -1,45 +1,58 @@
-2025-10-20T19:02:41.106916+00:00 EXC - Failed to create Alpaca client
-2025-10-20 14:02:41,104 ERROR - Failed to create Alpaca client
+2025-10-20T19:08:21.830251+00:00 INFO - Starting bot for TSLA interval=2.0 max_cap=$1000.00 per_buy=$0.00
+2025-10-20 14:08:21,830 INFO - Starting bot for TSLA interval=2.0 max_cap=$1000.00 per_buy=$0.00
+2025-10-20 14:08:23,234 INFO - Projection: expected_trades/day=795.60 win_rate=0.00 expected_daily=$-1989.00
+2025-10-20 14:08:23,242 ERROR - Failed to append to log file
 Traceback (most recent call last):
-  File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\runner.py", line 553, in main
-    client = make_client(allow_missing=args.allow_missing_keys, go_live=args.go_live)
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\runner.py", line 154, in make_client
-    raise RuntimeError("Missing Alpaca API keys")
-RuntimeError: Missing Alpaca API keys
-2025-10-20T19:02:54.640486+00:00 EXC - Failed to create Alpaca client
-2025-10-20 14:02:54,635 ERROR - Failed to create Alpaca client
+  File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\runner.py", line 56, in append_to_log_line
+    with open(FILE_LOG_PATH, "a", encoding="utf-8") as fh:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+PermissionError: [Errno 13] Permission denied: 'bot.log'
+2025-10-20 14:08:23,244 WARNING - Suggested interval to reduce churn: 4s (current 2s)
+2025-10-20 14:08:23,246 ERROR - Failed to append to log file
 Traceback (most recent call last):
-  File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\runner.py", line 553, in main
-    client = make_client(allow_missing=args.allow_missing_keys, go_live=args.go_live)
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\runner.py", line 154, in make_client
-    raise RuntimeError("Missing Alpaca API keys")
-RuntimeError: Missing Alpaca API keys
-2025-10-20T19:03:07.940345+00:00 EXC - Failed to create Alpaca client
-2025-10-20 14:03:07,938 ERROR - Failed to create Alpaca client
+  File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\runner.py", line 56, in append_to_log_line
+    with open(FILE_LOG_PATH, "a", encoding="utf-8") as fh:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+PermissionError: [Errno 13] Permission denied: 'bot.log'
+2025-10-20 14:08:24,721 INFO - Decision=hold confidence=-0.0037 price=444.0600 short_ma=444.1420 long_ma=444.4685
+2025-10-20 14:08:24,721 ERROR - Failed to append to log file
 Traceback (most recent call last):
-  File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\runner.py", line 553, in main
-    client = make_client(allow_missing=args.allow_missing_keys, go_live=args.go_live)
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\runner.py", line 154, in make_client
-    raise RuntimeError("Missing Alpaca API keys")
-RuntimeError: Missing Alpaca API keys
-2025-10-20T19:03:21.674473+00:00 EXC - Failed to create Alpaca client
-2025-10-20 14:03:21,671 ERROR - Failed to create Alpaca client
+  File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\runner.py", line 56, in append_to_log_line
+    with open(FILE_LOG_PATH, "a", encoding="utf-8") as fh:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+PermissionError: [Errno 13] Permission denied: 'bot.log'
+2025-10-20 14:08:24,846 INFO - Snapshot: qty=0.227813 mkt=101.71 unreal_pl=0.77
+2025-10-20 14:08:24,847 ERROR - Failed to append to log file
 Traceback (most recent call last):
-  File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\runner.py", line 553, in main
-    client = make_client(allow_missing=args.allow_missing_keys, go_live=args.go_live)
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\runner.py", line 154, in make_client
-    raise RuntimeError("Missing Alpaca API keys")
-RuntimeError: Missing Alpaca API keys
-2025-10-20T19:03:34.955580+00:00 EXC - Failed to create Alpaca client
-2025-10-20 14:03:34,952 ERROR - Failed to create Alpaca client
+  File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\runner.py", line 56, in append_to_log_line
+    with open(FILE_LOG_PATH, "a", encoding="utf-8") as fh:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+PermissionError: [Errno 13] Permission denied: 'bot.log'
+2025-10-20 14:08:25,387 INFO - Decision=hold confidence=-0.0037 price=444.0600 short_ma=444.1420 long_ma=444.4685
+2025-10-20 14:08:25,388 ERROR - Failed to append to log file
 Traceback (most recent call last):
-  File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\runner.py", line 553, in main
-    client = make_client(allow_missing=args.allow_missing_keys, go_live=args.go_live)
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\runner.py", line 154, in make_client
-    raise RuntimeError("Missing Alpaca API keys")
-RuntimeError: Missing Alpaca API keys
+  File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\runner.py", line 56, in append_to_log_line
+    with open(FILE_LOG_PATH, "a", encoding="utf-8") as fh:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+PermissionError: [Errno 13] Permission denied: 'bot.log'
+2025-10-20 14:08:25,515 INFO - Snapshot: qty=0.227813 mkt=101.71 unreal_pl=0.77
+2025-10-20 14:08:25,516 ERROR - Failed to append to log file
+Traceback (most recent call last):
+  File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\runner.py", line 56, in append_to_log_line
+    with open(FILE_LOG_PATH, "a", encoding="utf-8") as fh:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+PermissionError: [Errno 13] Permission denied: 'bot.log'
+2025-10-20 14:08:27,414 INFO - Decision=hold confidence=-0.0037 price=444.0600 short_ma=444.1420 long_ma=444.4685
+2025-10-20 14:08:27,415 ERROR - Failed to append to log file
+Traceback (most recent call last):
+  File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\runner.py", line 56, in append_to_log_line
+    with open(FILE_LOG_PATH, "a", encoding="utf-8") as fh:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+PermissionError: [Errno 13] Permission denied: 'bot.log'
+2025-10-20 14:08:27,546 INFO - Snapshot: qty=0.227813 mkt=101.72 unreal_pl=0.78
+2025-10-20 14:08:27,548 ERROR - Failed to append to log file
+Traceback (most recent call last):
+  File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\runner.py", line 56, in append_to_log_line
+    with open(FILE_LOG_PATH, "a", encoding="utf-8") as fh:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+PermissionError: [Errno 13] Permission denied: 'bot.log'
