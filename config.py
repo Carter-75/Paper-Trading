@@ -24,7 +24,7 @@ ALPACA_BASE_URL: str = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.ma
 POLYGON_API_KEY: str = os.getenv("POLYGON_API_KEY", "")
 
 # Confirmation env var required to go live
-CONFIRM_GO_LIVE: str = os.getenv("CONFIRM_GO_LIVE", "")
+CONFIRM_GO_LIVE: str = os.getenv("CONFIRM_GO_LIVE", "YES")
 
 # -------------------
 # Strategy / runtime bases (these remain as user-configured defaults)
@@ -60,7 +60,7 @@ SELL_PARTIAL_ENABLED: bool = os.getenv("SELL_PARTIAL_ENABLED", "0") in ("1", "tr
 # Safety
 MAX_DRAWDOWN_PERCENT: float = float(os.getenv("MAX_DRAWDOWN_PERCENT", "6.0") or 0.0)
 MAX_POSITION_AGE_HOURS: float = float(os.getenv("MAX_POSITION_AGE_HOURS", "72.0") or 0.0)
-DAILY_LOSS_LIMIT_USD: float = float(os.getenv("DAILY_LOSS_LIMIT_USD", "0.0") or 0.0)
+DAILY_LOSS_LIMIT_USD: float = float(os.getenv("DAILY_LOSS_LIMIT_USD", "50.0") or 0.0)
 
 # Runtime clamp bounds for auto-tuning
 MIN_TAKE_PROFIT_PERCENT: float = float(os.getenv("MIN_TAKE_PROFIT_PERCENT", "0.25"))
