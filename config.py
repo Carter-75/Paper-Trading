@@ -30,7 +30,7 @@ CONFIRM_GO_LIVE: str = os.getenv("CONFIRM_GO_LIVE", "YES")
 # Strategy / runtime bases (these remain as user-configured defaults)
 # -------------------
 DEFAULT_TICKER: str = os.getenv("DEFAULT_TICKER", "TSLA")
-DEFAULT_INTERVAL_SECONDS: float = float(os.getenv("DEFAULT_INTERVAL_SECONDS", "30"))  # recommended >= 30
+DEFAULT_INTERVAL_SECONDS: float = float(os.getenv("DEFAULT_INTERVAL_SECONDS", "3600"))
 SHORT_WINDOW: int = int(os.getenv("SHORT_WINDOW", "5"))
 LONG_WINDOW: int = int(os.getenv("LONG_WINDOW", "20"))
 
@@ -39,7 +39,7 @@ TRADE_SIZE_FRAC_OF_CAP: float = float(os.getenv("TRADE_SIZE_FRAC_OF_CAP", "0.25"
 FIXED_TRADE_USD: float = float(os.getenv("FIXED_TRADE_USD", "0.0"))
 
 # per-symbol cap (USD)
-MAX_CAP_USD: float = float(os.getenv("MAX_CAP_USD", "1000.0"))
+MAX_CAP_USD: float = float(os.getenv("MAX_CAP_USD", "100.0"))
 
 # TP/SL base percents
 TAKE_PROFIT_PERCENT: float = float(os.getenv("TAKE_PROFIT_PERCENT", "1.5") or 0.0)

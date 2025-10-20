@@ -10,11 +10,12 @@ Use this list when switching from paper to live on Alpaca. Keep this file as you
   - [ ] Enable Live Trading and confirm account status is active
   - [ ] Deposit funds and ensure cash is available (settled)
 
-## 2) Reduce Initial Risk (Why lower cap and per-buy?)
+## 2) Reduce Initial Risk
 - [ ] Lower cap (`-m`) for first session (e.g., `$50`)
-  - Explanation: With cap=$100 and account=$100, a single strong buy can fully allocate the account. If price moves against you or orders get partially filled, you have no buffer for fees/slippage or follow-up actions. A smaller cap proves live flow without maxing exposure.
-- [ ] Lower per-buy (`-p`) initially (e.g., `$10–$25`)
-  - Explanation: Smaller notional buys reduce the impact of any single decision while you validate live fills, router behavior, and your strategy’s signals in real-time. It also helps avoid order rejections if available cash is slightly below cap due to holds/fees.
+  - Explanation: Smaller cap proves live flow without maxing exposure.
+- [ ] Keep dynamic sizing conservative
+  - [ ] Set `TRADE_SIZE_FRAC_OF_CAP` lower (e.g., `0.1`)
+  - [ ] Optionally set `FIXED_TRADE_USD` (e.g., `10`) to force small buys
 - [ ] Keep protections on
   - [ ] `TRAILING_STOP_PERCENT` > 0 (e.g., 3.0)
   - [ ] `MAX_DRAWDOWN_PERCENT` > 0 (e.g., 6.0)
@@ -32,9 +33,9 @@ Use this list when switching from paper to live on Alpaca. Keep this file as you
     ```
 
 ## 4) Start Continuous Live (conservative flags)
-- [ ] Start via controller with conservative flags (example: every ~23s, cap $50, per-buy $10):
+- [ ] Start via controller with conservative flags (example: every ~23s, cap $50):
   ```powershell
-  pwsh -File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\botctl.ps1" start python -u runner.py -t .0065 -m 50 -p 10
+  pwsh -File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\botctl.ps1" start python -u runner.py -t .0065 -m 50
   ```
 - [ ] Tail logs to monitor decisions:
   ```powershell
@@ -42,7 +43,7 @@ Use this list when switching from paper to live on Alpaca. Keep this file as you
   ```
 - [ ] Alternative (avoid policy issues):
   ```powershell
-  pwsh -NoProfile -ExecutionPolicy Bypass -File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\botctl.ps1" start python -u runner.py -t .0065 -m 50 -p 10
+  pwsh -NoProfile -ExecutionPolicy Bypass -File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\botctl.ps1" start python -u runner.py -t .0065 -m 50
   ```
 
 ## 5) Observe and Scale Up Gradually
@@ -54,7 +55,7 @@ Use this list when switching from paper to live on Alpaca. Keep this file as you
 ## 6) Operational Controls
 - [ ] Update flags quickly (without editing files):
   ```powershell
-  pwsh -File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\botctl.ps1" start python -u runner.py -t .0065 -m 75 -p 15
+  pwsh -File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\botctl.ps1" start python -u runner.py -t .0065 -m 75
   ```
 - [ ] Start (hidden; run as Administrator for wake/boot triggers):
   ```powershell

@@ -1,10 +1,10 @@
 # runner.py
 """
 Merged runner: single-file entrypoint.
-- Keep CLI flags compatible: -t/--interval-seconds, -m/--max-cap, -p/--per-buy
-- Enforces explicit live confirmation: CONFIRM_GO_LIVE=YES AND --go-live required
-- Writes to bot.log and keeps truncation/rotation behavior
-- Confidence-based dynamic adjustments, volatility filter, daily projection
+- CLI: -t/--time (hours), -s/--symbol, -m/--max-cap
+- Live mode requires CONFIRM_GO_LIVE=YES and --go-live
+- Logs to bot.log with simple truncation/rotation
+- Confidence-based dynamic sizing, volatility filter, daily projection
 """
 
 import argparse
@@ -21,17 +21,14 @@ from dotenv import load_dotenv
 import pytz
 from alpaca_trade_api import REST
 from alpaca_trade_api.rest import APIError
-from alpaca_trade_api.rest import TimeFrame
+from alpaca_trade_api.rest import TimeFrame, TimeFrameUnit
 
 import config
 
 # Load environment variables from .env
 load_dotenv()
 
-# Now your env keys are accessible
-ALPACA_API_KEY = os.getenv("ALPACA_API_KEY")
-ALPACA_API_SECRET = os.getenv("ALPACA_API_SECRET")
-POLYGON_API_KEY = os.getenv("POLYGON_API_KEY")
+# Keys are read via config; local env reads are unnecessary
 
 # ------- Logging setup (writes to bot.log and console). Keep backward-compatible bot.log use -------
 LOG = logging.getLogger("paper_trading_bot")
@@ -45,6 +42,8 @@ LOG.addHandler(_console)
 
 # file handler: we'll create/rotate/truncate file ourselves to preserve original truncation logic.
 FILE_LOG_PATH = config.LOG_PATH
+DISABLE_FILE_LOG = os.getenv("BOT_TEE_LOG", "") in ("1", "true", "True")
+SCHEDULED_TASK_MODE = os.getenv("SCHEDULED_TASK_MODE", "0") in ("1", "true", "True")
 
 # ensure file exists
 if not os.path.exists(FILE_LOG_PATH):
@@ -52,39 +51,69 @@ if not os.path.exists(FILE_LOG_PATH):
 
 # Simple helper to append line to bot.log (keeps old truncation logic clarified)
 def append_to_log_line(line: str):
-    try:
-        with open(FILE_LOG_PATH, "a", encoding="utf-8") as fh:
-            fh.write(line + "\n")
-    except PermissionError:
-        # OneDrive is probably syncing; just print instead of logging again
-        print(f"WARNING: Could not write to bot.log: {line}")
+    if DISABLE_FILE_LOG:
+        return
+    # Retry a few times to handle transient OneDrive sync file locks
+    attempts = 3
+    delay = 0.2
+    for i in range(attempts):
+        try:
+            # Keep room for the new line
+            try:
+                enforce_log_max_lines(99)
+            except Exception:
+                pass
+            with open(FILE_LOG_PATH, "a", encoding="utf-8") as fh:
+                fh.write(line + "\n")
+            return
+        except PermissionError:
+            if i < attempts - 1:
+                time.sleep(delay)
+                delay *= 2
+            else:
+                # Silent skip on persistent lock
+                return
 
-# Truncation/rotation: keep last N lines if file too large or older than LOG_MAX_AGE_HOURS
-def truncate_log_if_needed(max_bytes: int = 5 * 1024 * 1024, keep_lines: int = 2000):
+def enforce_log_max_lines(max_lines: int = 100):
+    if DISABLE_FILE_LOG:
+        return
     try:
         if not os.path.exists(FILE_LOG_PATH):
             return
-        stat = os.stat(FILE_LOG_PATH)
-        if (config.LOG_MAX_AGE_HOURS and config.LOG_MAX_AGE_HOURS > 0):
-            age_hours = (time.time() - stat.st_mtime) / 3600.0
-            if age_hours >= config.LOG_MAX_AGE_HOURS:
-                # truncate by keeping last keep_lines
-                with open(FILE_LOG_PATH, "r", encoding="utf-8", errors="ignore") as fh:
-                    lines = fh.readlines()
-                lines = lines[-keep_lines:]
-                with open(FILE_LOG_PATH, "w", encoding="utf-8") as fh:
-                    fh.writelines(lines)
-                LOG.info("Truncated bot.log by age (%sh)", config.LOG_MAX_AGE_HOURS)
-                return
-        if stat.st_size > max_bytes:
-            with open(FILE_LOG_PATH, "r", encoding="utf-8", errors="ignore") as fh:
-                lines = fh.readlines()
-            lines = lines[-keep_lines:]
-            with open(FILE_LOG_PATH, "w", encoding="utf-8") as fh:
-                fh.writelines(lines)
-            LOG.info("Truncated bot.log by size (> %d bytes)", max_bytes)
+        with open(FILE_LOG_PATH, "r", encoding="utf-8", errors="ignore") as fh:
+            lines = fh.readlines()
+        if len(lines) <= max_lines:
+            return
+        # Find last session header
+        header_idx = [i for i, ln in enumerate(lines) if "Starting bot for" in ln]
+        if header_idx:
+            last_header = header_idx[-1]
+            older = lines[:last_header]
+            current = lines[last_header:]
+            # Prefer to drop older sessions entirely
+            kept = [current[0]]  # keep header
+            if older:
+                kept.append("...\n")
+            kept.extend(current[1:])
+            if len(kept) > max_lines:
+                # Trim within current session but preserve header and ellipsis
+                base = [kept[0]]
+                rest = kept[1:]
+                if rest and rest[0] != "...\n":
+                    rest = ["...\n"] + rest
+                tail_space = max_lines - 2  # header + ellipsis
+                rest_tail = rest[-tail_space:] if tail_space > 0 else []
+                lines = base + ["...\n"] + rest_tail
+            else:
+                lines = kept
+        else:
+            # No headers, simple smart tail with ellipsis if we drop anything
+            tail = lines[-(max_lines - 1):]
+            lines = ["...\n"] + tail
+        with open(FILE_LOG_PATH, "w", encoding="utf-8") as fh:
+            fh.writelines(lines)
     except Exception:
-        LOG.exception("Failed to truncate log safely")
+        pass
 
 # write wrapper to both console and file (keeps old log format in file)
 def log_info(msg: str, *args):
@@ -111,6 +140,23 @@ def log_exc(msg: str, *args):
 # Utility
 def now_utc() -> dt.datetime:
     return dt.datetime.now(pytz.UTC)
+
+# Prevent system sleep (Windows): keep machine awake during market hours / pre-open
+try:
+    import ctypes  # type: ignore
+    ES_CONTINUOUS = 0x80000000
+    ES_SYSTEM_REQUIRED = 0x00000001
+    # ES_DISPLAY_REQUIRED could be added if you want to prevent display sleep too
+    def prevent_system_sleep(enable: bool):
+        try:
+            if os.name == "nt":
+                flags = ES_CONTINUOUS | (ES_SYSTEM_REQUIRED if enable else 0)
+                ctypes.windll.kernel32.SetThreadExecutionState(flags)
+        except Exception:
+            pass
+except Exception:
+    def prevent_system_sleep(enable: bool):  # type: ignore
+        return
 
 def read_json(path):
     try:
@@ -165,10 +211,10 @@ def map_interval_to_timeframe(interval_seconds: int) -> TimeFrame:
     if minutes == 1:
         return TimeFrame.Minute
     if minutes == 5:
-        return TimeFrame(5, "minute")
+        return TimeFrame(5, TimeFrameUnit.Minute)
     if minutes == 15:
-        return TimeFrame(15, "minute")
-    if minutes == 60:
+        return TimeFrame(15, TimeFrameUnit.Minute)
+    if minutes >= 60:
         return TimeFrame.Hour
     return TimeFrame.Minute
 
@@ -176,15 +222,21 @@ def fetch_closes(client: REST, symbol: str, interval_seconds: int, bars: int) ->
     tf = map_interval_to_timeframe(max(1, int(interval_seconds)))
     def _get():
         barset = client.get_bars(symbol, tf, limit=bars)
-        closes = []
-        if hasattr(barset, "df"):
-            df = barset.df
+        closes: List[float] = []
+        df = getattr(barset, "df", None)
+        if df is not None:
             try:
-                closes = df['close'].tolist()[-bars:]
+                closes_series = getattr(df, 'close', None)
+                if closes_series is not None:
+                    closes_list = list(closes_series)
+                    closes = [float(x) for x in closes_list[-bars:]]
             except Exception:
-                closes = [float(b.c if hasattr(b, "c") else getattr(b, "close", 0.0)) for b in barset][-bars:]
-        else:
-            closes = [float(b.c if hasattr(b, "c") else getattr(b, "close", 0.0)) for b in barset][-bars:]
+                closes = []
+        if not closes:
+            try:
+                closes = [float(getattr(b, "c", getattr(b, "close", 0.0))) for b in barset][-bars:]
+            except Exception:
+                closes = []
         return closes
     return retry(_get, tries=3, delay=1.0, backoff=2.0, allowed_exceptions=(APIError, Exception), name=f"get_bars({symbol})")
 
@@ -216,7 +268,7 @@ def compute_confidence(closes: List[float]) -> float:
     return float(scaled)
 
 def decide_action(closes: List[float], short_w: int, long_w: int) -> str:
-    if not closes or len(closes) < max(short_w, long_w) + 1:
+    if not closes or len(closes) < max(short_w, long_w):
         return "hold"
     prev_short = sma(closes[:-1], short_w)
     prev_long = sma(closes[:-1], long_w)
@@ -224,20 +276,30 @@ def decide_action(closes: List[float], short_w: int, long_w: int) -> str:
     cur_long = sma(closes, long_w)
     if any(v is None for v in (prev_short, prev_long, cur_short, cur_long)):
         return "hold"
+    # Confidence gate: only hold if confidence is too low
+    conf = compute_confidence(closes)
+    if abs(conf) < config.MIN_CONFIDENCE_TO_TRADE:
+        return "hold"
+    # Prefer crossover signals
     if prev_short <= prev_long and cur_short > cur_long:
         return "buy"
     if prev_short >= prev_long and cur_short < cur_long:
+        return "sell"
+    # Otherwise follow current trend direction
+    if cur_short > cur_long:
+        return "buy"
+    if cur_short < cur_long:
         return "sell"
     return "hold"
 
 # Orders & positions
 def has_open_order(client: REST, symbol: str, side: str) -> bool:
     try:
-        orders = client.list_orders(status='open', symbols=[symbol])
-        return any(getattr(o, "side", "").lower() == side.lower() for o in orders)
+        orders = client.get_orders(status='open', limit=50)
+        return any((getattr(o, "symbol", "").upper() == symbol.upper()) and (getattr(o, "side", "").lower() == side.lower()) for o in orders)
     except Exception:
         log_exc("has_open_order failed for %s", symbol)
-        return False
+    return False
 
 def get_position(client: REST, symbol: str) -> Optional[dict]:
     try:
@@ -304,15 +366,18 @@ def adjust_runtime_params(base_tp, base_sl, base_frac, confidence, vol_pct):
     frac = clamp(frac, config.MIN_TRADE_SIZE_FRAC, config.MAX_TRADE_SIZE_FRAC)
     return tp, sl, frac
 
-def compute_order_qty_from_remaining(remaining_usd: float, price: float, confidence: float, frac: float):
+def compute_order_qty_from_remaining(remaining_usd: float, price: float, confidence: float, frac: float, fixed_usd: float = 0.0, scale_with_confidence: bool = True):
     if price <= 0:
         return 0.0
-    if config.FIXED_TRADE_USD and config.FIXED_TRADE_USD > 0:
-        usd = min(remaining_usd, config.FIXED_TRADE_USD)
+    use_fixed = (fixed_usd and fixed_usd > 0) or (config.FIXED_TRADE_USD and config.FIXED_TRADE_USD > 0)
+    if use_fixed:
+        target = fixed_usd if (fixed_usd and fixed_usd > 0) else config.FIXED_TRADE_USD
+        usd = min(remaining_usd, target)
     else:
         usd = remaining_usd * frac
-    scale = max(0.0, min(1.0, confidence))
-    usd = usd * scale
+    if scale_with_confidence:
+        scale = max(0.0, min(1.0, confidence))
+        usd = usd * scale
     if usd <= 0:
         return 0.0
     qty = math.floor((usd / price) * 1_000_000) / 1_000_000
@@ -397,7 +462,7 @@ def enforce_safety(client: REST, symbol: str):
                 if age_hours >= config.MAX_POSITION_AGE_HOURS:
                     log_warn("Position age %.2fh >= %.2f -> forcing exit", age_hours, config.MAX_POSITION_AGE_HOURS)
                     sell_all(client, symbol)
-                    return
+                return
         except Exception:
             LOG.debug("Could not determine position age")
     if config.DAILY_LOSS_LIMIT_USD and config.DAILY_LOSS_LIMIT_USD > 0:
@@ -408,7 +473,7 @@ def enforce_safety(client: REST, symbol: str):
             return
 
 # Buy & Sell flows
-def buy_flow(client: REST, symbol: str, last_price: float, max_cap_usd: float, confidence: float, base_frac: float, base_tp: float, base_sl: float):
+def buy_flow(client: REST, symbol: str, last_price: float, max_cap_usd: float, confidence: float, base_frac: float, base_tp: float, base_sl: float, dynamic_enabled: bool, fixed_usd_override: float = 0.0):
     try:
         if has_open_order(client, symbol, "buy"):
             return False, "duplicate buy order exists"
@@ -430,8 +495,12 @@ def buy_flow(client: REST, symbol: str, last_price: float, max_cap_usd: float, c
         if confidence <= 0 or abs(confidence) < config.MIN_CONFIDENCE_TO_TRADE:
             return False, f"confidence {confidence:.4f} below min {config.MIN_CONFIDENCE_TO_TRADE}"
 
-        tp, sl, frac = adjust_runtime_params(base_tp, base_sl, base_frac, confidence, vol_pct)
-        qty = compute_order_qty_from_remaining(remaining, last_price, confidence, frac)
+        if dynamic_enabled:
+            tp, sl, frac = adjust_runtime_params(base_tp, base_sl, base_frac, confidence, vol_pct)
+            qty = compute_order_qty_from_remaining(remaining, last_price, confidence, frac, fixed_usd=fixed_usd_override, scale_with_confidence=True)
+        else:
+            tp, sl, frac = base_tp, base_sl, base_frac
+            qty = compute_order_qty_from_remaining(remaining, last_price, confidence, frac, fixed_usd=fixed_usd_override, scale_with_confidence=False)
         if qty <= 0:
             return False, "computed qty <= 0"
 
@@ -529,20 +598,76 @@ def in_market_hours(client: REST) -> bool:
         LOG.debug("could not fetch market clock")
         return True
 
+# Market open helpers
+def seconds_until_next_open(client: REST) -> float:
+    try:
+        clock = client.get_clock()
+        if getattr(clock, "is_open", False):
+            return 0.0
+        next_open = getattr(clock, "next_open", None)
+        if next_open is None:
+            return 300.0
+        t = next_open
+        if isinstance(t, str):
+            t = dt.datetime.fromisoformat(t.replace("Z", "+00:00"))
+        if t.tzinfo is None:
+            t = t.replace(tzinfo=pytz.UTC)
+        now = now_utc()
+        delta = (t - now).total_seconds()
+        if delta < 0:
+            return 0.0
+        # clamp overly large waits (we'll re-check periodically anyway)
+        return float(delta)
+    except Exception:
+        return 300.0
+
+def sleep_until_market_open(client: REST, min_check_seconds: float = 60.0, max_check_seconds: float = 900.0):
+    # Single-chunk strategy with 5-minute pre-wake; exit if far from open in task mode
+    if in_market_hours(client):
+        return
+    try:
+        secs_total = seconds_until_next_open(client)
+    except Exception:
+        secs_total = 300.0
+    if SCHEDULED_TASK_MODE and secs_total > 1200.0:  # >20 minutes away: let scheduler wake us
+        log_info("Market closed for %.0fs; exiting (scheduler will wake 5m pre-open)", secs_total)
+        sys.exit(0)
+    prewake = max(0.0, secs_total - 300.0)
+    if prewake > 0:
+        log_info("Market closed. Sleeping %.0fs until 5m before open", prewake)
+        time.sleep(prewake)
+    # If market opened while we were sleeping to prewake, skip remaining sleep
+    if in_market_hours(client):
+        return
+    # Pre-open window: keep system awake and finish remaining sleep until open
+    try:
+        remain = max(0.0, seconds_until_next_open(client))
+    except Exception:
+        remain = 300.0
+    if remain <= 0.0 or in_market_hours(client):
+        return
+    log_info("Pre-open window: sleeping %.0fs until open (keeping system awake)", remain)
+    prevent_system_sleep(True)
+    time.sleep(remain)
+    prevent_system_sleep(False)
+
 # Main
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("-t", "--interval-seconds", type=float, default=config.DEFAULT_INTERVAL_SECONDS, help="Polling interval seconds")
+    parser.add_argument("-t", "--time", type=float, default=(config.DEFAULT_INTERVAL_SECONDS / 3600.0), help="Polling interval hours (e.g., 2 => 2h, .001 => ~3.6s)")
     parser.add_argument("-s", "--symbol", type=str, default=config.DEFAULT_TICKER, help="Ticker symbol")
     parser.add_argument("-m", "--max-cap", type=float, default=config.MAX_CAP_USD, help="Max cap per symbol (USD)")
-    parser.add_argument("-p", "--per-buy", type=float, default=0.0, help="Per-buy USD size override (sets FIXED_TRADE_USD for this run)")
+    parser.add_argument("--tp", type=float, default=config.TAKE_PROFIT_PERCENT, help="Override take-profit percent")
+    parser.add_argument("--sl", type=float, default=config.STOP_LOSS_PERCENT, help="Override stop-loss percent")
+    parser.add_argument("--frac", type=float, default=config.TRADE_SIZE_FRAC_OF_CAP, help="Override base trade fraction of cap")
+    parser.add_argument("--fixed-usd", type=float, default=config.FIXED_TRADE_USD, help="Override fixed USD per buy (0 to disable)")
+    parser.add_argument("--no-dynamic", action="store_true", help="Disable dynamic sizing/TP/SL; use provided base values")
+    # remove per-buy override to keep sizing purely dynamic
     parser.add_argument("--go-live", action="store_true", help="Enable live trading (requires CONFIRM_GO_LIVE=YES)")
     parser.add_argument("--allow-missing-keys", action="store_true", help="Debug: allow missing API keys")
     args = parser.parse_args()
 
-    # apply runtime per-buy override
-    if args.per_buy and args.per_buy > 0:
-        config.FIXED_TRADE_USD = float(args.per_buy)
+    # no per-buy override; sizing is dynamic
 
     try:
         if args.go_live:
@@ -556,11 +681,19 @@ def main() -> int:
         log_exc("Failed to create Alpaca client")
         return 2
 
-    interval = max(1.0, float(args.interval_seconds))
+    # Convert hours to seconds, but allow very small hour values for sub-minute polling
+    interval = max(1.0, float(args.time) * 3600.0)
     symbol = args.symbol.upper()
     max_cap = float(args.max_cap)
 
-    log_info("Starting bot for %s interval=%.1f max_cap=$%.2f per_buy=$%.2f", symbol, interval, max_cap, config.FIXED_TRADE_USD)
+    log_info("Starting bot for %s interval=%.1fs (%.3fh) max_cap=$%.2f", symbol, interval, interval/3600.0, max_cap)
+
+    # Base parameters from CLI (outside loop)
+    base_tp = float(args.tp)
+    base_sl = float(args.sl)
+    base_frac = float(args.frac)
+    fixed_usd = float(args.fixed_usd)
+    dynamic_enabled = (not args.no_dynamic)
 
     # ensure ledger
     if not os.path.exists(config.PNL_LEDGER_PATH):
@@ -584,24 +717,28 @@ def main() -> int:
     # main loop
     try:
         while True:
-            truncate_log_if_needed()
+            if not DISABLE_FILE_LOG:
+                try:
+                    enforce_log_max_lines(100)
+                except Exception:
+                    pass
             start = now_utc()
 
             if not in_market_hours(client):
-                log_info("Market closed. Sleeping.")
-                time.sleep(max(30.0, interval))
+                sleep_until_market_open(client)
                 continue
 
             try:
                 bars_needed = max(config.LONG_WINDOW + 2, config.VOLATILITY_WINDOW + 2)
                 closes = fetch_closes(client, symbol, int(interval), bars_needed)
                 if not closes or len(closes) < config.LONG_WINDOW:
-                    log_info("Not enough bars (%d) for signal (need %d). Sleeping.", len(closes), config.LONG_WINDOW)
+                    log_info("Not enough bars (%d) for signal (need %d). Sleeping %.1fs.", len(closes), config.LONG_WINDOW, interval)
                     time.sleep(interval)
                     continue
             except Exception:
-                log_exc("Market data fetch error")
-                time.sleep(min(60, interval * 2))
+                backoff = min(60, interval * 2)
+                log_exc("Market data fetch error; sleeping %.1fs", backoff)
+                time.sleep(backoff)
                 continue
 
             action = decide_action(closes, config.SHORT_WINDOW, config.LONG_WINDOW)
@@ -615,12 +752,8 @@ def main() -> int:
             except Exception:
                 log_exc("Safety enforcement error (non-fatal)")
 
-            base_tp = config.TAKE_PROFIT_PERCENT
-            base_sl = config.STOP_LOSS_PERCENT
-            base_frac = config.TRADE_SIZE_FRAC_OF_CAP
-
             if action == "buy":
-                ok, msg = buy_flow(client, symbol, last_price, max_cap, max(0.0, confidence), base_frac, base_tp, base_sl)
+                ok, msg = buy_flow(client, symbol, last_price, max_cap, max(0.0, confidence), base_frac, base_tp, base_sl, dynamic_enabled, fixed_usd_override=fixed_usd)
                 log_info("Buy result: ok=%s msg=%s", ok, msg)
             elif action == "sell":
                 ok, msg = sell_flow(client, symbol, confidence=min(0.0, confidence))

@@ -24,31 +24,30 @@ Simple local paper-trading bot that:
    `config.py` will auto-load `.env` if present. You can tweak strategy/runtime params in `config.py`.
 
 ### Usage
-- Run continuously with default runtime cap (24h):
+- Run with defaults:
   ```bash
   python runner.py
   ```
-- Run with no time limit (override flag `-0`):
+- Change polling interval (in hours):
   ```bash
-  python runner.py -0
+  python runner.py -t 0.5   # every 30 seconds
   ```
-- Run exactly one decision cycle and exit (useful for testing):
+- Change symbol and per-symbol max cap:
   ```bash
-  python runner.py --once
+  python runner.py -s TSLA -m 1000
   ```
-- Change maximum runtime hours (ignored if `-0` is set):
+- Live trading (requires `CONFIRM_GO_LIVE=YES`):
   ```bash
-  python runner.py --hours 8
+  python runner.py --go-live
   ```
 
 ### How it works
-- On startup, if no `TSLA` position exists, it buys `$INITIAL_NOTIONAL_USD` (default $100).
-- Each hour it fetches hourly closes from Polygon for the last `HOURS_BACK_FOR_TREND` hours.
-- It computes a short and long EMA; if short > long it buys a dynamically sized notional (fraction of remaining cap), else it sells per signal strength.
-- Orders are `market` and `time_in_force=day`.
+- Each loop it fetches bars from Alpaca, computes a short/long SMA crossover, and decides buy/sell/hold.
+- Buys size dynamically based on confidence, volatility and remaining cap; sells all or partial per settings.
+- Orders are `market` (`time_in_force=day`).
 
 ### Notes
 - This is for paper trading only by default (`ALPACA_BASE_URL` points to the paper API). Switching to live trading is out of scope here.
-- Keys are read from environment variables (or `.env` via python-dotenv). Do not commit your real keys.
+- Keys are read from environment variables (or `.env` via python-dotenv). Use `ALPACA_API_KEY` and `ALPACA_SECRET_KEY`. Do not commit your real keys.
 
 
