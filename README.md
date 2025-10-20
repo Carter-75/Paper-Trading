@@ -15,11 +15,13 @@ Simple local paper-trading bot that:
    ```bash
    pip install -r requirements.txt
    ```
-2. Open `config.py` and fill in:
-   - `ALPACA_API_KEY`
-   - `ALPACA_API_SECRET`
-   - `POLYGON_API_KEY`
-   You can also tweak strategy/runtime parameters there.
+2. Create a `.env` file (not committed) with your keys, or set env vars:
+   ```env
+   ALPACA_API_KEY=your_key
+   ALPACA_API_SECRET=your_secret
+   POLYGON_API_KEY=your_polygon_key
+   ```
+   `config.py` will auto-load `.env` if present. You can tweak strategy/runtime params in `config.py`.
 
 ### Usage
 - Run continuously with default runtime cap (24h):
@@ -47,6 +49,6 @@ Simple local paper-trading bot that:
 
 ### Notes
 - This is for paper trading only by default (`ALPACA_BASE_URL` points to the paper API). Switching to live trading is out of scope here.
-- Keys are stored locally in `config.py` since this is a local-only setup.
+- Keys are read from environment variables (or `.env` via python-dotenv). Do not commit your real keys.
 
 

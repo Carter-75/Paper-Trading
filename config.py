@@ -5,9 +5,17 @@ For local use only. You may hardcode keys below as this is not production.
 """
 
 # --- API Keys ---
-ALPACA_API_KEY: str = "PKDF9RC2I76C0MQWPEEQ"
-ALPACA_API_SECRET: str = "bS1QYSqLXsvFAv2TbIQlJjf6GxSmAVh0zSCjQbPr"
-POLYGON_API_KEY: str = "ivl4ABi6FGgDoFaIXFLQMXjdtl80NWq8"
+# Prefer environment variables; fall back to empty strings if unset to force a startup warning.
+import os as _os
+try:  # optional dotenv support
+    from dotenv import load_dotenv as _load_dotenv  # type: ignore
+    _load_dotenv()
+except Exception:
+    pass
+
+ALPACA_API_KEY: str = _os.getenv("ALPACA_API_KEY", "")
+ALPACA_API_SECRET: str = _os.getenv("ALPACA_API_SECRET", "")
+POLYGON_API_KEY: str = _os.getenv("POLYGON_API_KEY", "")
 
 # --- Endpoints ---
 # Paper trading base URL by default; later you can switch to live trading
