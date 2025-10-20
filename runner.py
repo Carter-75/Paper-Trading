@@ -18,7 +18,8 @@ import datetime as dt
 from typing import List, Optional, Tuple
 
 import pytz
-from alpaca_trade_api import REST, APIError
+from alpaca_trade_api import REST
+from alpaca_trade_api.rest import APIError
 from alpaca_trade_api.rest import TimeFrame
 
 import config
