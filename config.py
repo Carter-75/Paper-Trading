@@ -84,6 +84,16 @@ PNL_LEDGER_PATH: str = os.getenv("PNL_LEDGER_PATH", "pnl_ledger.json")
 ALLOW_MISSING_KEYS_FOR_DEBUG: bool = os.getenv("ALLOW_MISSING_KEYS_FOR_DEBUG", "0") in ("1", "true", "True")
 ENABLE_MARKET_HOURS_ONLY: bool = os.getenv("ENABLE_MARKET_HOURS_ONLY", "1") in ("1", "true", "True")
 
+# Risk overlay (slightly riskier sizing/targets when expected return justifies it)
+RISKY_MODE_ENABLED: bool = os.getenv("RISKY_MODE_ENABLED", "0") in ("1", "true", "True")
+RISKY_EXPECTED_DAILY_USD_MIN: float = float(os.getenv("RISKY_EXPECTED_DAILY_USD_MIN", "0.10") or 0.0)
+RISKY_VOL_MULTIPLIER: float = float(os.getenv("RISKY_VOL_MULTIPLIER", "1.5") or 1.0)
+RISKY_TRADES_PER_DAY_MULTIPLIER: float = float(os.getenv("RISKY_TRADES_PER_DAY_MULTIPLIER", "1.5") or 1.0)
+RISKY_TP_MULT: float = float(os.getenv("RISKY_TP_MULT", "1.10") or 1.0)
+RISKY_SL_MULT: float = float(os.getenv("RISKY_SL_MULT", "1.05") or 1.0)
+RISKY_SIZE_MULT: float = float(os.getenv("RISKY_SIZE_MULT", "1.15") or 1.0)
+RISKY_MAX_FRAC_CAP: float = float(os.getenv("RISKY_MAX_FRAC_CAP", "0.85") or 1.0)
+
 # -------------------
 # Helpers
 # -------------------

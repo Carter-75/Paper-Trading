@@ -56,7 +56,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "C:\Users\carte\OneDrive\Desktop\C
 # Resume (enable triggers + start)
 pwsh -NoProfile -ExecutionPolicy Bypass -File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\botctl.ps1" resume
 # Restart (clean: end task, kill strays, recreate)
-schtasks /End /TN PaperTradingBot 2>$null; Get-CimInstance Win32_Process -Filter "Name='python.exe'" | Where-Object { $_.CommandLine -match 'runner.py' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }; Get-CimInstance Win32_Process -Filter "Name='pwsh.exe'" | Where-Object { $_.CommandLine -match 'start_bot.ps1' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }; pwsh -NoProfile -ExecutionPolicy Bypass -File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\botctl.ps1" restart python -u runner.py -t .0065 -m 1000
+schtasks /End /TN PaperTradingBot; Get-CimInstance Win32_Process -Filter "Name='python.exe'" | Where-Object { $_.CommandLine -match 'runner.py' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }; Get-CimInstance Win32_Process -Filter "Name='pwsh.exe'" | Where-Object { $_.CommandLine -match 'start_bot.ps1' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }; pwsh -NoProfile -ExecutionPolicy Bypass -File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\botctl.ps1" restart python -u runner.py -t .0065 -m 1000
 # Stop (keeps task; starts again at boot/logon)
 pwsh -File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\botctl.ps1" stop
 # Stop forever (delete the scheduled task, then remove only regenerable files)

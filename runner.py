@@ -460,7 +460,8 @@ def decide_action(closes: List[float], short_w: int, long_w: int) -> str:
 # Orders & positions
 def has_open_order(client: REST, symbol: str, side: str) -> bool:
     try:
-        orders = client.get_orders(status='open', limit=50)
+        # alpaca-trade-api>=3.x uses list_orders
+        orders = client.list_orders(status='open', limit=50)
         return any((getattr(o, "symbol", "").upper() == symbol.upper()) and (getattr(o, "side", "").lower() == side.lower()) for o in orders)
     except Exception:
         log_exc("has_open_order failed for %s", symbol)
@@ -494,12 +495,16 @@ def place_market_order(client: REST, symbol: str, qty: float, side: str = "buy")
 
 def place_limit_order(client: REST, symbol: str, qty: float, price: float, side: str = "sell"):
     log_info("Submitting limit %s %s qty=%.6f limit=%s", side.upper(), symbol, qty, price)
-    order = client.submit_order(symbol=symbol, qty=str(qty), side=side, type="limit", time_in_force="gtc", limit_price=str(price))
+    # Fractional equity orders must be DAY orders per Alpaca
+    tif = "day"
+    order = client.submit_order(symbol=symbol, qty=str(qty), side=side, type="limit", time_in_force=tif, limit_price=str(price))
     return order
 
 def place_stop_order(client: REST, symbol: str, qty: float, stop_price: float, side: str = "sell"):
     log_info("Submitting stop %s %s qty=%.6f stop=%s", side.upper(), symbol, qty, stop_price)
-    order = client.submit_order(symbol=symbol, qty=str(qty), side=side, type="stop", time_in_force="gtc", stop_price=str(stop_price))
+    # Fractional equity orders must be DAY orders per Alpaca
+    tif = "day"
+    order = client.submit_order(symbol=symbol, qty=str(qty), side=side, type="stop", time_in_force=tif, stop_price=str(stop_price))
     return order
 
 def submit_tp_sl(client: REST, symbol: str, qty: float, entry_price: float, tp_pct: float, sl_pct: float) -> Tuple[Optional[object], Optional[object]]:
@@ -638,7 +643,7 @@ def enforce_safety(client: REST, symbol: str):
             return
 
 # Buy & Sell flows
-def buy_flow(client: REST, symbol: str, last_price: float, max_cap_usd: float, confidence: float, base_frac: float, base_tp: float, base_sl: float, dynamic_enabled: bool, fixed_usd_override: float = 0.0):
+def buy_flow(client: REST, symbol: str, last_price: float, max_cap_usd: float, confidence: float, base_frac: float, base_tp: float, base_sl: float, dynamic_enabled: bool, fixed_usd_override: float = 0.0, interval_seconds: Optional[int] = None):
     try:
         if has_open_order(client, symbol, "buy"):
             return False, "duplicate buy order exists"
@@ -662,6 +667,32 @@ def buy_flow(client: REST, symbol: str, last_price: float, max_cap_usd: float, c
 
         if dynamic_enabled:
             tp, sl, frac = adjust_runtime_params(base_tp, base_sl, base_frac, confidence, vol_pct)
+            # Optional risky overlay: nudge TP/SL and size when expected daily justifies it
+            try:
+                if config.RISKY_MODE_ENABLED:
+                    use_secs = int(interval_seconds or config.DEFAULT_INTERVAL_SECONDS)
+                    closes_for_proj = fetch_closes(client, symbol, use_secs, max(config.LONG_WINDOW + 50, 200))
+                    proj = simulate_signals_and_projection(closes_for_proj, use_secs, override_tp_pct=tp, override_sl_pct=sl, override_trade_frac=frac, override_cap_usd=max_cap_usd) if closes_for_proj else None
+                    if proj:
+                        exp_daily = float(proj.get("expected_daily_usd", 0.0))
+                        trades_per_day = float(proj.get("expected_trades_per_day", 0.0))
+                        vol_gate = config.VOLATILITY_PCT_THRESHOLD * config.RISKY_VOL_MULTIPLIER
+                        tpd_gate = config.SUGGESTION_MAX_TRADES_PER_DAY * config.RISKY_TRADES_PER_DAY_MULTIPLIER
+                        if exp_daily >= config.RISKY_EXPECTED_DAILY_USD_MIN and vol_pct <= vol_gate and trades_per_day <= max(1.0, tpd_gate):
+                            tp = min(config.MAX_TAKE_PROFIT_PERCENT, tp * config.RISKY_TP_MULT)
+                            sl = min(config.MAX_STOP_LOSS_PERCENT, sl * config.RISKY_SL_MULT)
+                            frac = min(config.RISKY_MAX_FRAC_CAP, max(config.MIN_TRADE_SIZE_FRAC, frac * config.RISKY_SIZE_MULT))
+            except Exception:
+                pass
+            # Profitability gate: if expected daily is negative with current params, skip buy
+            try:
+                use_secs = int(interval_seconds or config.DEFAULT_INTERVAL_SECONDS)
+                closes_for_gate = fetch_closes(client, symbol, use_secs, max(config.LONG_WINDOW + 50, 200))
+                proj_gate = simulate_signals_and_projection(closes_for_gate, use_secs, override_tp_pct=tp, override_sl_pct=sl, override_trade_frac=frac, override_cap_usd=max_cap_usd) if closes_for_gate else None
+                if proj_gate and float(proj_gate.get("expected_daily_usd", 0.0)) <= 0.0:
+                    return False, "expected_daily <= 0 (profitability gate)"
+            except Exception:
+                pass
             qty = compute_order_qty_from_remaining(remaining, last_price, confidence, frac, fixed_usd=fixed_usd_override, scale_with_confidence=True)
         else:
             tp, sl, frac = base_tp, base_sl, base_frac
@@ -712,7 +743,14 @@ def sell_flow(client: REST, symbol: str, confidence: Optional[float] = None):
         return False, "sell exception"
 
 # Interval suggestion & daily projection
-def simulate_signals_and_projection(closes: List[float], interval_seconds: int):
+def simulate_signals_and_projection(
+    closes: List[float],
+    interval_seconds: int,
+    override_tp_pct: Optional[float] = None,
+    override_sl_pct: Optional[float] = None,
+    override_trade_frac: Optional[float] = None,
+    override_cap_usd: Optional[float] = None,
+):
     # simulate crossovers across 'closes' and attempt to estimate:
     # - expected signals per bar
     # - win ratio estimate by looking ahead up to lookahead bars for TP or SL
@@ -731,8 +769,10 @@ def simulate_signals_and_projection(closes: List[float], interval_seconds: int):
     trials = 0
     for idx, act in signals:
         entry = closes[idx]
-        tp = entry * (1.0 + config.TAKE_PROFIT_PERCENT / 100.0)
-        sl = entry * (1.0 - config.STOP_LOSS_PERCENT / 100.0)
+        tp_pct = (override_tp_pct if override_tp_pct is not None else config.TAKE_PROFIT_PERCENT)
+        sl_pct = (override_sl_pct if override_sl_pct is not None else config.STOP_LOSS_PERCENT)
+        tp = entry * (1.0 + float(tp_pct) / 100.0)
+        sl = entry * (1.0 - float(sl_pct) / 100.0)
         hit = None
         for j in range(idx + 1, min(len(closes), idx + lookahead + 1)):
             price = closes[j]
@@ -747,8 +787,12 @@ def simulate_signals_and_projection(closes: List[float], interval_seconds: int):
             if hit == "tp":
                 wins += 1
     win_rate = (wins / trials) if trials > 0 else 0.5  # fallback 50%
-    avg_trade_size = config.TRADE_SIZE_FRAC_OF_CAP * config.MAX_CAP_USD
-    expected_return_per_trade = ((config.TAKE_PROFIT_PERCENT / 100.0) * win_rate) - ((config.STOP_LOSS_PERCENT / 100.0) * (1 - win_rate))
+    trade_frac = float(override_trade_frac) if override_trade_frac is not None else float(config.TRADE_SIZE_FRAC_OF_CAP)
+    cap_usd = float(override_cap_usd) if override_cap_usd is not None else float(config.MAX_CAP_USD)
+    avg_trade_size = trade_frac * cap_usd
+    tp_eval = float(override_tp_pct) if override_tp_pct is not None else float(config.TAKE_PROFIT_PERCENT)
+    sl_eval = float(override_sl_pct) if override_sl_pct is not None else float(config.STOP_LOSS_PERCENT)
+    expected_return_per_trade = ((tp_eval / 100.0) * win_rate) - ((sl_eval / 100.0) * (1 - win_rate))
     expected_daily = expected_return_per_trade * expected_trades_per_day * avg_trade_size
     min_trials = getattr(config, "SUGGESTION_MIN_TRIALS", 30)
     sufficient = trials >= max(1, int(min_trials))
@@ -983,7 +1027,7 @@ def main() -> int:
                 log_exc("Safety enforcement error (non-fatal)")
 
             if action == "buy":
-                ok, msg = buy_flow(client, symbol, last_price, max_cap, max(0.0, confidence), base_frac, base_tp, base_sl, dynamic_enabled, fixed_usd_override=fixed_usd)
+                ok, msg = buy_flow(client, symbol, last_price, max_cap, max(0.0, confidence), base_frac, base_tp, base_sl, dynamic_enabled, fixed_usd_override=fixed_usd, interval_seconds=int(interval))
                 log_info("Buy result: ok=%s msg=%s", ok, msg)
             elif action == "sell":
                 ok, msg = sell_flow(client, symbol, confidence=min(0.0, confidence))
