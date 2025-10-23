@@ -30,37 +30,37 @@ CONFIRM_GO_LIVE: str = os.getenv("CONFIRM_GO_LIVE", "YES")
 # Strategy / runtime bases (these remain as user-configured defaults)
 # -------------------
 DEFAULT_TICKER: str = os.getenv("DEFAULT_TICKER", "TSLA")
-DEFAULT_INTERVAL_SECONDS: float = float(os.getenv("DEFAULT_INTERVAL_SECONDS", "3600"))
-SHORT_WINDOW: int = int(os.getenv("SHORT_WINDOW", "5"))
-LONG_WINDOW: int = int(os.getenv("LONG_WINDOW", "20"))
+DEFAULT_INTERVAL_SECONDS: float = float(os.getenv("DEFAULT_INTERVAL_SECONDS", "900"))
+SHORT_WINDOW: int = int(os.getenv("SHORT_WINDOW", "9"))
+LONG_WINDOW: int = int(os.getenv("LONG_WINDOW", "21"))
 
 # sizing
-TRADE_SIZE_FRAC_OF_CAP: float = float(os.getenv("TRADE_SIZE_FRAC_OF_CAP", "0.25"))
+TRADE_SIZE_FRAC_OF_CAP: float = float(os.getenv("TRADE_SIZE_FRAC_OF_CAP", "0.50"))
 FIXED_TRADE_USD: float = float(os.getenv("FIXED_TRADE_USD", "0.0"))
 
 # per-symbol cap (USD)
 MAX_CAP_USD: float = float(os.getenv("MAX_CAP_USD", "100.0"))
 
 # TP/SL base percents
-TAKE_PROFIT_PERCENT: float = float(os.getenv("TAKE_PROFIT_PERCENT", "1.5") or 0.0)
+TAKE_PROFIT_PERCENT: float = float(os.getenv("TAKE_PROFIT_PERCENT", "3.0") or 0.0)
 STOP_LOSS_PERCENT: float = float(os.getenv("STOP_LOSS_PERCENT", "1.0") or 0.0)
 TRAILING_STOP_PERCENT: float = float(os.getenv("TRAILING_STOP_PERCENT", "0.0") or 0.0)
 
 # Confidence sizing
-CONFIDENCE_MULTIPLIER: float = float(os.getenv("CONFIDENCE_MULTIPLIER", "5.0"))
-MIN_CONFIDENCE_TO_TRADE: float = float(os.getenv("MIN_CONFIDENCE_TO_TRADE", "0.01"))
+CONFIDENCE_MULTIPLIER: float = float(os.getenv("CONFIDENCE_MULTIPLIER", "9.0"))
+MIN_CONFIDENCE_TO_TRADE: float = float(os.getenv("MIN_CONFIDENCE_TO_TRADE", "0.005"))
 
 # Volatility filter
 VOLATILITY_WINDOW: int = int(os.getenv("VOLATILITY_WINDOW", "30"))
-VOLATILITY_PCT_THRESHOLD: float = float(os.getenv("VOLATILITY_PCT_THRESHOLD", "0.08"))
+VOLATILITY_PCT_THRESHOLD: float = float(os.getenv("VOLATILITY_PCT_THRESHOLD", "0.10"))
 
 # Sell partial
 SELL_PARTIAL_ENABLED: bool = os.getenv("SELL_PARTIAL_ENABLED", "0") in ("1", "true", "True")
 
 # Safety
-MAX_DRAWDOWN_PERCENT: float = float(os.getenv("MAX_DRAWDOWN_PERCENT", "6.0") or 0.0)
+MAX_DRAWDOWN_PERCENT: float = float(os.getenv("MAX_DRAWDOWN_PERCENT", "10.0") or 0.0)
 MAX_POSITION_AGE_HOURS: float = float(os.getenv("MAX_POSITION_AGE_HOURS", "72.0") or 0.0)
-DAILY_LOSS_LIMIT_USD: float = float(os.getenv("DAILY_LOSS_LIMIT_USD", "50.0") or 0.0)
+DAILY_LOSS_LIMIT_USD: float = float(os.getenv("DAILY_LOSS_LIMIT_USD", "100.0") or 0.0)
 
 # Runtime clamp bounds for auto-tuning
 MIN_TAKE_PROFIT_PERCENT: float = float(os.getenv("MIN_TAKE_PROFIT_PERCENT", "0.25"))
@@ -68,11 +68,12 @@ MAX_TAKE_PROFIT_PERCENT: float = float(os.getenv("MAX_TAKE_PROFIT_PERCENT", "10.
 MIN_STOP_LOSS_PERCENT: float = float(os.getenv("MIN_STOP_LOSS_PERCENT", "0.25"))
 MAX_STOP_LOSS_PERCENT: float = float(os.getenv("MAX_STOP_LOSS_PERCENT", "10.0"))
 MIN_TRADE_SIZE_FRAC: float = float(os.getenv("MIN_TRADE_SIZE_FRAC", "0.01"))
-MAX_TRADE_SIZE_FRAC: float = float(os.getenv("MAX_TRADE_SIZE_FRAC", "0.5"))
+MAX_TRADE_SIZE_FRAC: float = float(os.getenv("MAX_TRADE_SIZE_FRAC", "0.75"))
 
 # Interval suggestion
 INTERVAL_SUGGESTION_WINDOW_BARS: int = int(os.getenv("INTERVAL_SUGGESTION_WINDOW_BARS", "500"))
 SUGGESTION_MAX_TRADES_PER_DAY: float = float(os.getenv("SUGGESTION_MAX_TRADES_PER_DAY", "20"))
+SUGGESTION_MIN_TRIALS: int = int(os.getenv("SUGGESTION_MIN_TRIALS", "60"))
 
 # Logging & ledger
 LOG_PATH: str = os.getenv("LOG_PATH", "bot.log")

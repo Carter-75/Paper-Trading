@@ -19,6 +19,7 @@ from typing import List, Optional, Tuple
 from dotenv import load_dotenv
 
 import pytz
+import requests
 from alpaca_trade_api import REST
 from alpaca_trade_api.rest import APIError
 from alpaca_trade_api.rest import TimeFrame, TimeFrameUnit
@@ -75,41 +76,77 @@ def append_to_log_line(line: str):
                 return
 
 def enforce_log_max_lines(max_lines: int = 100):
-    if DISABLE_FILE_LOG:
-        return
     try:
         if not os.path.exists(FILE_LOG_PATH):
             return
         with open(FILE_LOG_PATH, "r", encoding="utf-8", errors="ignore") as fh:
             lines = fh.readlines()
+        # Identify the most recent INIT line (keep only this one when truncating)
+        init_line = None
+        for ln in reversed(lines):
+            if ln.startswith("INIT "):
+                init_line = ln
+                break
+        # Identify the most recent session header line
+        last_header_idx = None
+        for i in range(len(lines) - 1, -1, -1):
+            if "Starting bot for" in lines[i]:
+                last_header_idx = i
+                break
+        header_line = lines[last_header_idx] if last_header_idx is not None else None
+        # Always enforce max_lines, with simple tailing and INIT handling
         if len(lines) <= max_lines:
+            # Ensure only the latest INIT is kept and placed first (counted toward cap)
+            try:
+                reordered = []
+                if init_line:
+                    reordered.append(init_line)
+                # Add header next if present and not duplicate
+                if header_line and (not reordered or header_line != reordered[-1]):
+                    reordered.append(header_line)
+                # Append the remaining lines excluding duplicates and any other INITs
+                seen = set(reordered)
+                for l in lines:
+                    if l.startswith("INIT "):
+                        continue
+                    if l in seen:
+                        continue
+                    reordered.append(l)
+                # Clamp to max_lines while keeping INIT/header at the top
+                if len(reordered) > max_lines:
+                    keep_head = 2 if header_line else (1 if init_line else 0)
+                    tail_keep = max_lines - keep_head
+                    head = reordered[:keep_head]
+                    tail = reordered[-tail_keep:] if tail_keep > 0 else []
+                    lines = head + tail
+                else:
+                    lines = reordered
+            except Exception:
+                pass
+            with open(FILE_LOG_PATH, "w", encoding="utf-8") as fh:
+                fh.writelines(lines)
             return
-        # Find last session header
-        header_idx = [i for i, ln in enumerate(lines) if "Starting bot for" in ln]
-        if header_idx:
-            last_header = header_idx[-1]
-            older = lines[:last_header]
-            current = lines[last_header:]
-            # Prefer to drop older sessions entirely
-            kept = [current[0]]  # keep header
-            if older:
-                kept.append("...\n")
-            kept.extend(current[1:])
-            if len(kept) > max_lines:
-                # Trim within current session but preserve header and ellipsis
-                base = [kept[0]]
-                rest = kept[1:]
-                if rest and rest[0] != "...\n":
-                    rest = ["...\n"] + rest
-                tail_space = max_lines - 2  # header + ellipsis
-                rest_tail = rest[-tail_space:] if tail_space > 0 else []
-                lines = base + ["...\n"] + rest_tail
+        # File is over the limit: build a truncated view
+        tail_count = max_lines - 1  # reserve 1 for ellipsis or INIT
+        # Exclude all INIT lines from the tail selection
+        non_init_lines = [l for l in lines if not l.startswith("INIT ")]
+        tail = non_init_lines[-tail_count:]
+        # Ensure the most recent header is present in the tail
+        if header_line and header_line in non_init_lines and header_line not in tail:
+            if tail:
+                tail[0] = header_line
             else:
-                lines = kept
-        else:
-            # No headers, simple smart tail with ellipsis if we drop anything
-            tail = lines[-(max_lines - 1):]
-            lines = ["...\n"] + tail
+                tail = [header_line]
+        # Start with ellipsis + tail
+        new_lines = ["...\n"] + tail
+        # Place the most recent INIT on top if present
+        if init_line:
+            # Ensure INIT is first and counted toward limit
+            new_lines = [init_line] + new_lines[:-1]  # replace one tail slot to keep total at max_lines
+        # Guarantee total lines does not exceed max_lines
+        if len(new_lines) > max_lines:
+            new_lines = new_lines[-max_lines:]
+        lines = new_lines
         with open(FILE_LOG_PATH, "w", encoding="utf-8") as fh:
             fh.writelines(lines)
     except Exception:
@@ -218,26 +255,154 @@ def map_interval_to_timeframe(interval_seconds: int) -> TimeFrame:
         return TimeFrame.Hour
     return TimeFrame.Minute
 
+def snap_interval_to_supported_seconds(interval_seconds: int) -> int:
+    # Snap any requested interval to one of: 1, 5, 15, 60 minutes
+    if interval_seconds < 60:
+        return 60
+    minutes = max(1, round(interval_seconds / 60.0))
+    supported = [1, 5, 15, 60]
+    closest = min(supported, key=lambda m: abs(m - minutes))
+    return 3600 if closest >= 60 else closest * 60
+
 def fetch_closes(client: REST, symbol: str, interval_seconds: int, bars: int) -> List[float]:
-    tf = map_interval_to_timeframe(max(1, int(interval_seconds)))
-    def _get():
-        barset = client.get_bars(symbol, tf, limit=bars)
-        closes: List[float] = []
-        df = getattr(barset, "df", None)
+    requested_secs = max(1, int(interval_seconds))
+    snapped_secs = snap_interval_to_supported_seconds(requested_secs)
+    if snapped_secs != requested_secs:
+        try:
+            log_warn("Adjusted interval %ds -> %ds to match supported sizes (1/5/15/60m)", requested_secs, snapped_secs)
+        except Exception:
+            pass
+    tf = map_interval_to_timeframe(snapped_secs)
+    def _extract_closes(barset_obj) -> List[float]:
+        closes_local: List[float] = []
+        df = getattr(barset_obj, "df", None)
         if df is not None:
             try:
                 closes_series = getattr(df, 'close', None)
                 if closes_series is not None:
                     closes_list = list(closes_series)
-                    closes = [float(x) for x in closes_list[-bars:]]
+                    closes_local = [float(x) for x in closes_list[-bars:]]
             except Exception:
-                closes = []
-        if not closes:
+                closes_local = []
+        if not closes_local:
             try:
-                closes = [float(getattr(b, "c", getattr(b, "close", 0.0))) for b in barset][-bars:]
+                closes_local = [float(getattr(b, "c", getattr(b, "close", 0.0))) for b in barset_obj][-bars:]
             except Exception:
-                closes = []
-        return closes
+                closes_local = []
+        return closes_local
+
+    def _get():
+        # Helper to fetch from Alpaca (limit or start)
+        def fetch_from_alpaca() -> List[float]:
+            # First try a simple limit-based fetch (fast path)
+            barset = client.get_bars(symbol, tf, limit=bars)
+            closes_a = _extract_closes(barset)
+            if len(closes_a) >= bars:
+                return closes_a
+            # Fallback: request by start time far enough back to guarantee bars
+            minutes_local = max(1, int(snapped_secs) // 60)
+            if minutes_local >= 60:
+                seconds_per_bar_local = 3600
+            elif minutes_local >= 15:
+                seconds_per_bar_local = 900
+            elif minutes_local >= 5:
+                seconds_per_bar_local = 300
+            else:
+                seconds_per_bar_local = 60
+            lookback_bars_local = max(bars * 5, bars + 10)
+            start_dt_local = now_utc() - dt.timedelta(seconds=seconds_per_bar_local * lookback_bars_local)
+            start_str_local = start_dt_local.astimezone(pytz.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+            barset2 = client.get_bars(symbol, tf, start=start_str_local)
+            closes_b = _extract_closes(barset2)
+            return closes_b
+
+        def map_to_polygon_timespan(interval_secs: int) -> str:
+            if interval_secs < 60:
+                return "minute"
+            minutes_local = interval_secs // 60
+            if minutes_local < 60:
+                return "minute"
+            if minutes_local < 24 * 60:
+                return "hour"
+            return "day"
+
+        def fetch_from_polygon() -> List[float]:
+            api_key = config.POLYGON_API_KEY
+            if not api_key:
+                return []
+            # Decide multiplier and timespan based on our mapped timeframe
+            minutes_local = max(1, int(snapped_secs) // 60)
+            timespan = map_to_polygon_timespan(int(snapped_secs))
+            multiplier = 1
+            if timespan == "minute":
+                if minutes_local in (1, 5, 15):
+                    multiplier = minutes_local
+                elif minutes_local >= 60:
+                    timespan = "hour"
+                    multiplier = max(1, minutes_local // 60)
+                else:
+                    multiplier = 1
+            elif timespan == "hour":
+                multiplier = max(1, minutes_local // 60)
+            else:
+                multiplier = 1
+            lookback = max(bars * 5, bars + 10)
+            end_dt = now_utc()
+            # Estimate bars per trading day for chosen timespan/multiplier
+            if timespan == "minute":
+                bars_per_day = max(1.0, 390.0 / max(1, multiplier))
+            elif timespan == "hour":
+                bars_per_day = max(1.0, 6.5 / max(1, multiplier))
+            else:  # day
+                bars_per_day = 1.0 / max(1, multiplier)
+            needed_days = int(math.ceil((lookback * 1.25) / max(1.0, bars_per_day)))
+            needed_days = max(5, min(365, needed_days))
+            start_dt_local = end_dt - dt.timedelta(days=needed_days)
+            start_iso = start_dt_local.strftime("%Y-%m-%d")
+            end_iso = end_dt.strftime("%Y-%m-%d")
+            url = f"https://api.polygon.io/v2/aggs/ticker/{symbol}/range/{multiplier}/{timespan}/{start_iso}/{end_iso}"
+            params = {"adjusted": "true", "sort": "asc", "limit": str(50000), "apiKey": api_key}
+            try:
+                resp = requests.get(url, params=params, timeout=10)
+                if resp.status_code != 200:
+                    return []
+                data = resp.json()
+                results = data.get("results", [])
+                closes_p = [float(item.get("c", 0.0)) for item in results if item.get("c") is not None]
+                if not closes_p:
+                    return []
+                return closes_p[-bars:]
+            except Exception:
+                return []
+
+        # Optional test toggle to force Polygon-only path
+        force_polygon = os.getenv("FORCE_POLYGON_FALLBACK", "").lower() in ("1", "true", "yes")
+        if force_polygon:
+            log_warn("FORCE_POLYGON_FALLBACK=1 set; using Polygon only for bars")
+            closes_poly_only = fetch_from_polygon()
+            if closes_poly_only:
+                log_info("Using Polygon fallback (forced): %d bars", len(closes_poly_only))
+                return closes_poly_only[-bars:]
+            LOG.debug("Forced Polygon path returned no data; attempting Alpaca as backup")
+
+        # Try Alpaca fetch; if it errors, catch and try Polygon
+        try:
+            closes = fetch_from_alpaca()
+            if len(closes) >= min(1, bars):
+                LOG.debug("Using Alpaca bars: %d", len(closes))
+                return closes[-bars:]
+        except Exception:
+            LOG.debug("Alpaca bars fetch raised; attempting Polygon fallback")
+        # Alpaca insufficient or failed; try Polygon fallback
+        log_warn("Alpaca bars unavailable or insufficient; trying Polygon fallback")
+        closes_poly = fetch_from_polygon()
+        if closes_poly:
+            log_info("Using Polygon fallback: %d bars", len(closes_poly))
+            return closes_poly[-bars:]
+        # If Polygon also fails, stop here and let the outer retry handle remaining attempts
+        LOG.debug("Polygon fallback failed or empty; giving up this attempt")
+        raise APIError("Market data unavailable from both Alpaca and Polygon in this attempt")
+    # Cap to 3 total attempts (initial + 2 retries)
     return retry(_get, tries=3, delay=1.0, backoff=2.0, allowed_exceptions=(APIError, Exception), name=f"get_bars({symbol})")
 
 # Indicators & logic
@@ -585,7 +750,27 @@ def simulate_signals_and_projection(closes: List[float], interval_seconds: int):
     avg_trade_size = config.TRADE_SIZE_FRAC_OF_CAP * config.MAX_CAP_USD
     expected_return_per_trade = ((config.TAKE_PROFIT_PERCENT / 100.0) * win_rate) - ((config.STOP_LOSS_PERCENT / 100.0) * (1 - win_rate))
     expected_daily = expected_return_per_trade * expected_trades_per_day * avg_trade_size
-    return {"expected_trades_per_day": expected_trades_per_day, "win_rate": win_rate, "expected_daily_usd": expected_daily, "signals": len(signals)}
+    min_trials = getattr(config, "SUGGESTION_MIN_TRIALS", 30)
+    sufficient = trials >= max(1, int(min_trials))
+    return {"expected_trades_per_day": expected_trades_per_day, "win_rate": win_rate, "expected_daily_usd": expected_daily, "signals": len(signals), "trials": trials, "wins": wins, "sufficient_samples": sufficient}
+
+# Interval suggestion via public history across multiple candidate intervals
+def suggest_interval_from_public_history(client: REST, symbol: str, candidates_seconds: List[int], bars: int):
+    results = []  # (sec, trades_per_day, expected_daily_usd)
+    for secs in candidates_seconds:
+        try:
+            closes = fetch_closes(client, symbol, int(secs), bars)
+            if not closes or len(closes) < max(config.LONG_WINDOW + 10, 30):
+                continue
+            sim = simulate_signals_and_projection(closes, int(secs))
+            results.append((int(secs), float(sim["expected_trades_per_day"]), float(sim["expected_daily_usd"])) )
+        except Exception:
+            continue
+    if not results:
+        return None, []
+    # Pick the interval that maximizes expected_daily_usd (profit-driven)
+    chosen = max(results, key=lambda r: r[2])
+    return chosen[0], results
 
 # Market hours helper
 def in_market_hours(client: REST) -> bool:
@@ -625,13 +810,16 @@ def sleep_until_market_open(client: REST, min_check_seconds: float = 60.0, max_c
     # Single-chunk strategy with 5-minute pre-wake; exit if far from open in task mode
     if in_market_hours(client):
         return
+    # Market is closed; release any keep-awake request until pre-open window
+    try:
+        prevent_system_sleep(False)
+    except Exception:
+        pass
     try:
         secs_total = seconds_until_next_open(client)
     except Exception:
         secs_total = 300.0
-    if SCHEDULED_TASK_MODE and secs_total > 1200.0:  # >20 minutes away: let scheduler wake us
-        log_info("Market closed for %.0fs; exiting (scheduler will wake 5m pre-open)", secs_total)
-        sys.exit(0)
+    # Always wait until pre-open/open instead of exiting (avoid restart loops)
     prewake = max(0.0, secs_total - 300.0)
     if prewake > 0:
         log_info("Market closed. Sleeping %.0fs until 5m before open", prewake)
@@ -687,6 +875,10 @@ def main() -> int:
     max_cap = float(args.max_cap)
 
     log_info("Starting bot for %s interval=%.1fs (%.3fh) max_cap=$%.2f", symbol, interval, interval/3600.0, max_cap)
+    try:
+        enforce_log_max_lines(100)
+    except Exception:
+        pass
 
     # Base parameters from CLI (outside loop)
     base_tp = float(args.tp)
@@ -701,32 +893,70 @@ def main() -> int:
 
     # initial interval suggestion + daily projection based on history
     try:
-        bars = config.INTERVAL_SUGGESTION_WINDOW_BARS
-        closes_hist = fetch_closes(client, symbol, int(interval), bars)
-        suggestion = None
-        if closes_hist and len(closes_hist) >= config.LONG_WINDOW + 10:
-            sim = simulate_signals_and_projection(closes_hist, int(interval))
-            if sim["expected_trades_per_day"] > config.SUGGESTION_MAX_TRADES_PER_DAY:
-                suggestion = int(interval * 2)
-            log_info("Projection: expected_trades/day=%.2f win_rate=%.2f expected_daily=$%.2f", sim["expected_trades_per_day"], sim["win_rate"], sim["expected_daily_usd"])
-            if suggestion:
-                log_warn("Suggested interval to reduce churn: %ds (current %ds)", suggestion, int(interval))
+        # Use a larger bar window for robust interval suggestion
+        bars = max(config.INTERVAL_SUGGESTION_WINDOW_BARS * 3, config.LONG_WINDOW + 200)
+        # Build public-history candidates from 23s up to 6.5h using log spacing
+        min_secs = 23
+        max_secs = int(6.5 * 3600)
+        steps = 20
+        ratio = (max_secs / float(min_secs)) ** (1.0 / max(1, steps - 1))
+        cand = []
+        cur = float(min_secs)
+        for _ in range(steps):
+            cand.append(int(max(5, round(cur))))
+            cur *= ratio
+        # Ensure we include some common granularities and the current interval
+        cand.extend([30, 45, 60, 90, 120, 180, 300, 600, 900, 1800, 3600, 7200, 14400, max_secs, int(max(5, int(interval)))])
+        # Snap all candidates to supported sizes to avoid duplicates across non-supported intervals
+        snapped = [snap_interval_to_supported_seconds(x) for x in cand]
+        candidates = sorted(set(snapped))
+        suggested, details = suggest_interval_from_public_history(client, symbol, candidates, bars)
+        if details:
+            # Log summary from public history at current and nearby intervals
+            cur = next((d for d in details if d[0] == int(interval)), None)
+            if cur:
+                # Re-simulate quickly to get sample stats for the current interval logging
+                try:
+                    closes_cur = fetch_closes(client, symbol, int(cur[0]), bars)
+                    sim_cur = simulate_signals_and_projection(closes_cur, int(cur[0])) if closes_cur else None
+                except Exception:
+                    sim_cur = None
+                if sim_cur and not sim_cur.get("sufficient_samples", True):
+                    log_warn("Projection (public hist @%ds): insufficient samples (trials=%s)", cur[0], sim_cur.get("trials", 0))
+                else:
+                    log_info("Projection (public hist @%ds): trades/day=%.2f expected_daily=$%.2f (trials=%s)", cur[0], cur[1], cur[2], (sim_cur or {}).get("trials", "-"))
+            best = next((d for d in details if d[0] == suggested), None)
+            if best and best[0] != int(interval):
+                # Also show as hours in decimal (e.g., 0.0065)
+                best_hours = best[0] / 3600.0
+                # Re-simulate best for sample stats
+                try:
+                    closes_best = fetch_closes(client, symbol, int(best[0]), bars)
+                    sim_best = simulate_signals_and_projection(closes_best, int(best[0])) if closes_best else None
+                except Exception:
+                    sim_best = None
+                if sim_best and not sim_best.get("sufficient_samples", True):
+                    log_warn("Suggested interval (public history): %ds (%.4fh) (current %ds) — insufficient samples (trials=%s)", best[0], best_hours, int(interval), sim_best.get("trials", 0))
+                else:
+                    log_warn("Suggested interval (public history): %ds (%.4fh) (current %ds) — expected_daily=$%.2f (trials=%s)", best[0], best_hours, int(interval), best[2], (sim_best or {}).get("trials", "-"))
     except Exception:
         log_exc("Interval suggestion/projection failed (non-fatal)")
 
     # main loop
     try:
         while True:
-            if not DISABLE_FILE_LOG:
-                try:
-                    enforce_log_max_lines(100)
-                except Exception:
-                    pass
+            # Always enforce truncation to keep bot.log within cap, even when file writes are via Tee
+            try:
+                enforce_log_max_lines(100)
+            except Exception:
+                pass
             start = now_utc()
 
             if not in_market_hours(client):
                 sleep_until_market_open(client)
                 continue
+            # Ensure the system doesn't sleep during active market hours
+            prevent_system_sleep(True)
 
             try:
                 bars_needed = max(config.LONG_WINDOW + 2, config.VOLATILITY_WINDOW + 2)
@@ -768,15 +998,28 @@ def main() -> int:
             except Exception:
                 LOG.debug("Snapshot fetch failed")
 
+            # Final trim at end of loop to ensure cap holds even after large write bursts
+            try:
+                enforce_log_max_lines(100)
+            except Exception:
+                pass
             elapsed = (now_utc() - start).total_seconds()
             to_sleep = max(0.0, interval - elapsed)
             LOG.debug("Loop took %.2fs sleeping %.2fs", elapsed, to_sleep)
             time.sleep(to_sleep)
     except KeyboardInterrupt:
         log_info("KeyboardInterrupt - exiting")
+        try:
+            prevent_system_sleep(False)
+        except Exception:
+            pass
         return 0
     except Exception:
         log_exc("Unhandled exception - exiting")
+        try:
+            prevent_system_sleep(False)
+        except Exception:
+            pass
         return 1
 
 if __name__ == "__main__":

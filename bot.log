@@ -1,3 +1,103 @@
-2025-10-20T21:52:44.905064+00:00 INFO - Starting bot for TSLA interval=7200.0s (2.000h) max_cap=$1000.00
-2025-10-20 16:52:44,905 INFO - Starting bot for TSLA interval=7200.0s (2.000h) max_cap=$1000.00
-2025-10-20 16:52:47,882 INFO - Market closed. Sleeping 55932s until 5m before open
+INIT 2025-10-22T15:29:24 user=NT AUTHORITY\SYSTEM
+...
+2025-10-22 14:05:20,718 INFO - Starting bot for TSLA interval=3782.2s (1.051h) max_cap=$1000.00
+2025-10-22 14:05:30,662 WARNING - Suggested interval (public history): 3600s (1.0000h) (current 3782s) ù expected_daily=$-0.45 (trials=107)
+2025-10-22 14:05:32,165 WARNING - Adjusted interval 3782s -> 3600s to match supported sizes (1/5/15/60m)
+2025-10-22 14:05:32,333 INFO - Decision=sell confidence=-0.0736 price=436.2300 short_ma=434.9166 long_ma=441.4112
+2025-10-22 14:05:32,458 INFO - Sell result: ok=False msg=no position
+usage: runner.py [-h] [-t TIME] [-s SYMBOL] [-m MAX_CAP] [--tp TP] [--sl SL]
+                 [--frac FRAC] [--fixed-usd FIXED_USD] [--no-dynamic]
+                 [--go-live] [--allow-missing-keys]
+runner.py: error: argument -t/--time: invalid float value: '1-m'
+2025-10-22 14:06:44,946 INFO - Projection (public hist @3600s): trades/day=5.60 expected_daily=$-0.45 (trials=107)
+2025-10-22 14:06:46,769 INFO - Decision=sell confidence=-0.0736 price=436.2300 short_ma=434.9166 long_ma=441.4112
+2025-10-22 14:06:46,892 INFO - Sell result: ok=False msg=no position
+2025-10-22 14:10:00,723 INFO - Projection (public hist @3600s): trades/day=6.10 expected_daily=$-1.78 (trials=52)
+2025-10-22 14:10:02,297 INFO - Decision=sell confidence=-0.1103 price=436.2300 short_ma=434.9166 long_ma=441.4112
+2025-10-22 14:10:02,423 INFO - Sell result: ok=False msg=no position
+2025-10-22 14:15:58,127 INFO - Projection (public hist @3600s): trades/day=6.03 expected_daily=$-2.10 (trials=51)
+2025-10-22 14:15:59,829 INFO - Decision=sell confidence=-0.0627 price=437.5199 short_ma=437.5347 long_ma=441.2259
+2025-10-22 14:15:59,955 INFO - Sell result: ok=False msg=no position
+2025-10-22 15:15:59,568 INFO - Market closed for 62040s; exiting (scheduler will wake 5m pre-open)
+2025-10-22 15:16:41,127 INFO - Starting bot for TSLA interval=3600.0s (1.000h) max_cap=$100.00
+2025-10-22 15:16:51,230 INFO - Projection (public hist @3600s): trades/day=6.07 expected_daily=$-2.01 (trials=95)
+2025-10-22 15:16:52,797 INFO - Market closed for 61987s; exiting (scheduler will wake 5m pre-open)
+2025-10-22 15:17:06,562 INFO - Starting bot for TSLA interval=3600.0s (1.000h) max_cap=$100.00
+2025-10-22 15:17:16,058 INFO - Projection (public hist @3600s): trades/day=6.07 expected_daily=$-2.01 (trials=95)
+2025-10-22 15:17:17,675 INFO - Market closed for 61962s; exiting (scheduler will wake 5m pre-open)
+2025-10-22 15:17:41,132 INFO - Projection (public hist @3600s): trades/day=6.07 expected_daily=$-2.01 (trials=95)
+2025-10-22 15:17:42,653 INFO - Market closed for 61937s; exiting (scheduler will wake 5m pre-open)
+2025-10-22 15:18:06,179 INFO - Projection (public hist @3600s): trades/day=6.07 expected_daily=$-2.01 (trials=95)
+2025-10-22 15:18:07,633 INFO - Market closed for 61912s; exiting (scheduler will wake 5m pre-open)
+2025-10-22 15:18:34,185 INFO - Starting bot for TSLA interval=3600.0s (1.000h) max_cap=$100.00
+2025-10-22 15:18:43,781 INFO - Projection (public hist @3600s): trades/day=6.07 expected_daily=$-2.01 (trials=95)
+2025-10-22 15:18:45,543 INFO - Market closed for 61874s; exiting (scheduler will wake 5m pre-open)
+2025-10-22 15:18:59,854 INFO - Starting bot for TSLA interval=3600.0s (1.000h) max_cap=$100.00
+2025-10-22 15:19:09,999 INFO - Projection (public hist @3600s): trades/day=6.07 expected_daily=$-2.02 (trials=96)
+2025-10-22 15:19:11,789 INFO - Market closed for 61848s; exiting (scheduler will wake 5m pre-open)
+2025-10-22 15:19:25,364 INFO - Starting bot for TSLA interval=3600.0s (1.000h) max_cap=$100.00
+2025-10-22 15:19:34,870 INFO - Projection (public hist @3600s): trades/day=6.07 expected_daily=$-2.02 (trials=96)
+2025-10-22 15:19:36,355 INFO - Market closed for 61824s; exiting (scheduler will wake 5m pre-open)
+2025-10-22 15:19:49,777 INFO - Starting bot for TSLA interval=3600.0s (1.000h) max_cap=$100.00
+2025-10-22 15:19:59,738 INFO - Projection (public hist @3600s): trades/day=6.07 expected_daily=$-2.02 (trials=96)
+2025-10-22 15:20:01,205 INFO - Market closed for 61799s; exiting (scheduler will wake 5m pre-open)
+2025-10-22 15:20:14,928 INFO - Starting bot for TSLA interval=3600.0s (1.000h) max_cap=$100.00
+2025-10-22 15:20:24,490 INFO - Projection (public hist @3600s): trades/day=6.07 expected_daily=$-2.02 (trials=96)
+2025-10-22 15:20:26,024 INFO - Market closed for 61774s; exiting (scheduler will wake 5m pre-open)
+2025-10-22 15:20:39,903 INFO - Starting bot for TSLA interval=3600.0s (1.000h) max_cap=$100.00
+2025-10-22 15:20:49,548 INFO - Projection (public hist @3600s): trades/day=6.07 expected_daily=$-2.02 (trials=96)
+2025-10-22 15:20:51,002 INFO - Market closed for 61749s; exiting (scheduler will wake 5m pre-open)
+2025-10-22 15:21:14,483 INFO - Projection (public hist @3600s): trades/day=6.07 expected_daily=$-2.02 (trials=96)
+2025-10-22 15:21:16,029 INFO - Market closed for 61724s; exiting (scheduler will wake 5m pre-open)
+2025-10-22 15:21:29,810 INFO - Starting bot for TSLA interval=3600.0s (1.000h) max_cap=$100.00
+2025-10-22 15:21:39,427 INFO - Projection (public hist @3600s): trades/day=6.07 expected_daily=$-2.02 (trials=96)
+2025-10-22 15:21:40,877 INFO - Market closed for 61699s; exiting (scheduler will wake 5m pre-open)
+2025-10-22 15:21:54,851 INFO - Starting bot for TSLA interval=3600.0s (1.000h) max_cap=$100.00
+2025-10-22 15:22:05,111 INFO - Projection (public hist @3600s): trades/day=6.07 expected_daily=$-2.01 (trials=95)
+2025-10-22 15:22:06,621 INFO - Market closed for 61673s; exiting (scheduler will wake 5m pre-open)
+2025-10-22 15:22:20,101 INFO - Starting bot for TSLA interval=3600.0s (1.000h) max_cap=$100.00
+2025-10-22 15:22:31,104 INFO - Projection (public hist @3600s): trades/day=6.07 expected_daily=$-2.01 (trials=95)
+2025-10-22 15:22:32,619 INFO - Market closed for 61647s; exiting (scheduler will wake 5m pre-open)
+2025-10-22 15:22:56,409 INFO - Projection (public hist @3600s): trades/day=6.07 expected_daily=$-2.01 (trials=96)
+2025-10-22 15:22:58,045 INFO - Market closed for 61622s; exiting (scheduler will wake 5m pre-open)
+2025-10-22 15:23:22,449 INFO - Projection (public hist @3600s): trades/day=6.07 expected_daily=$-2.02 (trials=96)
+2025-10-22 15:23:23,985 INFO - Market closed for 61596s; exiting (scheduler will wake 5m pre-open)
+2025-10-22 15:23:50,652 INFO - Starting bot for TSLA interval=3600.0s (1.000h) max_cap=$100.00
+2025-10-22 15:24:01,293 INFO - Projection (public hist @3600s): trades/day=6.07 expected_daily=$-2.02 (trials=96)
+2025-10-22 15:24:02,799 INFO - Market closed for 61557s; exiting (scheduler will wake 5m pre-open)
+2025-10-22 15:24:16,527 INFO - Starting bot for TSLA interval=3600.0s (1.000h) max_cap=$100.00
+2025-10-22 15:24:26,129 INFO - Projection (public hist @3600s): trades/day=6.07 expected_daily=$-2.02 (trials=96)
+2025-10-22 15:24:27,610 INFO - Market closed for 61532s; exiting (scheduler will wake 5m pre-open)
+2025-10-22 15:24:41,378 INFO - Starting bot for TSLA interval=3600.0s (1.000h) max_cap=$100.00
+2025-10-22 15:24:50,961 INFO - Projection (public hist @3600s): trades/day=6.07 expected_daily=$-2.02 (trials=96)
+2025-10-22 15:24:52,553 INFO - Market closed for 61507s; exiting (scheduler will wake 5m pre-open)
+2025-10-22 15:25:06,260 INFO - Starting bot for TSLA interval=3600.0s (1.000h) max_cap=$100.00
+2025-10-22 15:25:15,731 INFO - Projection (public hist @3600s): trades/day=6.07 expected_daily=$-2.02 (trials=96)
+2025-10-22 15:25:17,233 INFO - Market closed for 61483s; exiting (scheduler will wake 5m pre-open)
+2025-10-22 15:25:30,993 INFO - Starting bot for TSLA interval=3600.0s (1.000h) max_cap=$100.00
+2025-10-22 15:25:40,333 INFO - Projection (public hist @3600s): trades/day=6.07 expected_daily=$-2.02 (trials=96)
+2025-10-22 15:25:41,835 INFO - Market closed for 61458s; exiting (scheduler will wake 5m pre-open)
+2025-10-22 15:25:55,586 INFO - Starting bot for TSLA interval=3600.0s (1.000h) max_cap=$100.00
+2025-10-22 15:26:06,056 INFO - Projection (public hist @3600s): trades/day=6.07 expected_daily=$-2.02 (trials=96)
+2025-10-22 15:26:07,536 INFO - Market closed for 61432s; exiting (scheduler will wake 5m pre-open)
+2025-10-22 15:26:21,102 INFO - Starting bot for TSLA interval=3600.0s (1.000h) max_cap=$100.00
+2025-10-22 15:26:31,271 INFO - Projection (public hist @3600s): trades/day=6.07 expected_daily=$-2.02 (trials=96)
+2025-10-22 15:26:32,877 INFO - Market closed for 61407s; exiting (scheduler will wake 5m pre-open)
+2025-10-22 15:26:47,364 INFO - Starting bot for TSLA interval=3600.0s (1.000h) max_cap=$100.00
+2025-10-22 15:26:56,888 INFO - Projection (public hist @3600s): trades/day=6.07 expected_daily=$-2.02 (trials=96)
+2025-10-22 15:26:58,343 INFO - Market closed for 61382s; exiting (scheduler will wake 5m pre-open)
+2025-10-22 15:27:13,472 INFO - Starting bot for TSLA interval=3600.0s (1.000h) max_cap=$100.00
+2025-10-22 15:27:27,854 INFO - Projection (public hist @3600s): trades/day=6.07 expected_daily=$-2.02 (trials=96)
+2025-10-22 15:27:29,519 INFO - Market closed for 61350s; exiting (scheduler will wake 5m pre-open)
+2025-10-22 15:27:43,424 INFO - Starting bot for TSLA interval=3600.0s (1.000h) max_cap=$100.00
+2025-10-22 15:27:59,346 INFO - Projection (public hist @3600s): trades/day=6.07 expected_daily=$-2.02 (trials=96)
+2025-10-22 15:28:01,171 INFO - Market closed for 61319s; exiting (scheduler will wake 5m pre-open)
+2025-10-22 15:28:15,114 INFO - Starting bot for TSLA interval=3600.0s (1.000h) max_cap=$100.00
+2025-10-22 15:28:29,650 INFO - Projection (public hist @3600s): trades/day=6.07 expected_daily=$-2.02 (trials=96)
+2025-10-22 15:28:31,385 INFO - Market closed for 61289s; exiting (scheduler will wake 5m pre-open)
+2025-10-22 15:28:45,289 INFO - Starting bot for TSLA interval=3600.0s (1.000h) max_cap=$100.00
+2025-10-22 15:28:55,283 INFO - Projection (public hist @3600s): trades/day=6.07 expected_daily=$-2.02 (trials=96)
+2025-10-22 15:28:56,949 INFO - Market closed for 61263s; exiting (scheduler will wake 5m pre-open)
+2025-10-22 15:29:28,519 INFO - Starting bot for TSLA interval=3600.0s (1.000h) max_cap=$100.00
+2025-10-22 15:29:37,945 INFO - Projection (public hist @3600s): trades/day=6.07 expected_daily=$-2.02 (trials=96)
+2025-10-22 15:29:39,641 INFO - Market closed. Sleeping 60920s until 5m before open
