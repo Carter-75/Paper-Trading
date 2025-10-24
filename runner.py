@@ -401,7 +401,8 @@ def fetch_closes(client: REST, symbol: str, interval_seconds: int, bars: int) ->
             return closes_poly[-bars:]
         # If Polygon also fails, stop here and let the outer retry handle remaining attempts
         LOG.debug("Polygon fallback failed or empty; giving up this attempt")
-        raise APIError("Market data unavailable from both Alpaca and Polygon in this attempt")
+        # Raise a generic exception to avoid APIError(str) type issues in alpaca package
+        raise Exception("Market data unavailable from both Alpaca and Polygon in this attempt")
     # Cap to 3 total attempts (initial + 2 retries)
     return retry(_get, tries=3, delay=1.0, backoff=2.0, allowed_exceptions=(APIError, Exception), name=f"get_bars({symbol})")
 
@@ -684,13 +685,16 @@ def buy_flow(client: REST, symbol: str, last_price: float, max_cap_usd: float, c
                             frac = min(config.RISKY_MAX_FRAC_CAP, max(config.MIN_TRADE_SIZE_FRAC, frac * config.RISKY_SIZE_MULT))
             except Exception:
                 pass
-            # Profitability gate: if expected daily is negative with current params, skip buy
+            # Profitability gate: configurable and with strong-confidence bypass
             try:
-                use_secs = int(interval_seconds or config.DEFAULT_INTERVAL_SECONDS)
-                closes_for_gate = fetch_closes(client, symbol, use_secs, max(config.LONG_WINDOW + 50, 200))
-                proj_gate = simulate_signals_and_projection(closes_for_gate, use_secs, override_tp_pct=tp, override_sl_pct=sl, override_trade_frac=frac, override_cap_usd=max_cap_usd) if closes_for_gate else None
-                if proj_gate and float(proj_gate.get("expected_daily_usd", 0.0)) <= 0.0:
-                    return False, "expected_daily <= 0 (profitability gate)"
+                if config.PROFITABILITY_GATE_ENABLED:
+                    use_secs = int(interval_seconds or config.DEFAULT_INTERVAL_SECONDS)
+                    closes_for_gate = fetch_closes(client, symbol, use_secs, max(config.LONG_WINDOW + 50, 200))
+                    proj_gate = simulate_signals_and_projection(closes_for_gate, use_secs, override_tp_pct=tp, override_sl_pct=sl, override_trade_frac=frac, override_cap_usd=max_cap_usd) if closes_for_gate else None
+                    exp_gate = float((proj_gate or {}).get("expected_daily_usd", 0.0))
+                    strong_conf = (abs(confidence) >= float(config.STRONG_CONFIDENCE_THRESHOLD)) if config.STRONG_CONFIDENCE_BYPASS_ENABLED else False
+                    if (exp_gate < float(config.PROFITABILITY_MIN_EXPECTED_USD)) and not strong_conf:
+                        return False, "profitability gate"
             except Exception:
                 pass
             qty = compute_order_qty_from_remaining(remaining, last_price, confidence, frac, fixed_usd=fixed_usd_override, scale_with_confidence=True)

@@ -94,6 +94,12 @@ RISKY_SL_MULT: float = float(os.getenv("RISKY_SL_MULT", "1.05") or 1.0)
 RISKY_SIZE_MULT: float = float(os.getenv("RISKY_SIZE_MULT", "1.15") or 1.0)
 RISKY_MAX_FRAC_CAP: float = float(os.getenv("RISKY_MAX_FRAC_CAP", "0.85") or 1.0)
 
+# Profitability/Confidence gates
+PROFITABILITY_GATE_ENABLED: bool = os.getenv("PROFITABILITY_GATE_ENABLED", "1") in ("1", "true", "True")
+PROFITABILITY_MIN_EXPECTED_USD: float = float(os.getenv("PROFITABILITY_MIN_EXPECTED_USD", "0.00") or 0.0)
+STRONG_CONFIDENCE_THRESHOLD: float = float(os.getenv("STRONG_CONFIDENCE_THRESHOLD", "0.08"))
+STRONG_CONFIDENCE_BYPASS_ENABLED: bool = os.getenv("STRONG_CONFIDENCE_BYPASS_ENABLED", "1") in ("1", "true", "True")
+
 # -------------------
 # Helpers
 # -------------------
