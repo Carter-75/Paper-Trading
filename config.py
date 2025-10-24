@@ -34,8 +34,8 @@ DEFAULT_INTERVAL_SECONDS: float = float(os.getenv("DEFAULT_INTERVAL_SECONDS", "9
 SHORT_WINDOW: int = int(os.getenv("SHORT_WINDOW", "9"))
 LONG_WINDOW: int = int(os.getenv("LONG_WINDOW", "21"))
 
-# sizing
-TRADE_SIZE_FRAC_OF_CAP: float = float(os.getenv("TRADE_SIZE_FRAC_OF_CAP", "0.50"))
+# sizing (increased default from 0.50 to 0.65 for more aggressive profit targeting)
+TRADE_SIZE_FRAC_OF_CAP: float = float(os.getenv("TRADE_SIZE_FRAC_OF_CAP", "0.65"))
 FIXED_TRADE_USD: float = float(os.getenv("FIXED_TRADE_USD", "0.0"))
 
 # per-symbol cap (USD)
@@ -50,9 +50,9 @@ TRAILING_STOP_PERCENT: float = float(os.getenv("TRAILING_STOP_PERCENT", "0.0") o
 CONFIDENCE_MULTIPLIER: float = float(os.getenv("CONFIDENCE_MULTIPLIER", "9.0"))
 MIN_CONFIDENCE_TO_TRADE: float = float(os.getenv("MIN_CONFIDENCE_TO_TRADE", "0.005"))
 
-# Volatility filter
+# Volatility filter (increased threshold from 10% to 15% for more opportunities)
 VOLATILITY_WINDOW: int = int(os.getenv("VOLATILITY_WINDOW", "30"))
-VOLATILITY_PCT_THRESHOLD: float = float(os.getenv("VOLATILITY_PCT_THRESHOLD", "0.10"))
+VOLATILITY_PCT_THRESHOLD: float = float(os.getenv("VOLATILITY_PCT_THRESHOLD", "0.15"))
 
 # Sell partial
 SELL_PARTIAL_ENABLED: bool = os.getenv("SELL_PARTIAL_ENABLED", "0") in ("1", "true", "True")
@@ -68,7 +68,7 @@ MAX_TAKE_PROFIT_PERCENT: float = float(os.getenv("MAX_TAKE_PROFIT_PERCENT", "10.
 MIN_STOP_LOSS_PERCENT: float = float(os.getenv("MIN_STOP_LOSS_PERCENT", "0.25"))
 MAX_STOP_LOSS_PERCENT: float = float(os.getenv("MAX_STOP_LOSS_PERCENT", "10.0"))
 MIN_TRADE_SIZE_FRAC: float = float(os.getenv("MIN_TRADE_SIZE_FRAC", "0.01"))
-MAX_TRADE_SIZE_FRAC: float = float(os.getenv("MAX_TRADE_SIZE_FRAC", "0.75"))
+MAX_TRADE_SIZE_FRAC: float = float(os.getenv("MAX_TRADE_SIZE_FRAC", "0.95"))  # Increased to allow risky mode to reach 0.95
 
 # Interval suggestion
 INTERVAL_SUGGESTION_WINDOW_BARS: int = int(os.getenv("INTERVAL_SUGGESTION_WINDOW_BARS", "500"))
@@ -84,15 +84,15 @@ PNL_LEDGER_PATH: str = os.getenv("PNL_LEDGER_PATH", "pnl_ledger.json")
 ALLOW_MISSING_KEYS_FOR_DEBUG: bool = os.getenv("ALLOW_MISSING_KEYS_FOR_DEBUG", "0") in ("1", "true", "True")
 ENABLE_MARKET_HOURS_ONLY: bool = os.getenv("ENABLE_MARKET_HOURS_ONLY", "1") in ("1", "true", "True")
 
-# Risk overlay (slightly riskier sizing/targets when expected return justifies it)
-RISKY_MODE_ENABLED: bool = os.getenv("RISKY_MODE_ENABLED", "0") in ("1", "true", "True")
-RISKY_EXPECTED_DAILY_USD_MIN: float = float(os.getenv("RISKY_EXPECTED_DAILY_USD_MIN", "0.10") or 0.0)
-RISKY_VOL_MULTIPLIER: float = float(os.getenv("RISKY_VOL_MULTIPLIER", "1.5") or 1.0)
-RISKY_TRADES_PER_DAY_MULTIPLIER: float = float(os.getenv("RISKY_TRADES_PER_DAY_MULTIPLIER", "1.5") or 1.0)
-RISKY_TP_MULT: float = float(os.getenv("RISKY_TP_MULT", "1.10") or 1.0)
-RISKY_SL_MULT: float = float(os.getenv("RISKY_SL_MULT", "1.05") or 1.0)
-RISKY_SIZE_MULT: float = float(os.getenv("RISKY_SIZE_MULT", "1.15") or 1.0)
-RISKY_MAX_FRAC_CAP: float = float(os.getenv("RISKY_MAX_FRAC_CAP", "0.85") or 1.0)
+# Risk overlay (more aggressive sizing/targets when expected return justifies it)
+RISKY_MODE_ENABLED: bool = os.getenv("RISKY_MODE_ENABLED", "1") in ("1", "true", "True")  # Enabled by default for max profit
+RISKY_EXPECTED_DAILY_USD_MIN: float = float(os.getenv("RISKY_EXPECTED_DAILY_USD_MIN", "0.05") or 0.0)  # Lower threshold
+RISKY_VOL_MULTIPLIER: float = float(os.getenv("RISKY_VOL_MULTIPLIER", "2.0") or 1.0)  # Accept more volatility
+RISKY_TRADES_PER_DAY_MULTIPLIER: float = float(os.getenv("RISKY_TRADES_PER_DAY_MULTIPLIER", "2.0") or 1.0)  # More trades OK
+RISKY_TP_MULT: float = float(os.getenv("RISKY_TP_MULT", "1.25") or 1.0)  # Higher profit targets
+RISKY_SL_MULT: float = float(os.getenv("RISKY_SL_MULT", "1.15") or 1.0)  # Wider stops for more room
+RISKY_SIZE_MULT: float = float(os.getenv("RISKY_SIZE_MULT", "1.30") or 1.0)  # Larger position sizes
+RISKY_MAX_FRAC_CAP: float = float(os.getenv("RISKY_MAX_FRAC_CAP", "0.95") or 1.0)  # Use nearly all cap
 
 # Profitability/Confidence gates
 PROFITABILITY_GATE_ENABLED: bool = os.getenv("PROFITABILITY_GATE_ENABLED", "1") in ("1", "true", "True")

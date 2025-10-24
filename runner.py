@@ -425,8 +425,15 @@ def compute_confidence(closes: List[float]) -> float:
     long = sma(closes, config.LONG_WINDOW)
     if short is None or long is None or long == 0:
         return 0.0
+    # Base confidence from MA crossover divergence
     raw = (short - long) / long
     scaled = raw * config.CONFIDENCE_MULTIPLIER
+    # Enhance with momentum: add recent price change as confirmation
+    if len(closes) >= 3:
+        momentum = (closes[-1] - closes[-3]) / closes[-3] if closes[-3] != 0 else 0.0
+        # Add up to 20% boost from momentum alignment
+        if (scaled > 0 and momentum > 0) or (scaled < 0 and momentum < 0):
+            scaled = scaled * 1.2
     if scaled > 1.0:
         scaled = 1.0
     if scaled < -1.0:
@@ -547,8 +554,10 @@ def compute_order_qty_from_remaining(remaining_usd: float, price: float, confide
         usd = min(remaining_usd, target)
     else:
         usd = remaining_usd * frac
+    # Only scale by confidence if requested AND frac wasn't already adjusted
+    # When dynamic_enabled=True, frac is pre-adjusted, so don't scale again (fixes double-scaling bug)
     if scale_with_confidence:
-        scale = max(0.0, min(1.0, confidence))
+        scale = max(0.0, min(1.0, abs(confidence)))
         usd = usd * scale
     if usd <= 0:
         return 0.0
@@ -707,10 +716,12 @@ def buy_flow(client: REST, symbol: str, last_price: float, max_cap_usd: float, c
                         return False, "profitability gate"
             except Exception:
                 pass
-            qty = compute_order_qty_from_remaining(remaining, last_price, confidence, frac, fixed_usd=fixed_usd_override, scale_with_confidence=True)
+            # frac already adjusted by confidence, don't scale again (fixes double-scaling bug)
+            qty = compute_order_qty_from_remaining(remaining, last_price, confidence, frac, fixed_usd=fixed_usd_override, scale_with_confidence=False)
         else:
             tp, sl, frac = base_tp, base_sl, base_frac
-            qty = compute_order_qty_from_remaining(remaining, last_price, confidence, frac, fixed_usd=fixed_usd_override, scale_with_confidence=False)
+            # frac not adjusted, so scale by confidence now
+            qty = compute_order_qty_from_remaining(remaining, last_price, confidence, frac, fixed_usd=fixed_usd_override, scale_with_confidence=True)
         if qty <= 0:
             return False, "computed qty <= 0"
 
@@ -772,13 +783,16 @@ def simulate_signals_and_projection(
     # - expected signals per bar
     # - win ratio estimate by looking ahead up to lookahead bars for TP or SL
     signals = []
-    for i in range(config.LONG_WINDOW + 1, len(closes) - 1):
+    # Start from LONG_WINDOW (inclusive) to maximize signal detection
+    for i in range(config.LONG_WINDOW, len(closes)):
         window = closes[: i + 1]
         act = decide_action(window, config.SHORT_WINDOW, config.LONG_WINDOW)
         if act in ("buy", "sell"):
             signals.append((i, act))
     bars_per_day = max(1.0, (390.0 * 60.0) / max(1.0, interval_seconds))
-    expected_trades_per_day = (len(signals) / max(1.0, len(closes))) * bars_per_day
+    # Use valid simulation window (excluding warmup period) for accurate frequency
+    simulation_bars = max(1.0, len(closes) - config.LONG_WINDOW)
+    expected_trades_per_day = (len(signals) / simulation_bars) * bars_per_day
 
     # estimate win rate: for each signal, look forward up to lookahead bars and check if price crosses TP before SL
     lookahead = min(50, int(60 * 60 / max(1, interval_seconds)))  # up to 1 hour
@@ -830,14 +844,15 @@ def simulate_signals_and_projection(
     return {"expected_trades_per_day": expected_trades_per_day, "win_rate": win_rate, "expected_daily_usd": expected_daily, "signals": len(signals), "trials": trials, "wins": wins, "sufficient_samples": sufficient}
 
 # Interval suggestion via public history across multiple candidate intervals
-def suggest_interval_from_public_history(client: REST, symbol: str, candidates_seconds: List[int], bars: int):
+def suggest_interval_from_public_history(client: REST, symbol: str, candidates_seconds: List[int], bars: int, cap_usd: Optional[float] = None):
     results = []  # (sec, trades_per_day, expected_daily_usd)
+    actual_cap = float(cap_usd) if cap_usd is not None else float(config.MAX_CAP_USD)
     for secs in candidates_seconds:
         try:
             closes = fetch_closes(client, symbol, int(secs), bars)
             if not closes or len(closes) < max(config.LONG_WINDOW + 10, 30):
                 continue
-            sim = simulate_signals_and_projection(closes, int(secs))
+            sim = simulate_signals_and_projection(closes, int(secs), override_cap_usd=actual_cap)
             results.append((int(secs), float(sim["expected_trades_per_day"]), float(sim["expected_daily_usd"])) )
         except Exception:
             continue
@@ -985,7 +1000,7 @@ def main() -> int:
         # Snap all candidates to supported sizes to avoid duplicates
         snapped = [snap_interval_to_supported_seconds(x) for x in cand]
         candidates = sorted(set(snapped))
-        suggested, details = suggest_interval_from_public_history(client, symbol, candidates, bars)
+        suggested, details = suggest_interval_from_public_history(client, symbol, candidates, bars, cap_usd=max_cap)
         if details:
             # Log summary from public history (no re-fetching for efficiency)
             cur = next((d for d in details if d[0] == int(interval)), None)

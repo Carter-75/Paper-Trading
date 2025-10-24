@@ -82,12 +82,22 @@ def _expected_return_per_trade(win_rate: float, tp_pct: float, sl_pct: float) ->
 
 
 def optimize(symbol: str) -> Tuple[int, float, float]:
+    """
+    Optimize to find best STATIC parameters: interval and cap.
+    Note: This uses default TP/SL/frac for simulation. In actual runtime with dynamic mode,
+    these values are adjusted per trade based on confidence/volatility.
+    """
     client = make_client(allow_missing=False, go_live=False)
     candidates = _build_candidate_intervals()
 
     best_interval: Optional[int] = None
     best_cap_usd: float = 0.0
     best_expected_daily: float = -1e18
+
+    # Use config defaults for simulation (these will be dynamically adjusted in real trading)
+    default_tp = config.TAKE_PROFIT_PERCENT
+    default_sl = config.STOP_LOSS_PERCENT
+    default_frac = config.TRADE_SIZE_FRAC_OF_CAP
 
     for secs in candidates:
         bars = _bars_for_one_year(secs)
@@ -100,28 +110,24 @@ def optimize(symbol: str) -> Tuple[int, float, float]:
             if vol_pct >= (1.5 * config.VOLATILITY_PCT_THRESHOLD):
                 continue
 
-            # Remove strong gating to truly maximize; evaluate a grid of TP/SL/size and caps
-            for tp_eval in _tp_grid():
-                for sl_eval in _sl_grid():
-                    # Optimize: call simulation once per TP/SL/frac/cap combo, not twice
-                    for trade_frac_eval in _trade_frac_grid():
-                        for cap in _cap_grid():
-                            sim = simulate_signals_and_projection(
-                                closes,
-                                int(secs),
-                                override_tp_pct=float(tp_eval),
-                                override_sl_pct=float(sl_eval),
-                                override_trade_frac=float(trade_frac_eval),
-                                override_cap_usd=float(cap),
-                            )
-                            trades_per_day = float(sim["expected_trades_per_day"])
-                            if trades_per_day <= 0:
-                                continue
-                            expected_daily = float(sim["expected_daily_usd"])
-                            if expected_daily > best_expected_daily:
-                                best_expected_daily = float(expected_daily)
-                                best_interval = int(secs)
-                                best_cap_usd = float(cap)
+            # Test different cap values to find optimal capital allocation
+            for cap in _cap_grid():
+                sim = simulate_signals_and_projection(
+                    closes,
+                    int(secs),
+                    override_tp_pct=float(default_tp),
+                    override_sl_pct=float(default_sl),
+                    override_trade_frac=float(default_frac),
+                    override_cap_usd=float(cap),
+                )
+                trades_per_day = float(sim["expected_trades_per_day"])
+                if trades_per_day <= 0:
+                    continue
+                expected_daily = float(sim["expected_daily_usd"])
+                if expected_daily > best_expected_daily:
+                    best_expected_daily = float(expected_daily)
+                    best_interval = int(secs)
+                    best_cap_usd = float(cap)
         except Exception:
             continue
 
@@ -137,7 +143,12 @@ def optimize(symbol: str) -> Tuple[int, float, float]:
 def main() -> int:
     symbol = (config.DEFAULT_TICKER or "TSLA").upper()
     best_interval, best_cap_usd, expected_daily = optimize(symbol)
-    print(f"{best_interval} {best_cap_usd} {round(expected_daily, 2)}")
+    interval_hours = best_interval / 3600.0
+    print(f"\nOptimized STATIC parameters (TP/SL/frac will be dynamically adjusted per trade):")
+    print(f"  Interval: {best_interval}s ({interval_hours:.4f}h)")
+    print(f"  Max Cap: ${best_cap_usd}")
+    print(f"  Expected daily profit: ${round(expected_daily, 2)}")
+    print(f"\nRun with: python runner.py -t {interval_hours:.4f} -m {best_cap_usd}")
     return 0
 
 
