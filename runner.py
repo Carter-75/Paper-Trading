@@ -621,20 +621,24 @@ def main():
         forced_stocks = [s.upper() for s in args.stocks] if args.stocks else []
         
         if len(forced_stocks) > args.max_stocks:
-            log_warn(f"ERROR: Specified {len(forced_stocks)} stocks but max is {args.max_stocks}")
+            log_warn(f"Specified {len(forced_stocks)} stocks but max is {args.max_stocks}")
             return 1
         
         cap_per_stock = args.cap_per_stock or (args.max_cap / args.max_stocks)
         
         if cap_per_stock < 10:
-            log_warn(f"WARNING: Capital per stock is ${cap_per_stock:.2f} (very small)")
-            response = input("Continue anyway? (y/n): ").strip().lower()
-            if response != 'y':
-                return 1
+            log_warn(f"Capital per stock is ${cap_per_stock:.2f} (very small)")
+            # Auto-continue in scheduled/non-interactive mode
+            if not SCHEDULED_TASK_MODE:
+                response = input("Continue anyway? (y/n): ").strip().lower()
+                if response != 'y':
+                    return 1
+            else:
+                log_info("  Auto-continuing in scheduled mode...")
     else:
         # Single-stock mode
         if not args.symbol:
-            log_warn("ERROR: Single-stock mode requires -s/--symbol")
+            log_warn("Single-stock mode requires -s/--symbol")
             return 1
         
         symbol = args.symbol.upper()
