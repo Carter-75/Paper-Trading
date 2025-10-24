@@ -530,7 +530,8 @@ def adjust_runtime_params(base_tp, base_sl, base_frac, confidence, vol_pct):
     c = max(0.0, min(1.0, confidence))
     vol_factor = 1.0 / (1.0 + vol_pct * 10.0) if vol_pct >= 0 else 1.0
     tp = base_tp * (1.0 + 0.5 * c)
-    sl = base_sl * (1.0 - 0.3 * c)
+    # Widen SL with higher confidence to give winning trades more room (changed from tightening)
+    sl = base_sl * (1.0 + 0.2 * c)
     frac = base_frac * (1.0 + 0.5 * c) * vol_factor
     tp = clamp(tp, config.MIN_TAKE_PROFIT_PERCENT, config.MAX_TAKE_PROFIT_PERCENT)
     sl = clamp(sl, config.MIN_STOP_LOSS_PERCENT, config.MAX_STOP_LOSS_PERCENT)
@@ -592,10 +593,11 @@ def sell_all(client: REST, symbol: str):
     qty = float(pos.get("qty", 0.0))
     if qty <= 0:
         return False
+    unrealized_pl = float(pos.get("unrealized_pl", 0.0))
     try:
         order = place_market_order(client, symbol, qty, side="sell")
-        ledger_add_realized(config.PNL_LEDGER_PATH, now_utc().isoformat(), 0.0)
-        log_info("Sold all position qty=%.6f", qty)
+        ledger_add_realized(config.PNL_LEDGER_PATH, now_utc().isoformat(), unrealized_pl)
+        log_info("Sold all position qty=%.6f realized_pl=$%.2f", qty, unrealized_pl)
         return True
     except Exception:
         log_exc("sell_all failed")
@@ -656,7 +658,9 @@ def buy_flow(client: REST, symbol: str, last_price: float, max_cap_usd: float, c
 
         vol_pct = 0.0
         try:
-            closes_for_vol = fetch_closes(client, symbol, int(config.DEFAULT_INTERVAL_SECONDS), config.VOLATILITY_WINDOW)
+            # Use the actual interval being traded, not the default
+            use_interval = int(interval_seconds) if interval_seconds else int(config.DEFAULT_INTERVAL_SECONDS)
+            closes_for_vol = fetch_closes(client, symbol, use_interval, config.VOLATILITY_WINDOW)
             vol_pct = pct_stddev(closes_for_vol)
             if vol_pct >= config.VOLATILITY_PCT_THRESHOLD:
                 return False, "volatility too high"
@@ -668,12 +672,19 @@ def buy_flow(client: REST, symbol: str, last_price: float, max_cap_usd: float, c
 
         if dynamic_enabled:
             tp, sl, frac = adjust_runtime_params(base_tp, base_sl, base_frac, confidence, vol_pct)
-            # Optional risky overlay: nudge TP/SL and size when expected daily justifies it
+            # Fetch closes once for both risky mode and profitability gate (efficiency optimization)
+            closes_for_proj = None
             try:
-                if config.RISKY_MODE_ENABLED:
+                if config.RISKY_MODE_ENABLED or config.PROFITABILITY_GATE_ENABLED:
                     use_secs = int(interval_seconds or config.DEFAULT_INTERVAL_SECONDS)
                     closes_for_proj = fetch_closes(client, symbol, use_secs, max(config.LONG_WINDOW + 50, 200))
-                    proj = simulate_signals_and_projection(closes_for_proj, use_secs, override_tp_pct=tp, override_sl_pct=sl, override_trade_frac=frac, override_cap_usd=max_cap_usd) if closes_for_proj else None
+            except Exception:
+                pass
+            # Optional risky overlay: nudge TP/SL and size when expected daily justifies it
+            try:
+                if config.RISKY_MODE_ENABLED and closes_for_proj:
+                    use_secs = int(interval_seconds or config.DEFAULT_INTERVAL_SECONDS)
+                    proj = simulate_signals_and_projection(closes_for_proj, use_secs, override_tp_pct=tp, override_sl_pct=sl, override_trade_frac=frac, override_cap_usd=max_cap_usd)
                     if proj:
                         exp_daily = float(proj.get("expected_daily_usd", 0.0))
                         trades_per_day = float(proj.get("expected_trades_per_day", 0.0))
@@ -687,10 +698,9 @@ def buy_flow(client: REST, symbol: str, last_price: float, max_cap_usd: float, c
                 pass
             # Profitability gate: configurable and with strong-confidence bypass
             try:
-                if config.PROFITABILITY_GATE_ENABLED:
+                if config.PROFITABILITY_GATE_ENABLED and closes_for_proj:
                     use_secs = int(interval_seconds or config.DEFAULT_INTERVAL_SECONDS)
-                    closes_for_gate = fetch_closes(client, symbol, use_secs, max(config.LONG_WINDOW + 50, 200))
-                    proj_gate = simulate_signals_and_projection(closes_for_gate, use_secs, override_tp_pct=tp, override_sl_pct=sl, override_trade_frac=frac, override_cap_usd=max_cap_usd) if closes_for_gate else None
+                    proj_gate = simulate_signals_and_projection(closes_for_proj, use_secs, override_tp_pct=tp, override_sl_pct=sl, override_trade_frac=frac, override_cap_usd=max_cap_usd)
                     exp_gate = float((proj_gate or {}).get("expected_daily_usd", 0.0))
                     strong_conf = (abs(confidence) >= float(config.STRONG_CONFIDENCE_THRESHOLD)) if config.STRONG_CONFIDENCE_BYPASS_ENABLED else False
                     if (exp_gate < float(config.PROFITABILITY_MIN_EXPECTED_USD)) and not strong_conf:
@@ -727,6 +737,7 @@ def sell_flow(client: REST, symbol: str, confidence: Optional[float] = None):
     qty = float(pos.get("qty", 0.0))
     if qty <= 0:
         return False, "qty <= 0"
+    unrealized_pl = float(pos.get("unrealized_pl", 0.0))
     sell_qty = qty
     try:
         if config.SELL_PARTIAL_ENABLED and confidence is not None:
@@ -737,10 +748,12 @@ def sell_flow(client: REST, symbol: str, confidence: Optional[float] = None):
     except Exception:
         LOG.debug("sell partial calc failed")
 
+    # Calculate proportional realized PnL for partial sells
+    realized_pl = unrealized_pl * (sell_qty / qty) if qty > 0 else 0.0
     try:
         order = place_market_order(client, symbol, sell_qty, side="sell")
-        ledger_add_realized(config.PNL_LEDGER_PATH, now_utc().isoformat(), 0.0)
-        log_info("Sold qty=%.6f", sell_qty)
+        ledger_add_realized(config.PNL_LEDGER_PATH, now_utc().isoformat(), realized_pl)
+        log_info("Sold qty=%.6f realized_pl=$%.2f", sell_qty, realized_pl)
         return True, f"sold {sell_qty}"
     except Exception:
         log_exc("sell flow failed")
@@ -775,17 +788,31 @@ def simulate_signals_and_projection(
         entry = closes[idx]
         tp_pct = (override_tp_pct if override_tp_pct is not None else config.TAKE_PROFIT_PERCENT)
         sl_pct = (override_sl_pct if override_sl_pct is not None else config.STOP_LOSS_PERCENT)
-        tp = entry * (1.0 + float(tp_pct) / 100.0)
-        sl = entry * (1.0 - float(sl_pct) / 100.0)
+        # For buy signals: TP is above entry, SL is below
+        # For sell signals: TP is below entry (short), SL is above
+        if act == "buy":
+            tp = entry * (1.0 + float(tp_pct) / 100.0)
+            sl = entry * (1.0 - float(sl_pct) / 100.0)
+        else:  # sell
+            tp = entry * (1.0 - float(tp_pct) / 100.0)
+            sl = entry * (1.0 + float(sl_pct) / 100.0)
         hit = None
         for j in range(idx + 1, min(len(closes), idx + lookahead + 1)):
             price = closes[j]
-            if price >= tp:
-                hit = "tp"
-                break
-            if price <= sl:
-                hit = "sl"
-                break
+            if act == "buy":
+                if price >= tp:
+                    hit = "tp"
+                    break
+                if price <= sl:
+                    hit = "sl"
+                    break
+            else:  # sell
+                if price <= tp:
+                    hit = "tp"
+                    break
+                if price >= sl:
+                    hit = "sl"
+                    break
         if hit:
             trials += 1
             if hit == "tp":
@@ -941,52 +968,33 @@ def main() -> int:
 
     # initial interval suggestion + daily projection based on history
     try:
-        # Use a larger bar window for robust interval suggestion
-        bars = max(config.INTERVAL_SUGGESTION_WINDOW_BARS * 3, config.LONG_WINDOW + 200)
-        # Build public-history candidates from 23s up to 6.5h using log spacing
-        min_secs = 23
+        # Reduced bar count for faster startup (efficiency optimization)
+        bars = max(config.INTERVAL_SUGGESTION_WINDOW_BARS, config.LONG_WINDOW + 100)
+        # Reduced candidate set to avoid excessive API calls (10 steps instead of 20)
+        min_secs = 60  # Start at 1 minute instead of 23s
         max_secs = int(6.5 * 3600)
-        steps = 20
+        steps = 10  # Reduced from 20
         ratio = (max_secs / float(min_secs)) ** (1.0 / max(1, steps - 1))
         cand = []
         cur = float(min_secs)
         for _ in range(steps):
             cand.append(int(max(5, round(cur))))
             cur *= ratio
-        # Ensure we include some common granularities and the current interval
-        cand.extend([30, 45, 60, 90, 120, 180, 300, 600, 900, 1800, 3600, 7200, 14400, max_secs, int(max(5, int(interval)))])
-        # Snap all candidates to supported sizes to avoid duplicates across non-supported intervals
+        # Include key common intervals and current interval only
+        cand.extend([60, 300, 900, 3600, int(max(5, int(interval)))])
+        # Snap all candidates to supported sizes to avoid duplicates
         snapped = [snap_interval_to_supported_seconds(x) for x in cand]
         candidates = sorted(set(snapped))
         suggested, details = suggest_interval_from_public_history(client, symbol, candidates, bars)
         if details:
-            # Log summary from public history at current and nearby intervals
+            # Log summary from public history (no re-fetching for efficiency)
             cur = next((d for d in details if d[0] == int(interval)), None)
             if cur:
-                # Re-simulate quickly to get sample stats for the current interval logging
-                try:
-                    closes_cur = fetch_closes(client, symbol, int(cur[0]), bars)
-                    sim_cur = simulate_signals_and_projection(closes_cur, int(cur[0])) if closes_cur else None
-                except Exception:
-                    sim_cur = None
-                if sim_cur and not sim_cur.get("sufficient_samples", True):
-                    log_warn("Projection (public hist @%ds): insufficient samples (trials=%s)", cur[0], sim_cur.get("trials", 0))
-                else:
-                    log_info("Projection (public hist @%ds): trades/day=%.2f expected_daily=$%.2f (trials=%s)", cur[0], cur[1], cur[2], (sim_cur or {}).get("trials", "-"))
+                log_info("Projection (public hist @%ds): trades/day=%.2f expected_daily=$%.2f", cur[0], cur[1], cur[2])
             best = next((d for d in details if d[0] == suggested), None)
             if best and best[0] != int(interval):
-                # Also show as hours in decimal (e.g., 0.0065)
                 best_hours = best[0] / 3600.0
-                # Re-simulate best for sample stats
-                try:
-                    closes_best = fetch_closes(client, symbol, int(best[0]), bars)
-                    sim_best = simulate_signals_and_projection(closes_best, int(best[0])) if closes_best else None
-                except Exception:
-                    sim_best = None
-                if sim_best and not sim_best.get("sufficient_samples", True):
-                    log_warn("Suggested interval (public history): %ds (%.4fh) (current %ds) — insufficient samples (trials=%s)", best[0], best_hours, int(interval), sim_best.get("trials", 0))
-                else:
-                    log_warn("Suggested interval (public history): %ds (%.4fh) (current %ds) — expected_daily=$%.2f (trials=%s)", best[0], best_hours, int(interval), best[2], (sim_best or {}).get("trials", "-"))
+                log_warn("Suggested interval (public history): %ds (%.4fh) (current %ds) — expected_daily=$%.2f", best[0], best_hours, int(interval), best[2])
     except Exception:
         log_exc("Interval suggestion/projection failed (non-fatal)")
 

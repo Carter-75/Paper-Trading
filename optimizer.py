@@ -103,25 +103,21 @@ def optimize(symbol: str) -> Tuple[int, float, float]:
             # Remove strong gating to truly maximize; evaluate a grid of TP/SL/size and caps
             for tp_eval in _tp_grid():
                 for sl_eval in _sl_grid():
-                    sim = simulate_signals_and_projection(
-                        closes,
-                        int(secs),
-                        override_tp_pct=float(tp_eval),
-                        override_sl_pct=float(sl_eval),
-                    )
-                    trades_per_day = float(sim["expected_trades_per_day"])
-                    if trades_per_day <= 0:
-                        continue
+                    # Optimize: call simulation once per TP/SL/frac/cap combo, not twice
                     for trade_frac_eval in _trade_frac_grid():
                         for cap in _cap_grid():
-                            expected_daily = simulate_signals_and_projection(
+                            sim = simulate_signals_and_projection(
                                 closes,
                                 int(secs),
                                 override_tp_pct=float(tp_eval),
                                 override_sl_pct=float(sl_eval),
                                 override_trade_frac=float(trade_frac_eval),
                                 override_cap_usd=float(cap),
-                            )["expected_daily_usd"]
+                            )
+                            trades_per_day = float(sim["expected_trades_per_day"])
+                            if trades_per_day <= 0:
+                                continue
+                            expected_daily = float(sim["expected_daily_usd"])
                             if expected_daily > best_expected_daily:
                                 best_expected_daily = float(expected_daily)
                                 best_interval = int(secs)

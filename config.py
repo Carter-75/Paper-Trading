@@ -24,7 +24,7 @@ ALPACA_BASE_URL: str = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.ma
 POLYGON_API_KEY: str = os.getenv("POLYGON_API_KEY", "")
 
 # Confirmation env var required to go live
-CONFIRM_GO_LIVE: str = os.getenv("CONFIRM_GO_LIVE", "YES")
+CONFIRM_GO_LIVE: str = os.getenv("CONFIRM_GO_LIVE", "NO")
 
 # -------------------
 # Strategy / runtime bases (these remain as user-configured defaults)
