@@ -32,7 +32,6 @@ from alpaca_trade_api.rest import TimeFrame, TimeFrameUnit
 
 import config
 from portfolio_manager import PortfolioManager
-from stock_scanner import scan_stocks, get_stock_universe
 
 load_dotenv()
 
@@ -58,8 +57,8 @@ def append_to_log_line(line: str):
     attempts = 3
     delay = 0.2
     for i in range(attempts):
-            try:
-                enforce_log_max_lines(99)
+        try:
+            enforce_log_max_lines(99)
             with open(FILE_LOG_PATH, "a", encoding="utf-8") as fh:
                 fh.write(line + "\n")
             return
@@ -159,7 +158,7 @@ def fetch_closes(client, symbol: str, interval_seconds: int, limit_bars: int) ->
             tf = TimeFrame(15, TimeFrameUnit.Minute)
         elif snap == 3600:
             tf = TimeFrame(1, TimeFrameUnit.Hour)
-            else:
+        else:
             tf = TimeFrame(4, TimeFrameUnit.Hour)
         
         bars = client.get_bars(symbol, tf, limit=limit_bars).df
@@ -173,10 +172,10 @@ def fetch_closes(client, symbol: str, interval_seconds: int, limit_bars: int) ->
     try:
         polygon_key = config.POLYGON_API_KEY
         if not polygon_key:
-                return []
+            return []
         
         snap = snap_interval_to_supported_seconds(interval_seconds)
-            multiplier = 1
+        multiplier = 1
         timespan = "minute"
         
         if snap == 60:
@@ -187,7 +186,7 @@ def fetch_closes(client, symbol: str, interval_seconds: int, limit_bars: int) ->
             multiplier, timespan = 15, "minute"
         elif snap == 3600:
             multiplier, timespan = 1, "hour"
-                else:
+        else:
             multiplier, timespan = 4, "hour"
         
         end_date = dt.datetime.now(pytz.UTC)
@@ -203,7 +202,7 @@ def fetch_closes(client, symbol: str, interval_seconds: int, limit_bars: int) ->
             if data.get("results"):
                 closes = [float(r["c"]) for r in data["results"]]
                 return closes[-limit_bars:] if len(closes) > limit_bars else closes
-        except Exception:
+    except Exception:
         pass
     
     return []
@@ -510,6 +509,9 @@ def evaluate_portfolio_and_opportunities(
     cap_per_stock: float,
     max_positions: int
 ) -> Dict:
+    # Import here to avoid circular dependency
+    from stock_scanner import scan_stocks
+    
     results = {
         "current_scores": {},
         "opportunities": [],
@@ -569,6 +571,9 @@ def evaluate_portfolio_and_opportunities(
 
 # ===== Main =====
 def main():
+    # Import here to avoid circular dependency
+    from stock_scanner import scan_stocks, get_stock_universe
+    
     parser = argparse.ArgumentParser(description="Unified trading bot (single or multi-stock)")
     parser.add_argument("-t", "--time", type=float, required=True,
                        help="Trading interval in hours (0.25=15min, 1.0=1hr)")
@@ -806,15 +811,15 @@ def main():
                     log_info("No data available")
                     time.sleep(interval_seconds)
                     continue
-                
+
                 action = decide_action(closes, config.SHORT_WINDOW, config.LONG_WINDOW)
                 confidence = compute_confidence(closes)
                 last_price = closes[-1]
-                
+
                 log_info(f"${last_price:.2f} | {action.upper()} | conf={confidence:.4f}")
-                
+
                 enforce_safety(client, symbol)
-                
+
                 if action == "buy":
                     ok, msg = buy_flow(
                         client, symbol, last_price, cap_per_stock,

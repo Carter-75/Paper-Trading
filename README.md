@@ -409,10 +409,10 @@ From project directory:
 From anywhere:
 ```powershell
 $BotPath = "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\botctl.ps1"
-pwsh -File $BotPath restart
-pwsh -File $BotPath status
-pwsh -File $BotPath stop
-pwsh -File $BotPath stop-forever
+& $BotPath restart
+& $BotPath status
+& $BotPath stop
+& $BotPath stop-forever
 ```
 
 **What Admin Mode Does:**
@@ -623,10 +623,10 @@ Get-Content bot.log -Wait -Tail 50
 
 # From anywhere
 $BotPath = "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\botctl.ps1"
-pwsh -File $BotPath start python -u runner.py -t 0.25 -m 1500 --max-stocks 15
+& $BotPath start python -u runner.py -t 0.25 -m 1500 --max-stocks 15
 Get-Content "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\bot.log" -Wait -Tail 50
-pwsh -File $BotPath restart
-pwsh -File $BotPath stop-forever
+& $BotPath restart
+& $BotPath stop-forever
 ```
 
 ---
@@ -835,8 +835,8 @@ $BotDir = "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading"
 $BotDir = "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading"
 $BotPath = "$BotDir\botctl.ps1"
 1. Test: python "$BotDir\runner.py" -t 0.25 -s AAPL -m 100
-2. Works? Start as Admin: pwsh -File $BotPath start python -u runner.py -t 0.25 -s AAPL -m 100
-3. Control: pwsh -File $BotPath status / restart / stop-forever
+2. Works? Start as Admin: & $BotPath start python -u runner.py -t 0.25 -s AAPL -m 100
+3. Control: & $BotPath status / restart / stop-forever
 ```
 
 ---
