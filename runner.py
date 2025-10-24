@@ -3,11 +3,11 @@
 Unified Trading Bot - Single or Multi-Stock Portfolio
 
 Usage:
-  # Single stock (max-stocks defaults to 1)
+  # Single stock (auto-sets max-stocks to 1 when using -s)
   python runner.py -t 0.25 -s AAPL -m 100
   
-  # Multi-stock auto (bot picks best stocks)
-  python runner.py -t 0.25 -m 1500 --max-stocks 15
+  # Multi-stock auto (bot picks best 15 stocks - default)
+  python runner.py -t 0.25 -m 1500
   
   # Multi-stock with forced picks
   python runner.py -t 0.25 -m 1500 --stocks TSLA AAPL --max-stocks 10
@@ -58,8 +58,8 @@ def append_to_log_line(line: str):
     attempts = 3
     delay = 0.2
     for i in range(attempts):
-        try:
-            enforce_log_max_lines(99)
+            try:
+                enforce_log_max_lines(99)
             with open(FILE_LOG_PATH, "a", encoding="utf-8") as fh:
                 fh.write(line + "\n")
             return
@@ -116,9 +116,9 @@ def log_error(msg: str):
 
 # ===== API Client =====
 def make_client(allow_missing: bool = False, go_live: bool = False):
-    key_id = config.APCA_API_KEY_ID
-    secret_key = config.APCA_API_SECRET_KEY
-    base_url = config.APCA_API_BASE_URL
+    key_id = config.ALPACA_API_KEY
+    secret_key = config.ALPACA_SECRET_KEY
+    base_url = config.ALPACA_BASE_URL
     
     if not all([key_id, secret_key, base_url]):
         if allow_missing:
@@ -159,7 +159,7 @@ def fetch_closes(client, symbol: str, interval_seconds: int, limit_bars: int) ->
             tf = TimeFrame(15, TimeFrameUnit.Minute)
         elif snap == 3600:
             tf = TimeFrame(1, TimeFrameUnit.Hour)
-        else:
+            else:
             tf = TimeFrame(4, TimeFrameUnit.Hour)
         
         bars = client.get_bars(symbol, tf, limit=limit_bars).df
@@ -173,10 +173,10 @@ def fetch_closes(client, symbol: str, interval_seconds: int, limit_bars: int) ->
     try:
         polygon_key = config.POLYGON_API_KEY
         if not polygon_key:
-            return []
+                return []
         
         snap = snap_interval_to_supported_seconds(interval_seconds)
-        multiplier = 1
+            multiplier = 1
         timespan = "minute"
         
         if snap == 60:
@@ -187,7 +187,7 @@ def fetch_closes(client, symbol: str, interval_seconds: int, limit_bars: int) ->
             multiplier, timespan = 15, "minute"
         elif snap == 3600:
             multiplier, timespan = 1, "hour"
-        else:
+                else:
             multiplier, timespan = 4, "hour"
         
         end_date = dt.datetime.now(pytz.UTC)
@@ -203,7 +203,7 @@ def fetch_closes(client, symbol: str, interval_seconds: int, limit_bars: int) ->
             if data.get("results"):
                 closes = [float(r["c"]) for r in data["results"]]
                 return closes[-limit_bars:] if len(closes) > limit_bars else closes
-    except Exception:
+        except Exception:
         pass
     
     return []
@@ -388,12 +388,14 @@ def enforce_safety(client, symbol: str):
         account = client.get_account()
         equity = float(account.equity)
         last_equity = float(account.last_equity)
-        daily_pnl_pct = ((equity - last_equity) / last_equity) * 100
         
-        if daily_pnl_pct < -config.MAX_DAILY_LOSS_PERCENT:
-            log_warn(f"Daily loss limit hit: {daily_pnl_pct:.2f}%")
-            sell_flow(client, symbol)
-            sys.exit(1)
+        if last_equity > 0:
+            daily_pnl_pct = ((equity - last_equity) / last_equity) * 100
+            
+            if daily_pnl_pct < -config.MAX_DAILY_LOSS_PERCENT:
+                log_warn(f"Daily loss limit hit: {daily_pnl_pct:.2f}%")
+                sell_flow(client, symbol)
+                sys.exit(1)
     except:
         pass
 
@@ -596,8 +598,17 @@ def main():
                        help="Debug mode")
     
     args = parser.parse_args()
-    
+
     # Determine mode
+    # If user provides -s (single symbol), they want single-stock mode
+    if args.symbol and not args.stocks:
+        # Single-stock mode implied
+        if args.max_stocks != 15:  # If user explicitly changed it
+            pass  # Use their value
+        else:
+            # Default case with -s: force single-stock
+            args.max_stocks = 1
+    
     is_multi_stock = args.max_stocks > 1 or args.stocks
     
     if is_multi_stock:
@@ -680,13 +691,13 @@ def main():
     try:
         while True:
             iteration += 1
-            
+
             if not in_market_hours(client):
                 sleep_until_market_open(client)
                 continue
             
             prevent_system_sleep(True)
-            
+
             log_info(f"=== Iteration {iteration} ===")
             
             if is_multi_stock:

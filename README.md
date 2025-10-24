@@ -75,9 +75,9 @@ Create `.env` file:
 
 ```env
 # ===== REQUIRED =====
-APCA_API_KEY_ID=your_alpaca_key
-APCA_API_SECRET_KEY=your_alpaca_secret
-APCA_API_BASE_URL=https://paper-api.alpaca.markets
+ALPACA_API_KEY=your_alpaca_key
+ALPACA_SECRET_KEY=your_alpaca_secret
+ALPACA_BASE_URL=https://paper-api.alpaca.markets
 POLYGON_API_KEY=your_polygon_key
 
 # ===== SAFETY =====
