@@ -499,6 +499,76 @@ def prevent_system_sleep(enable: bool):
     except:
         pass
 
+# ===== Smart Capital Allocation =====
+def allocate_capital_smartly(
+    client,
+    symbols: List[str],
+    forced_symbols: List[str],
+    total_capital: float,
+    interval_seconds: int,
+    min_cap_per_stock: float = 10.0
+) -> Dict[str, float]:
+    """
+    Allocate capital based on expected profitability.
+    Better opportunities get more capital.
+    """
+    allocations = {}
+    
+    # Score each stock
+    scores = {}
+    for symbol in symbols:
+        try:
+            closes = fetch_closes(client, symbol, interval_seconds, config.LONG_WINDOW + 50)
+            if not closes or len(closes) < config.LONG_WINDOW + 10:
+                scores[symbol] = 0.0
+                continue
+            
+            sim = simulate_signals_and_projection(closes, interval_seconds, override_cap_usd=100)
+            expected_daily = sim.get("expected_daily_usd", 0.0)
+            confidence = compute_confidence(closes)
+            
+            # Score = expected return + confidence boost
+            score = max(0.0, expected_daily + confidence * 10)
+            
+            # Forced stocks get minimum viable score
+            if symbol in forced_symbols:
+                score = max(score, 1.0)
+            
+            scores[symbol] = score
+        except:
+            scores[symbol] = 1.0 if symbol in forced_symbols else 0.0
+    
+    # Filter out non-profitable unless forced
+    viable_symbols = [s for s in symbols if scores[s] > 0 or s in forced_symbols]
+    
+    if not viable_symbols:
+        # Equal split as fallback
+        cap_each = total_capital / len(symbols) if symbols else 0
+        return {s: cap_each for s in symbols}
+    
+    # Calculate proportional allocation
+    total_score = sum(scores[s] for s in viable_symbols)
+    
+    if total_score == 0:
+        # Equal split if all scores are 0
+        cap_each = total_capital / len(viable_symbols)
+        return {s: cap_each for s in viable_symbols}
+    
+    # Allocate proportionally
+    for symbol in viable_symbols:
+        proportion = scores[symbol] / total_score
+        allocated = total_capital * proportion
+        allocations[symbol] = max(min_cap_per_stock, allocated)
+    
+    # Normalize to stay within total_capital
+    total_allocated = sum(allocations.values())
+    if total_allocated > total_capital:
+        scale_factor = total_capital / total_allocated
+        for symbol in allocations:
+            allocations[symbol] *= scale_factor
+    
+    return allocations
+
 # ===== Portfolio Evaluation =====
 def evaluate_portfolio_and_opportunities(
     client,
@@ -624,7 +694,9 @@ def main():
             log_warn(f"Specified {len(forced_stocks)} stocks but max is {args.max_stocks}")
             return 1
         
+        # Use smart allocation by default, fallback to equal split if user specifies cap-per-stock
         cap_per_stock = args.cap_per_stock or (args.max_cap / args.max_stocks)
+        use_smart_allocation = args.cap_per_stock is None  # Smart unless user forced specific cap
         
         if cap_per_stock < 10:
             log_warn(f"Capital per stock is ${cap_per_stock:.2f} (very small)")
@@ -671,6 +743,7 @@ def main():
         log_info(f"  Forced Stocks: {len(forced_stocks)}")
         log_info(f"  Auto-Fill Slots: {args.max_stocks - len(forced_stocks)}")
         log_info(f"  Rebalance Every: {args.rebalance_every} intervals")
+        log_info(f"  Allocation: {'Smart (profit-based)' if use_smart_allocation else f'Equal (${cap_per_stock:.2f} each)'}")
         
         # Sync with broker
         try:
@@ -767,11 +840,22 @@ def main():
                     except:
                         pass
                 
+                # Smart allocation: calculate capital per stock dynamically
+                if use_smart_allocation and stocks_to_evaluate:
+                    log_info("📊 Calculating smart capital allocation...")
+                    stock_allocations = allocate_capital_smartly(
+                        client, stocks_to_evaluate, forced_stocks, 
+                        args.max_cap, interval_seconds
+                    )
+                else:
+                    stock_allocations = {sym: cap_per_stock for sym in stocks_to_evaluate}
+                
                 # Trade each stock
                 log_info(f"\nTrading {len(stocks_to_evaluate)} stocks:")
                 for i, sym in enumerate(stocks_to_evaluate, 1):
                     try:
-                        log_info(f"[{i}/{len(stocks_to_evaluate)}] {sym}...")
+                        stock_cap = stock_allocations.get(sym, cap_per_stock)
+                        log_info(f"[{i}/{len(stocks_to_evaluate)}] {sym} (${stock_cap:.2f} allocated)...")
                         closes = fetch_closes(client, sym, interval_seconds, config.LONG_WINDOW + 10)
                         if not closes:
                             log_info(f"  No data")
@@ -787,7 +871,7 @@ def main():
                         
                         if action == "buy":
                             ok, msg = buy_flow(
-                                client, sym, last_price, cap_per_stock,
+                                client, sym, last_price, stock_cap,
                                 max(0.0, confidence),
                                 args.frac or config.TRADE_SIZE_FRAC_OF_CAP,
                                 args.tp or config.TAKE_PROFIT_PERCENT,

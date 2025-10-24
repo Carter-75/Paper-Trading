@@ -8,6 +8,7 @@
 
 **Features:**
 - ONE file handles everything (runner.py)
+- **Smart capital allocation** - Auto-distributes capital based on profitability
 - Comprehensive binary search optimizer
 - Smart portfolio management and rebalancing
 - Runs as hidden Windows Scheduled Task
@@ -196,8 +197,13 @@ Only trades your 3 picks.
 **Arguments:**
 - `--max-stocks N` - Max positions (default: 15)
 - `--stocks SYM1 SYM2` - Force specific stocks
-- `--cap-per-stock USD` - Capital per stock (default: total/max)
+- `--cap-per-stock USD` - Fixed capital per stock (disables smart allocation)
 - `--rebalance-every N` - Rebalance frequency (default: 4)
+
+**💡 Smart Allocation (Always Enabled):**
+The bot automatically uses **smart capital allocation** - it analyzes each stock's profitability and allocates MORE capital to better opportunities, LESS to poor performers. This maximizes total portfolio returns.
+
+To force equal split instead, specify `--cap-per-stock` manually.
 
 ### Single Stock
 
