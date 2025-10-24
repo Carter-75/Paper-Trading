@@ -1,10 +1,16 @@
-# runner.py
+#!/usr/bin/env python3
 """
-Merged runner: single-file entrypoint.
-- CLI: -t/--time (hours), -s/--symbol, -m/--max-cap
-- Live mode requires CONFIRM_GO_LIVE=YES and --go-live
-- Logs to bot.log with simple truncation/rotation
-- Confidence-based dynamic sizing, volatility filter, daily projection
+Unified Trading Bot - Single or Multi-Stock Portfolio
+
+Usage:
+  # Single stock (max-stocks defaults to 1)
+  python runner.py -t 0.25 -s AAPL -m 100
+  
+  # Multi-stock auto (bot picks best stocks)
+  python runner.py -t 0.25 -m 1500 --max-stocks 15
+  
+  # Multi-stock with forced picks
+  python runner.py -t 0.25 -m 1500 --stocks TSLA AAPL --max-stocks 10
 """
 
 import argparse
@@ -15,7 +21,7 @@ import os
 import sys
 import time
 import datetime as dt
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict
 from dotenv import load_dotenv
 
 import pytz
@@ -25,45 +31,35 @@ from alpaca_trade_api.rest import APIError
 from alpaca_trade_api.rest import TimeFrame, TimeFrameUnit
 
 import config
+from portfolio_manager import PortfolioManager
+from stock_scanner import scan_stocks, get_stock_universe
 
-# Load environment variables from .env
 load_dotenv()
 
-# Keys are read via config; local env reads are unnecessary
-
-# ------- Logging setup (writes to bot.log and console). Keep backward-compatible bot.log use -------
+# ===== Logging Setup =====
 LOG = logging.getLogger("paper_trading_bot")
 LOG.setLevel(logging.INFO)
 
-# console handler with simple color output (ANSI). Colors don't affect file logs.
 _console = logging.StreamHandler(sys.stdout)
 _console.setLevel(logging.INFO)
 _console.setFormatter(logging.Formatter("%(asctime)s %(levelname)s - %(message)s"))
 LOG.addHandler(_console)
 
-# file handler: we'll create/rotate/truncate file ourselves to preserve original truncation logic.
 FILE_LOG_PATH = config.LOG_PATH
 DISABLE_FILE_LOG = os.getenv("BOT_TEE_LOG", "") in ("1", "true", "True")
 SCHEDULED_TASK_MODE = os.getenv("SCHEDULED_TASK_MODE", "0") in ("1", "true", "True")
 
-# ensure file exists
 if not os.path.exists(FILE_LOG_PATH):
     open(FILE_LOG_PATH, "a").close()
 
-# Simple helper to append line to bot.log (keeps old truncation logic clarified)
 def append_to_log_line(line: str):
     if DISABLE_FILE_LOG:
         return
-    # Retry a few times to handle transient OneDrive sync file locks
     attempts = 3
     delay = 0.2
     for i in range(attempts):
         try:
-            # Keep room for the new line
-            try:
-                enforce_log_max_lines(99)
-            except Exception:
-                pass
+            enforce_log_max_lines(99)
             with open(FILE_LOG_PATH, "a", encoding="utf-8") as fh:
                 fh.write(line + "\n")
             return
@@ -71,9 +67,6 @@ def append_to_log_line(line: str):
             if i < attempts - 1:
                 time.sleep(delay)
                 delay *= 2
-            else:
-                # Silent skip on persistent lock
-                return
 
 def enforce_log_max_lines(max_lines: int = 100):
     try:
@@ -81,1017 +74,762 @@ def enforce_log_max_lines(max_lines: int = 100):
             return
         with open(FILE_LOG_PATH, "r", encoding="utf-8", errors="ignore") as fh:
             lines = fh.readlines()
-        # Identify the most recent INIT line (keep only this one when truncating)
         init_line = None
         for ln in reversed(lines):
             if ln.startswith("INIT "):
                 init_line = ln
                 break
-        # Identify the most recent session header line
         last_header_idx = None
         for i in range(len(lines) - 1, -1, -1):
             if "Starting bot for" in lines[i]:
                 last_header_idx = i
                 break
         header_line = lines[last_header_idx] if last_header_idx is not None else None
-        # Always enforce max_lines, with simple tailing and INIT handling
+        
         if len(lines) <= max_lines:
-            # Ensure only the latest INIT is kept and placed first (counted toward cap)
-            try:
-                reordered = []
-                if init_line:
-                    reordered.append(init_line)
-                # Add header next if present and not duplicate
-                if header_line and (not reordered or header_line != reordered[-1]):
-                    reordered.append(header_line)
-                # Append the remaining lines excluding duplicates and any other INITs
-                seen = set(reordered)
-                for l in lines:
-                    if l.startswith("INIT "):
-                        continue
-                    if l in seen:
-                        continue
-                    reordered.append(l)
-                # Clamp to max_lines while keeping INIT/header at the top
-                if len(reordered) > max_lines:
-                    keep_head = 2 if header_line else (1 if init_line else 0)
-                    tail_keep = max_lines - keep_head
-                    head = reordered[:keep_head]
-                    tail = reordered[-tail_keep:] if tail_keep > 0 else []
-                    lines = head + tail
-                else:
-                    lines = reordered
-            except Exception:
-                pass
-            with open(FILE_LOG_PATH, "w", encoding="utf-8") as fh:
-                fh.writelines(lines)
             return
-        # File is over the limit: build a truncated view
-        tail_count = max_lines - 1  # reserve 1 for ellipsis or INIT
-        # Exclude all INIT lines from the tail selection
-        non_init_lines = [l for l in lines if not l.startswith("INIT ")]
-        tail = non_init_lines[-tail_count:]
-        # Ensure the most recent header is present in the tail
-        if header_line and header_line in non_init_lines and header_line not in tail:
-            if tail:
-                tail[0] = header_line
-            else:
-                tail = [header_line]
-        # Start with ellipsis + tail
-        new_lines = ["...\n"] + tail
-        # Place the most recent INIT on top if present
-        if init_line:
-            # Ensure INIT is first and counted toward limit
-            new_lines = [init_line] + new_lines[:-1]  # replace one tail slot to keep total at max_lines
-        # Guarantee total lines does not exceed max_lines
-        if len(new_lines) > max_lines:
-            new_lines = new_lines[-max_lines:]
-        lines = new_lines
+        
+        kept = lines[-(max_lines - 2):]
+        final_lines = []
+        if init_line and init_line not in kept:
+            final_lines.append(init_line)
+        if header_line and header_line not in kept:
+            final_lines.append(header_line)
+        final_lines.extend(kept)
+        
         with open(FILE_LOG_PATH, "w", encoding="utf-8") as fh:
-            fh.writelines(lines)
+            fh.writelines(final_lines)
     except Exception:
         pass
 
-# write wrapper to both console and file (keeps old log format in file)
-def log_info(msg: str, *args):
-    LOG.info(msg, *args)
-    try:
-        append_to_log_line(f"{dt.datetime.now(pytz.UTC).isoformat()} INFO - {msg % args if args else msg}")
-    except Exception:
-        append_to_log_line(f"{dt.datetime.now(pytz.UTC).isoformat()} INFO - {msg}")
+def log_info(msg: str):
+    LOG.info(msg)
+    append_to_log_line(msg)
 
-def log_warn(msg: str, *args):
-    LOG.warning(msg, *args)
-    try:
-        append_to_log_line(f"{dt.datetime.now(pytz.UTC).isoformat()} WARN - {msg % args if args else msg}")
-    except Exception:
-        append_to_log_line(f"{dt.datetime.now(pytz.UTC).isoformat()} WARN - {msg}")
+def log_warn(msg: str):
+    LOG.warning(msg)
+    append_to_log_line(f"WARN: {msg}")
 
-def log_exc(msg: str, *args):
-    LOG.exception(msg, *args)
-    try:
-        append_to_log_line(f"{dt.datetime.now(pytz.UTC).isoformat()} EXC - {msg % args if args else msg}")
-    except Exception:
-        append_to_log_line(f"{dt.datetime.now(pytz.UTC).isoformat()} EXC - {msg}")
+def log_error(msg: str):
+    LOG.error(msg)
+    append_to_log_line(f"ERROR: {msg}")
 
-# Utility
-def now_utc() -> dt.datetime:
-    return dt.datetime.now(pytz.UTC)
-
-# Prevent system sleep (Windows): keep machine awake during market hours / pre-open
-try:
-    import ctypes  # type: ignore
-    ES_CONTINUOUS = 0x80000000
-    ES_SYSTEM_REQUIRED = 0x00000001
-    # ES_DISPLAY_REQUIRED could be added if you want to prevent display sleep too
-    def prevent_system_sleep(enable: bool):
-        try:
-            if os.name == "nt":
-                flags = ES_CONTINUOUS | (ES_SYSTEM_REQUIRED if enable else 0)
-                ctypes.windll.kernel32.SetThreadExecutionState(flags)
-        except Exception:
-            pass
-except Exception:
-    def prevent_system_sleep(enable: bool):  # type: ignore
-        return
-
-def read_json(path):
-    try:
-        if os.path.exists(path):
-            with open(path, "r", encoding="utf-8") as fh:
-                return json.load(fh)
-    except Exception:
-        log_exc("read_json failed for %s", path)
-    return {}
-
-def write_json(path, data):
-    try:
-        with open(path, "w", encoding="utf-8") as fh:
-            json.dump(data, fh, default=str, indent=2)
-    except Exception:
-        log_exc("write_json failed for %s", path)
-
-# Retry helper
-def retry(fn, tries=3, delay=1.0, backoff=2.0, allowed_exceptions=(Exception,), name=None):
-    n = 0
-    last_exc = None
-    while n < tries:
-        try:
-            return fn()
-        except allowed_exceptions as e:
-            last_exc = e
-            n += 1
-            log_warn("Transient error in %s: %s (attempt %d/%d)", name or getattr(fn, "__name__", str(fn)), e, n, tries)
-            time.sleep(delay)
-            delay *= backoff
-    log_exc("All retries failed for %s", name or getattr(fn, "__name__", str(fn)))
-    raise last_exc
-
-# Alpaca client factory
-def make_client(allow_missing=False, go_live=False) -> REST:
-    # Use base URL depending on go_live (but still require explicit env + flag)
+# ===== API Client =====
+def make_client(allow_missing: bool = False, go_live: bool = False):
+    key_id = config.APCA_API_KEY_ID
+    secret_key = config.APCA_API_SECRET_KEY
+    base_url = config.APCA_API_BASE_URL
+    
+    if not all([key_id, secret_key, base_url]):
+        if allow_missing:
+            return None
+        raise ValueError("Missing Alpaca credentials")
+    
     if go_live:
-        # require user set CONFIRM_GO_LIVE=YES
-        if not config.wants_live_mode(cli_flag_go_live=True):
-            raise RuntimeError("Attempt to go live without CONFIRM_GO_LIVE=YES")
-    if (not config.ALPACA_API_KEY or not config.ALPACA_SECRET_KEY) and not (allow_missing or config.ALLOW_MISSING_KEYS_FOR_DEBUG):
-        raise RuntimeError("Missing Alpaca API keys")
-    base = config.ALPACA_BASE_URL
-    client = REST(config.ALPACA_API_KEY, config.ALPACA_SECRET_KEY, base_url=base, api_version='v2')
-    return client
+        confirm = os.getenv("CONFIRM_GO_LIVE", "NO")
+        if confirm != "YES":
+            raise ValueError("Live trading requires CONFIRM_GO_LIVE=YES in .env")
+    
+    return REST(key_id, secret_key, base_url, api_version='v2')
 
-# Market data helper
-def map_interval_to_timeframe(interval_seconds: int) -> TimeFrame:
-    if interval_seconds < 60:
-        return TimeFrame.Minute
-    minutes = interval_seconds // 60
-    if minutes == 1:
-        return TimeFrame.Minute
-    if minutes == 5:
-        return TimeFrame(5, TimeFrameUnit.Minute)
-    if minutes == 15:
-        return TimeFrame(15, TimeFrameUnit.Minute)
-    if minutes >= 60:
-        return TimeFrame.Hour
-    return TimeFrame.Minute
-
-def snap_interval_to_supported_seconds(interval_seconds: int) -> int:
-    # Snap any requested interval to one of: 1, 5, 15, 60 minutes
-    if interval_seconds < 60:
+# ===== Market Data =====
+def snap_interval_to_supported_seconds(seconds: int) -> int:
+    if seconds < 60:
         return 60
-    minutes = max(1, round(interval_seconds / 60.0))
-    supported = [1, 5, 15, 60]
-    closest = min(supported, key=lambda m: abs(m - minutes))
-    return 3600 if closest >= 60 else closest * 60
+    elif seconds < 300:
+        return 60
+    elif seconds < 900:
+        return 300
+    elif seconds < 3600:
+        return 900
+    elif seconds < 14400:
+        return 3600
+    else:
+        return 14400
 
-def fetch_closes(client: REST, symbol: str, interval_seconds: int, bars: int) -> List[float]:
-    requested_secs = max(1, int(interval_seconds))
-    snapped_secs = snap_interval_to_supported_seconds(requested_secs)
-    if snapped_secs != requested_secs:
-        try:
-            log_warn("Adjusted interval %ds -> %ds to match supported sizes (1/5/15/60m)", requested_secs, snapped_secs)
-        except Exception:
-            pass
-    tf = map_interval_to_timeframe(snapped_secs)
-    def _extract_closes(barset_obj) -> List[float]:
-        closes_local: List[float] = []
-        df = getattr(barset_obj, "df", None)
-        if df is not None:
-            try:
-                closes_series = getattr(df, 'close', None)
-                if closes_series is not None:
-                    closes_list = list(closes_series)
-                    closes_local = [float(x) for x in closes_list[-bars:]]
-            except Exception:
-                closes_local = []
-        if not closes_local:
-            try:
-                closes_local = [float(getattr(b, "c", getattr(b, "close", 0.0))) for b in barset_obj][-bars:]
-            except Exception:
-                closes_local = []
-        return closes_local
+def fetch_closes(client, symbol: str, interval_seconds: int, limit_bars: int) -> List[float]:
+    try:
+        snap = snap_interval_to_supported_seconds(interval_seconds)
+        
+        if snap == 60:
+            tf = TimeFrame(1, TimeFrameUnit.Minute)
+        elif snap == 300:
+            tf = TimeFrame(5, TimeFrameUnit.Minute)
+        elif snap == 900:
+            tf = TimeFrame(15, TimeFrameUnit.Minute)
+        elif snap == 3600:
+            tf = TimeFrame(1, TimeFrameUnit.Hour)
+        else:
+            tf = TimeFrame(4, TimeFrameUnit.Hour)
+        
+        bars = client.get_bars(symbol, tf, limit=limit_bars).df
+        if bars.empty:
+            return []
+        return list(bars['close'].values)
+    except Exception:
+        pass
+    
+    # Fallback to Polygon
+    try:
+        polygon_key = config.POLYGON_API_KEY
+        if not polygon_key:
+            return []
+        
+        snap = snap_interval_to_supported_seconds(interval_seconds)
+        multiplier = 1
+        timespan = "minute"
+        
+        if snap == 60:
+            multiplier, timespan = 1, "minute"
+        elif snap == 300:
+            multiplier, timespan = 5, "minute"
+        elif snap == 900:
+            multiplier, timespan = 15, "minute"
+        elif snap == 3600:
+            multiplier, timespan = 1, "hour"
+        else:
+            multiplier, timespan = 4, "hour"
+        
+        end_date = dt.datetime.now(pytz.UTC)
+        start_date = end_date - dt.timedelta(days=365)
+        
+        url = (f"https://api.polygon.io/v2/aggs/ticker/{symbol}/range/"
+               f"{multiplier}/{timespan}/{start_date.strftime('%Y-%m-%d')}/"
+               f"{end_date.strftime('%Y-%m-%d')}")
+        
+        resp = requests.get(url, params={"apiKey": polygon_key, "limit": limit_bars * 2}, timeout=15)
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get("results"):
+                closes = [float(r["c"]) for r in data["results"]]
+                return closes[-limit_bars:] if len(closes) > limit_bars else closes
+    except Exception:
+        pass
+    
+    return []
 
-    def _get():
-        # Helper to fetch from Alpaca (limit or start)
-        def fetch_from_alpaca() -> List[float]:
-            # First try a simple limit-based fetch (fast path)
-            barset = client.get_bars(symbol, tf, limit=bars)
-            closes_a = _extract_closes(barset)
-            if len(closes_a) >= bars:
-                return closes_a
-            # Fallback: request by start time far enough back to guarantee bars
-            minutes_local = max(1, int(snapped_secs) // 60)
-            if minutes_local >= 60:
-                seconds_per_bar_local = 3600
-            elif minutes_local >= 15:
-                seconds_per_bar_local = 900
-            elif minutes_local >= 5:
-                seconds_per_bar_local = 300
-            else:
-                seconds_per_bar_local = 60
-            lookback_bars_local = max(bars * 5, bars + 10)
-            start_dt_local = now_utc() - dt.timedelta(seconds=seconds_per_bar_local * lookback_bars_local)
-            start_str_local = start_dt_local.astimezone(pytz.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-            barset2 = client.get_bars(symbol, tf, start=start_str_local)
-            closes_b = _extract_closes(barset2)
-            return closes_b
-
-        def map_to_polygon_timespan(interval_secs: int) -> str:
-            if interval_secs < 60:
-                return "minute"
-            minutes_local = interval_secs // 60
-            if minutes_local < 60:
-                return "minute"
-            if minutes_local < 24 * 60:
-                return "hour"
-            return "day"
-
-        def fetch_from_polygon() -> List[float]:
-            api_key = config.POLYGON_API_KEY
-            if not api_key:
-                return []
-            # Decide multiplier and timespan based on our mapped timeframe
-            minutes_local = max(1, int(snapped_secs) // 60)
-            timespan = map_to_polygon_timespan(int(snapped_secs))
-            multiplier = 1
-            if timespan == "minute":
-                if minutes_local in (1, 5, 15):
-                    multiplier = minutes_local
-                elif minutes_local >= 60:
-                    timespan = "hour"
-                    multiplier = max(1, minutes_local // 60)
-                else:
-                    multiplier = 1
-            elif timespan == "hour":
-                multiplier = max(1, minutes_local // 60)
-            else:
-                multiplier = 1
-            lookback = max(bars * 5, bars + 10)
-            end_dt = now_utc()
-            # Estimate bars per trading day for chosen timespan/multiplier
-            if timespan == "minute":
-                bars_per_day = max(1.0, 390.0 / max(1, multiplier))
-            elif timespan == "hour":
-                bars_per_day = max(1.0, 6.5 / max(1, multiplier))
-            else:  # day
-                bars_per_day = 1.0 / max(1, multiplier)
-            needed_days = int(math.ceil((lookback * 1.25) / max(1.0, bars_per_day)))
-            needed_days = max(5, min(365, needed_days))
-            start_dt_local = end_dt - dt.timedelta(days=needed_days)
-            start_iso = start_dt_local.strftime("%Y-%m-%d")
-            end_iso = end_dt.strftime("%Y-%m-%d")
-            url = f"https://api.polygon.io/v2/aggs/ticker/{symbol}/range/{multiplier}/{timespan}/{start_iso}/{end_iso}"
-            params = {"adjusted": "true", "sort": "asc", "limit": str(50000), "apiKey": api_key}
-            try:
-                resp = requests.get(url, params=params, timeout=10)
-                if resp.status_code != 200:
-                    return []
-                data = resp.json()
-                results = data.get("results", [])
-                closes_p = [float(item.get("c", 0.0)) for item in results if item.get("c") is not None]
-                if not closes_p:
-                    return []
-                return closes_p[-bars:]
-            except Exception:
-                return []
-
-        # Optional test toggle to force Polygon-only path
-        force_polygon = os.getenv("FORCE_POLYGON_FALLBACK", "").lower() in ("1", "true", "yes")
-        if force_polygon:
-            log_warn("FORCE_POLYGON_FALLBACK=1 set; using Polygon only for bars")
-            closes_poly_only = fetch_from_polygon()
-            if closes_poly_only:
-                log_info("Using Polygon fallback (forced): %d bars", len(closes_poly_only))
-                return closes_poly_only[-bars:]
-            LOG.debug("Forced Polygon path returned no data; attempting Alpaca as backup")
-
-        # Try Alpaca fetch; if it errors, catch and try Polygon
-        try:
-            closes = fetch_from_alpaca()
-            if len(closes) >= min(1, bars):
-                LOG.debug("Using Alpaca bars: %d", len(closes))
-                return closes[-bars:]
-        except Exception:
-            LOG.debug("Alpaca bars fetch raised; attempting Polygon fallback")
-        # Alpaca insufficient or failed; try Polygon fallback
-        log_warn("Alpaca bars unavailable or insufficient; trying Polygon fallback")
-        closes_poly = fetch_from_polygon()
-        if closes_poly:
-            log_info("Using Polygon fallback: %d bars", len(closes_poly))
-            return closes_poly[-bars:]
-        # If Polygon also fails, stop here and let the outer retry handle remaining attempts
-        LOG.debug("Polygon fallback failed or empty; giving up this attempt")
-        # Raise a generic exception to avoid APIError(str) type issues in alpaca package
-        raise Exception("Market data unavailable from both Alpaca and Polygon in this attempt")
-    # Cap to 3 total attempts (initial + 2 retries)
-    return retry(_get, tries=3, delay=1.0, backoff=2.0, allowed_exceptions=(APIError, Exception), name=f"get_bars({symbol})")
-
-# Indicators & logic
-def sma(values: List[float], window: int) -> Optional[float]:
-    if not values or window <= 0 or len(values) < window:
-        return None
-    return sum(values[-window:]) / window
-
-def pct_stddev(values: List[float]) -> float:
-    if not values:
-        return 0.0
-    mean = sum(values) / len(values)
-    var = sum((v - mean) ** 2 for v in values) / len(values)
-    std = math.sqrt(var)
-    return std / mean if mean != 0 else 0.0
-
-def compute_confidence(closes: List[float]) -> float:
-    short = sma(closes, config.SHORT_WINDOW)
-    long = sma(closes, config.LONG_WINDOW)
-    if short is None or long is None or long == 0:
-        return 0.0
-    # Base confidence from MA crossover divergence
-    raw = (short - long) / long
-    scaled = raw * config.CONFIDENCE_MULTIPLIER
-    # Enhance with momentum: add recent price change as confirmation
-    if len(closes) >= 3:
-        momentum = (closes[-1] - closes[-3]) / closes[-3] if closes[-3] != 0 else 0.0
-        # Add up to 20% boost from momentum alignment
-        if (scaled > 0 and momentum > 0) or (scaled < 0 and momentum < 0):
-            scaled = scaled * 1.2
-    if scaled > 1.0:
-        scaled = 1.0
-    if scaled < -1.0:
-        scaled = -1.0
-    return float(scaled)
+# ===== Trading Logic =====
+def sma(closes: List[float], window: int) -> float:
+    if len(closes) < window:
+        return closes[-1] if closes else 0.0
+    return sum(closes[-window:]) / window
 
 def decide_action(closes: List[float], short_w: int, long_w: int) -> str:
-    if not closes or len(closes) < max(short_w, long_w):
+    if len(closes) < max(short_w, long_w):
         return "hold"
-    prev_short = sma(closes[:-1], short_w)
-    prev_long = sma(closes[:-1], long_w)
-    cur_short = sma(closes, short_w)
-    cur_long = sma(closes, long_w)
-    if any(v is None for v in (prev_short, prev_long, cur_short, cur_long)):
-        return "hold"
-    # Confidence gate: only hold if confidence is too low
-    conf = compute_confidence(closes)
-    if abs(conf) < config.MIN_CONFIDENCE_TO_TRADE:
-        return "hold"
-    # Prefer crossover signals
-    if prev_short <= prev_long and cur_short > cur_long:
+    short_ma = sma(closes, short_w)
+    long_ma = sma(closes, long_w)
+    
+    if short_ma > long_ma * 1.002:
         return "buy"
-    if prev_short >= prev_long and cur_short < cur_long:
-        return "sell"
-    # Otherwise follow current trend direction
-    if cur_short > cur_long:
-        return "buy"
-    if cur_short < cur_long:
+    elif short_ma < long_ma * 0.998:
         return "sell"
     return "hold"
 
-# Orders & positions
-def has_open_order(client: REST, symbol: str, side: str) -> bool:
-    try:
-        # alpaca-trade-api>=3.x uses list_orders
-        orders = client.list_orders(status='open', limit=50)
-        return any((getattr(o, "symbol", "").upper() == symbol.upper()) and (getattr(o, "side", "").lower() == side.lower()) for o in orders)
-    except Exception:
-        log_exc("has_open_order failed for %s", symbol)
-    return False
+def compute_confidence(closes: List[float]) -> float:
+    if len(closes) < config.LONG_WINDOW:
+        return 0.0
+    short_ma = sma(closes, config.SHORT_WINDOW)
+    long_ma = sma(closes, config.LONG_WINDOW)
+    base_conf = abs((short_ma / long_ma) - 1.0)
+    
+    # Momentum boost
+    if len(closes) >= 5:
+        recent_change = (closes[-1] - closes[-5]) / closes[-5]
+        signal = 1 if short_ma > long_ma else -1
+        momentum_direction = 1 if recent_change > 0 else -1
+        if signal == momentum_direction:
+            base_conf *= 1.2
+    
+    return base_conf
 
-def get_position(client: REST, symbol: str) -> Optional[dict]:
+def pct_stddev(closes: List[float]) -> float:
+    if not closes:
+        return 0.0
+    mean = sum(closes) / len(closes)
+    variance = sum((x - mean) ** 2 for x in closes) / len(closes)
+    stddev = math.sqrt(variance)
+    return stddev / mean if mean != 0 else 0.0
+
+# ===== Position Management =====
+def get_position(client, symbol: str):
     try:
         pos = client.get_position(symbol)
-        return {"qty": float(pos.qty), "avg_entry_price": float(pos.avg_entry_price), "market_value": float(pos.market_value), "unrealized_pl": float(pos.unrealized_pl)}
-    except Exception:
+        return {
+            "qty": float(pos.qty),
+            "avg_entry_price": float(pos.avg_entry_price),
+            "market_value": float(pos.market_value),
+            "unrealized_pl": float(pos.unrealized_pl),
+        }
+    except:
         return None
 
-def wait_for_order_fill(client: REST, order_id: str, timeout: float = 30.0):
-    start = time.time()
-    while True:
-        o = client.get_order(order_id)
-        status = getattr(o, "status", "").lower()
-        if status in ("filled", "partially_filled", "canceled", "cancelled"):
-            return o
-        if time.time() - start > timeout:
-            raise TimeoutError(f"Order {order_id} not filled within {timeout}s (status={status})")
-        time.sleep(1.0)
-
-def place_market_order(client: REST, symbol: str, qty: float, side: str = "buy"):
-    if qty <= 0:
-        raise ValueError("qty must be > 0")
-    log_info("Submitting market %s %s qty=%.6f", side.upper(), symbol, qty)
-    order = client.submit_order(symbol=symbol, qty=str(qty), side=side, type="market", time_in_force="day")
-    final = wait_for_order_fill(client, order.id, timeout=30.0)
-    return final
-
-def place_limit_order(client: REST, symbol: str, qty: float, price: float, side: str = "sell"):
-    log_info("Submitting limit %s %s qty=%.6f limit=%s", side.upper(), symbol, qty, price)
-    # Fractional equity orders must be DAY orders per Alpaca
-    tif = "day"
-    order = client.submit_order(symbol=symbol, qty=str(qty), side=side, type="limit", time_in_force=tif, limit_price=str(price))
-    return order
-
-def place_stop_order(client: REST, symbol: str, qty: float, stop_price: float, side: str = "sell"):
-    log_info("Submitting stop %s %s qty=%.6f stop=%s", side.upper(), symbol, qty, stop_price)
-    # Fractional equity orders must be DAY orders per Alpaca
-    tif = "day"
-    order = client.submit_order(symbol=symbol, qty=str(qty), side=side, type="stop", time_in_force=tif, stop_price=str(stop_price))
-    return order
-
-def submit_tp_sl(client: REST, symbol: str, qty: float, entry_price: float, tp_pct: float, sl_pct: float) -> Tuple[Optional[object], Optional[object]]:
-    tp_order = None
-    sl_order = None
-    try:
-        if tp_pct and tp_pct > 0:
-            tp_price = round(entry_price * (1.0 + tp_pct / 100.0), 2)
-            tp_order = place_limit_order(client, symbol, qty, tp_price, side="sell")
-        if sl_pct and sl_pct > 0:
-            stop_price = round(entry_price * (1.0 - sl_pct / 100.0), 2)
-            sl_order = place_stop_order(client, symbol, qty, stop_price, side="sell")
-    except Exception:
-        log_exc("submit_tp_sl failed")
-    return tp_order, sl_order
-
-# Sizing & dynamic adjustments
-def clamp(x, lo, hi):
-    return max(lo, min(hi, x))
-
-def adjust_runtime_params(base_tp, base_sl, base_frac, confidence, vol_pct):
-    c = max(0.0, min(1.0, confidence))
-    vol_factor = 1.0 / (1.0 + vol_pct * 10.0) if vol_pct >= 0 else 1.0
+def adjust_runtime_params(confidence: float, base_tp: float, base_sl: float, base_frac: float):
+    c = max(0.0, min(1.0, confidence / 0.1))
     tp = base_tp * (1.0 + 0.5 * c)
-    # Widen SL with higher confidence to give winning trades more room (changed from tightening)
     sl = base_sl * (1.0 + 0.2 * c)
-    frac = base_frac * (1.0 + 0.5 * c) * vol_factor
-    tp = clamp(tp, config.MIN_TAKE_PROFIT_PERCENT, config.MAX_TAKE_PROFIT_PERCENT)
-    sl = clamp(sl, config.MIN_STOP_LOSS_PERCENT, config.MAX_STOP_LOSS_PERCENT)
-    frac = clamp(frac, config.MIN_TRADE_SIZE_FRAC, config.MAX_TRADE_SIZE_FRAC)
+    frac = base_frac * (1.0 + 0.3 * c)
+    
+    tp = max(config.MIN_TAKE_PROFIT_PERCENT, min(config.MAX_TAKE_PROFIT_PERCENT, tp))
+    sl = max(config.MIN_STOP_LOSS_PERCENT, min(config.MAX_STOP_LOSS_PERCENT, sl))
+    frac = max(config.MIN_TRADE_SIZE_FRAC, min(config.MAX_TRADE_SIZE_FRAC, frac))
+    
+    if config.RISKY_MODE_ENABLED:
+        tp *= config.RISKY_TP_MULT
+        sl *= config.RISKY_SL_MULT
+        frac *= config.RISKY_FRAC_MULT
+        frac = min(frac, config.RISKY_MAX_FRAC_CAP)
+    
     return tp, sl, frac
 
-def compute_order_qty_from_remaining(remaining_usd: float, price: float, confidence: float, frac: float, fixed_usd: float = 0.0, scale_with_confidence: bool = True):
-    if price <= 0:
-        return 0.0
-    use_fixed = (fixed_usd and fixed_usd > 0) or (config.FIXED_TRADE_USD and config.FIXED_TRADE_USD > 0)
-    if use_fixed:
-        target = fixed_usd if (fixed_usd and fixed_usd > 0) else config.FIXED_TRADE_USD
-        usd = min(remaining_usd, target)
+def compute_order_qty_from_remaining(current_price: float, remaining_cap: float, fraction: float) -> int:
+    usable = remaining_cap * fraction
+    return int(usable / current_price)
+
+def buy_flow(client, symbol: str, last_price: float, max_cap: float,
+             confidence: float, base_frac: float, base_tp: float, base_sl: float,
+             dynamic_enabled: bool = True, interval_seconds: int = None):
+    
+    pos = get_position(client, symbol)
+    if pos:
+        return (False, "Position exists")
+    
+    if confidence < config.MIN_CONFIDENCE_TO_TRADE:
+        return (False, f"Low confidence: {confidence:.4f}")
+    
+    # Profitability check
+    if interval_seconds:
+        closes = fetch_closes(client, symbol, interval_seconds, config.LONG_WINDOW + 50)
+        if closes:
+            sim = simulate_signals_and_projection(closes, interval_seconds, override_cap_usd=max_cap)
+            expected_daily = float(sim.get("expected_daily_usd", 0.0))
+            if expected_daily < config.PROFITABILITY_MIN_EXPECTED_USD:
+                return (False, f"Expected ${expected_daily:.2f}/day < ${config.PROFITABILITY_MIN_EXPECTED_USD}")
+            
+            # Volatility check
+            vol_pct = pct_stddev(closes[-config.VOLATILITY_WINDOW:])
+            if vol_pct > config.VOLATILITY_PCT_THRESHOLD:
+                return (False, f"High volatility: {vol_pct*100:.1f}%")
+    
+    # Calculate params
+    if dynamic_enabled:
+        tp, sl, frac = adjust_runtime_params(confidence, base_tp, base_sl, base_frac)
     else:
-        usd = remaining_usd * frac
-    # Only scale by confidence if requested AND frac wasn't already adjusted
-    # When dynamic_enabled=True, frac is pre-adjusted, so don't scale again (fixes double-scaling bug)
-    if scale_with_confidence:
-        scale = max(0.0, min(1.0, abs(confidence)))
-        usd = usd * scale
-    if usd <= 0:
-        return 0.0
-    qty = math.floor((usd / price) * 1_000_000) / 1_000_000
-    return qty
+        tp, sl, frac = base_tp, base_sl, base_frac
+    
+    qty = compute_order_qty_from_remaining(last_price, max_cap, frac)
+    if qty < 1:
+        return (False, "Insufficient capital")
+    
+    try:
+        tp_price = last_price * (1 + tp / 100.0)
+        sl_price = last_price * (1 - sl / 100.0)
+        
+        client.submit_order(
+            symbol=symbol,
+            qty=qty,
+            side='buy',
+            type='market',
+            time_in_force='gtc',
+            order_class='bracket',
+            take_profit={'limit_price': round(tp_price, 2)},
+            stop_loss={'stop_price': round(sl_price, 2)}
+        )
+        return (True, f"Bought {qty} @ ${last_price:.2f} (TP:{tp:.2f}% SL:{sl:.2f}%)")
+    except Exception as e:
+        return (False, f"Order failed: {e}")
 
-# Ledger for realized PnL
-def ledger_load(path):
-    return read_json(path) or {}
-
-def ledger_add_realized(path, ts, realized_pl):
-    data = ledger_load(path)
-    recs = data.get("records", [])
-    recs.append({"ts": ts, "realized_pl": float(realized_pl)})
-    data["records"] = recs
-    write_json(path, data)
-
-def ledger_today_loss(path):
-    data = ledger_load(path)
-    recs = data.get("records", [])
-    today = dt.datetime.now(pytz.UTC).date()
-    total_loss = 0.0
-    for r in recs:
-        try:
-            t = dt.datetime.fromisoformat(r["ts"])
-        except Exception:
-            try:
-                t = dt.datetime.strptime(r["ts"], "%Y-%m-%dT%H:%M:%S.%f%z")
-            except Exception:
-                continue
-        if t.date() == today:
-            pl = float(r.get("realized_pl", 0.0))
-            if pl < 0:
-                total_loss += -pl
-    return total_loss
-
-# Safety enforcement
-def sell_all(client: REST, symbol: str):
+def sell_flow(client, symbol: str, confidence: float = 0.0):
     pos = get_position(client, symbol)
     if not pos:
-        return False
-    qty = float(pos.get("qty", 0.0))
-    if qty <= 0:
-        return False
-    unrealized_pl = float(pos.get("unrealized_pl", 0.0))
+        return (False, "No position")
+    
+    qty = int(pos["qty"])
+    realized_pl = pos["unrealized_pl"]
+    
     try:
-        order = place_market_order(client, symbol, qty, side="sell")
-        ledger_add_realized(config.PNL_LEDGER_PATH, now_utc().isoformat(), unrealized_pl)
-        log_info("Sold all position qty=%.6f realized_pl=$%.2f", qty, unrealized_pl)
-        return True
-    except Exception:
-        log_exc("sell_all failed")
-        return False
-
-def enforce_safety(client: REST, symbol: str):
-    pos = get_position(client, symbol)
-    if not pos:
-        return
-    unrealized = float(pos.get("unrealized_pl", 0.0))
-    market_value = float(pos.get("market_value", 0.0))
-    if market_value <= 0:
-        return
-    try:
-        drawdown_pct = -100.0 * unrealized / (market_value - unrealized) if (market_value - unrealized) != 0 else 0.0
-    except Exception:
-        drawdown_pct = 0.0
-    if drawdown_pct > 0 and drawdown_pct >= config.MAX_DRAWDOWN_PERCENT:
-        log_warn("Drawdown %.2f%% >= max %.2f%% -> forcing exit", drawdown_pct, config.MAX_DRAWDOWN_PERCENT)
-        sell_all(client, symbol)
-        return
-    if config.MAX_POSITION_AGE_HOURS and config.MAX_POSITION_AGE_HOURS > 0:
+        # Cancel bracket orders
+        orders = client.list_orders(status='open', symbols=[symbol])
+        for order in orders:
+            try:
+                client.cancel_order(order.id)
+            except:
+                pass
+        
+        # Market sell
+        client.submit_order(symbol=symbol, qty=qty, side='sell', type='market', time_in_force='gtc')
+        
+        # Log to PnL ledger
         try:
-            orders = client.get_orders(status='closed', symbols=[symbol], limit=50, nested=False)
-            last_fill = None
-            for o in orders:
-                if getattr(o, "side", "").lower() == "buy" and getattr(o, "filled_at", None):
-                    t = getattr(o, "filled_at")
-                    if isinstance(t, str):
-                        t = dt.datetime.fromisoformat(t.replace("Z", "+00:00"))
-                    if last_fill is None or t > last_fill:
-                        last_fill = t
-            if last_fill:
-                age_hours = (now_utc() - last_fill).total_seconds() / 3600.0
-                if age_hours >= config.MAX_POSITION_AGE_HOURS:
-                    log_warn("Position age %.2fh >= %.2f -> forcing exit", age_hours, config.MAX_POSITION_AGE_HOURS)
-                    sell_all(client, symbol)
-                return
-        except Exception:
-            LOG.debug("Could not determine position age")
-    if config.DAILY_LOSS_LIMIT_USD and config.DAILY_LOSS_LIMIT_USD > 0:
-        today_loss = ledger_today_loss(config.PNL_LEDGER_PATH)
-        if today_loss >= config.DAILY_LOSS_LIMIT_USD:
-            log_warn("Daily loss limit reached ($%.2f >= $%.2f). Halting and exiting positions.", today_loss, config.DAILY_LOSS_LIMIT_USD)
-            sell_all(client, symbol)
-            return
+            ledger_path = "pnl_ledger.json"
+            ledger = []
+            if os.path.exists(ledger_path):
+                with open(ledger_path, "r") as f:
+                    ledger = json.load(f)
+            
+            ledger.append({
+                "timestamp": dt.datetime.now(pytz.UTC).isoformat(),
+                "symbol": symbol,
+                "realized_pl": realized_pl
+            })
+            
+            with open(ledger_path, "w") as f:
+                json.dump(ledger, f, indent=2)
+        except:
+            pass
+        
+        return (True, f"Sold {qty} shares (P&L: ${realized_pl:+.2f})")
+    except Exception as e:
+        return (False, f"Sell failed: {e}")
 
-# Buy & Sell flows
-def buy_flow(client: REST, symbol: str, last_price: float, max_cap_usd: float, confidence: float, base_frac: float, base_tp: float, base_sl: float, dynamic_enabled: bool, fixed_usd_override: float = 0.0, interval_seconds: Optional[int] = None):
+def enforce_safety(client, symbol: str):
+    # Daily loss check
     try:
-        if has_open_order(client, symbol, "buy"):
-            return False, "duplicate buy order exists"
-        pos = get_position(client, symbol)
-        current_value = float(pos["market_value"]) if pos else 0.0
-        if current_value >= max_cap_usd - 1e-9:
-            return False, "at/above cap"
-        remaining = max(0.0, max_cap_usd - current_value)
+        account = client.get_account()
+        equity = float(account.equity)
+        last_equity = float(account.last_equity)
+        daily_pnl_pct = ((equity - last_equity) / last_equity) * 100
+        
+        if daily_pnl_pct < -config.MAX_DAILY_LOSS_PERCENT:
+            log_warn(f"Daily loss limit hit: {daily_pnl_pct:.2f}%")
+            sell_flow(client, symbol)
+            sys.exit(1)
+    except:
+        pass
 
-        vol_pct = 0.0
-        try:
-            # Use the actual interval being traded, not the default
-            use_interval = int(interval_seconds) if interval_seconds else int(config.DEFAULT_INTERVAL_SECONDS)
-            closes_for_vol = fetch_closes(client, symbol, use_interval, config.VOLATILITY_WINDOW)
-            vol_pct = pct_stddev(closes_for_vol)
-            if vol_pct >= config.VOLATILITY_PCT_THRESHOLD:
-                return False, "volatility too high"
-        except Exception:
-            LOG.debug("volatility check failed")
-
-        if confidence <= 0 or abs(confidence) < config.MIN_CONFIDENCE_TO_TRADE:
-            return False, f"confidence {confidence:.4f} below min {config.MIN_CONFIDENCE_TO_TRADE}"
-
-        if dynamic_enabled:
-            tp, sl, frac = adjust_runtime_params(base_tp, base_sl, base_frac, confidence, vol_pct)
-            # Fetch closes once for both risky mode and profitability gate (efficiency optimization)
-            closes_for_proj = None
-            try:
-                if config.RISKY_MODE_ENABLED or config.PROFITABILITY_GATE_ENABLED:
-                    use_secs = int(interval_seconds or config.DEFAULT_INTERVAL_SECONDS)
-                    closes_for_proj = fetch_closes(client, symbol, use_secs, max(config.LONG_WINDOW + 50, 200))
-            except Exception:
-                pass
-            # Optional risky overlay: nudge TP/SL and size when expected daily justifies it
-            try:
-                if config.RISKY_MODE_ENABLED and closes_for_proj:
-                    use_secs = int(interval_seconds or config.DEFAULT_INTERVAL_SECONDS)
-                    proj = simulate_signals_and_projection(closes_for_proj, use_secs, override_tp_pct=tp, override_sl_pct=sl, override_trade_frac=frac, override_cap_usd=max_cap_usd)
-                    if proj:
-                        exp_daily = float(proj.get("expected_daily_usd", 0.0))
-                        trades_per_day = float(proj.get("expected_trades_per_day", 0.0))
-                        vol_gate = config.VOLATILITY_PCT_THRESHOLD * config.RISKY_VOL_MULTIPLIER
-                        tpd_gate = config.SUGGESTION_MAX_TRADES_PER_DAY * config.RISKY_TRADES_PER_DAY_MULTIPLIER
-                        if exp_daily >= config.RISKY_EXPECTED_DAILY_USD_MIN and vol_pct <= vol_gate and trades_per_day <= max(1.0, tpd_gate):
-                            tp = min(config.MAX_TAKE_PROFIT_PERCENT, tp * config.RISKY_TP_MULT)
-                            sl = min(config.MAX_STOP_LOSS_PERCENT, sl * config.RISKY_SL_MULT)
-                            frac = min(config.RISKY_MAX_FRAC_CAP, max(config.MIN_TRADE_SIZE_FRAC, frac * config.RISKY_SIZE_MULT))
-            except Exception:
-                pass
-            # Profitability gate: configurable and with strong-confidence bypass
-            try:
-                if config.PROFITABILITY_GATE_ENABLED and closes_for_proj:
-                    use_secs = int(interval_seconds or config.DEFAULT_INTERVAL_SECONDS)
-                    proj_gate = simulate_signals_and_projection(closes_for_proj, use_secs, override_tp_pct=tp, override_sl_pct=sl, override_trade_frac=frac, override_cap_usd=max_cap_usd)
-                    exp_gate = float((proj_gate or {}).get("expected_daily_usd", 0.0))
-                    strong_conf = (abs(confidence) >= float(config.STRONG_CONFIDENCE_THRESHOLD)) if config.STRONG_CONFIDENCE_BYPASS_ENABLED else False
-                    if (exp_gate < float(config.PROFITABILITY_MIN_EXPECTED_USD)) and not strong_conf:
-                        return False, "profitability gate"
-            except Exception:
-                pass
-            # frac already adjusted by confidence, don't scale again (fixes double-scaling bug)
-            qty = compute_order_qty_from_remaining(remaining, last_price, confidence, frac, fixed_usd=fixed_usd_override, scale_with_confidence=False)
-        else:
-            tp, sl, frac = base_tp, base_sl, base_frac
-            # frac not adjusted, so scale by confidence now
-            qty = compute_order_qty_from_remaining(remaining, last_price, confidence, frac, fixed_usd=fixed_usd_override, scale_with_confidence=True)
-        if qty <= 0:
-            return False, "computed qty <= 0"
-
-        order = place_market_order(client, symbol, qty, side="buy")
-        filled_qty = float(getattr(order, "filled_qty", 0) or 0)
-        avg_fill_price = float(getattr(order, "filled_avg_price", 0) or last_price)
-        if filled_qty <= 0:
-            return False, "buy did not fill"
-
-        submit_tp_sl(client, symbol, filled_qty, avg_fill_price, tp, sl)
-        log_info("Bought %.6f @ %.4f tp=%.2f sl=%.2f frac=%.3f vol=%.4f", filled_qty, avg_fill_price, tp, sl, frac, vol_pct)
-        return True, f"bought {filled_qty} @ {avg_fill_price}"
-    except TimeoutError as te:
-        log_exc("buy timeout: %s", te)
-        return False, "buy timeout"
-    except Exception:
-        log_exc("buy flow exception")
-        return False, "buy exception"
-
-def sell_flow(client: REST, symbol: str, confidence: Optional[float] = None):
-    pos = get_position(client, symbol)
-    if not pos:
-        return False, "no position"
-    qty = float(pos.get("qty", 0.0))
-    if qty <= 0:
-        return False, "qty <= 0"
-    unrealized_pl = float(pos.get("unrealized_pl", 0.0))
-    sell_qty = qty
-    try:
-        if config.SELL_PARTIAL_ENABLED and confidence is not None:
-            frac = min(1.0, max(0.0, abs(confidence)))
-            sell_qty = max(0.0, math.floor(qty * frac * 1_000_000) / 1_000_000)
-            if sell_qty <= 0:
-                return False, "sell fraction <= 0"
-    except Exception:
-        LOG.debug("sell partial calc failed")
-
-    # Calculate proportional realized PnL for partial sells
-    realized_pl = unrealized_pl * (sell_qty / qty) if qty > 0 else 0.0
-    try:
-        order = place_market_order(client, symbol, sell_qty, side="sell")
-        ledger_add_realized(config.PNL_LEDGER_PATH, now_utc().isoformat(), realized_pl)
-        log_info("Sold qty=%.6f realized_pl=$%.2f", sell_qty, realized_pl)
-        return True, f"sold {sell_qty}"
-    except Exception:
-        log_exc("sell flow failed")
-        return False, "sell exception"
-
-# Interval suggestion & daily projection
+# ===== Simulation =====
 def simulate_signals_and_projection(
     closes: List[float],
     interval_seconds: int,
     override_tp_pct: Optional[float] = None,
     override_sl_pct: Optional[float] = None,
     override_trade_frac: Optional[float] = None,
-    override_cap_usd: Optional[float] = None,
-):
-    # simulate crossovers across 'closes' and attempt to estimate:
-    # - expected signals per bar
-    # - win ratio estimate by looking ahead up to lookahead bars for TP or SL
-    signals = []
-    # Start from LONG_WINDOW (inclusive) to maximize signal detection
-    for i in range(config.LONG_WINDOW, len(closes)):
-        window = closes[: i + 1]
-        act = decide_action(window, config.SHORT_WINDOW, config.LONG_WINDOW)
-        if act in ("buy", "sell"):
-            signals.append((i, act))
-    bars_per_day = max(1.0, (390.0 * 60.0) / max(1.0, interval_seconds))
-    # Use valid simulation window (excluding warmup period) for accurate frequency
-    simulation_bars = max(1.0, len(closes) - config.LONG_WINDOW)
-    expected_trades_per_day = (len(signals) / simulation_bars) * bars_per_day
-
-    # estimate win rate: for each signal, look forward up to lookahead bars and check if price crosses TP before SL
-    lookahead = min(50, int(60 * 60 / max(1, interval_seconds)))  # up to 1 hour
+    override_cap_usd: Optional[float] = None
+) -> dict:
+    
+    if len(closes) < config.LONG_WINDOW + 10:
+        return {"win_rate": 0.0, "expected_trades_per_day": 0.0, "expected_daily_usd": 0.0}
+    
+    tp_pct = override_tp_pct if override_tp_pct is not None else config.TAKE_PROFIT_PERCENT
+    sl_pct = override_sl_pct if override_sl_pct is not None else config.STOP_LOSS_PERCENT
+    frac = override_trade_frac if override_trade_frac is not None else config.TRADE_SIZE_FRAC_OF_CAP
+    cap = override_cap_usd if override_cap_usd is not None else config.MAX_CAP_USD
+    
     wins = 0
-    trials = 0
-    for idx, act in signals:
-        entry = closes[idx]
-        tp_pct = (override_tp_pct if override_tp_pct is not None else config.TAKE_PROFIT_PERCENT)
-        sl_pct = (override_sl_pct if override_sl_pct is not None else config.STOP_LOSS_PERCENT)
-        # For buy signals: TP is above entry, SL is below
-        # For sell signals: TP is below entry (short), SL is above
-        if act == "buy":
-            tp = entry * (1.0 + float(tp_pct) / 100.0)
-            sl = entry * (1.0 - float(sl_pct) / 100.0)
-        else:  # sell
-            tp = entry * (1.0 - float(tp_pct) / 100.0)
-            sl = entry * (1.0 + float(sl_pct) / 100.0)
-        hit = None
-        for j in range(idx + 1, min(len(closes), idx + lookahead + 1)):
-            price = closes[j]
-            if act == "buy":
-                if price >= tp:
-                    hit = "tp"
+    total_signals = 0
+    
+    for i in range(config.LONG_WINDOW, len(closes)):
+        window = closes[:i+1]
+        action = decide_action(window, config.SHORT_WINDOW, config.LONG_WINDOW)
+        
+        if action == "buy":
+            total_signals += 1
+            price = closes[i]
+            
+            tp_price = price * (1 + tp_pct / 100)
+            sl_price = price * (1 - sl_pct / 100)
+            
+            for j in range(i + 1, len(closes)):
+                if closes[j] >= tp_price:
+                    wins += 1
                     break
-                if price <= sl:
-                    hit = "sl"
+                elif closes[j] <= sl_price:
                     break
-            else:  # sell
-                if price <= tp:
-                    hit = "tp"
+        
+        elif action == "sell":
+            total_signals += 1
+            price = closes[i]
+            
+            tp_price = price * (1 - tp_pct / 100)
+            sl_price = price * (1 + sl_pct / 100)
+            
+            for j in range(i + 1, len(closes)):
+                if closes[j] <= tp_price:
+                    wins += 1
                     break
-                if price >= sl:
-                    hit = "sl"
+                elif closes[j] >= sl_price:
                     break
-        if hit:
-            trials += 1
-            if hit == "tp":
-                wins += 1
-    win_rate = (wins / trials) if trials > 0 else 0.5  # fallback 50%
-    trade_frac = float(override_trade_frac) if override_trade_frac is not None else float(config.TRADE_SIZE_FRAC_OF_CAP)
-    cap_usd = float(override_cap_usd) if override_cap_usd is not None else float(config.MAX_CAP_USD)
-    avg_trade_size = trade_frac * cap_usd
-    tp_eval = float(override_tp_pct) if override_tp_pct is not None else float(config.TAKE_PROFIT_PERCENT)
-    sl_eval = float(override_sl_pct) if override_sl_pct is not None else float(config.STOP_LOSS_PERCENT)
-    expected_return_per_trade = ((tp_eval / 100.0) * win_rate) - ((sl_eval / 100.0) * (1 - win_rate))
-    expected_daily = expected_return_per_trade * expected_trades_per_day * avg_trade_size
-    min_trials = getattr(config, "SUGGESTION_MIN_TRIALS", 30)
-    sufficient = trials >= max(1, int(min_trials))
-    return {"expected_trades_per_day": expected_trades_per_day, "win_rate": win_rate, "expected_daily_usd": expected_daily, "signals": len(signals), "trials": trials, "wins": wins, "sufficient_samples": sufficient}
+    
+    win_rate = wins / total_signals if total_signals > 0 else 0.0
+    simulation_bars = max(1.0, len(closes) - config.LONG_WINDOW)
+    bars_per_day = (86400 / interval_seconds)
+    days_simulated = simulation_bars / bars_per_day
+    trades_per_day = total_signals / days_simulated if days_simulated > 0 else 0.0
+    
+    expected_return_per_trade = ((tp_pct / 100) * win_rate) - ((sl_pct / 100) * (1 - win_rate))
+    usable_cap_per_trade = cap * frac
+    expected_usd_per_trade = usable_cap_per_trade * expected_return_per_trade
+    expected_daily_usd = expected_usd_per_trade * trades_per_day
+    
+    return {
+        "win_rate": win_rate,
+        "expected_trades_per_day": trades_per_day,
+        "expected_daily_usd": expected_daily_usd
+    }
 
-# Interval suggestion via public history across multiple candidate intervals
-def suggest_interval_from_public_history(client: REST, symbol: str, candidates_seconds: List[int], bars: int, cap_usd: Optional[float] = None):
-    results = []  # (sec, trades_per_day, expected_daily_usd)
-    actual_cap = float(cap_usd) if cap_usd is not None else float(config.MAX_CAP_USD)
-    for secs in candidates_seconds:
+# ===== Market Hours =====
+def in_market_hours(client) -> bool:
+    try:
+        clock = client.get_clock()
+        return clock.is_open
+    except:
+        now = dt.datetime.now(pytz.timezone('US/Eastern'))
+        return now.weekday() < 5 and 9 <= now.hour < 16
+
+def sleep_until_market_open(client):
+    log_info("Market closed. Sleeping until open...")
+    while not in_market_hours(client):
+        if SCHEDULED_TASK_MODE:
+            log_info("Market closed in scheduled task mode - exiting")
+            sys.exit(0)
+        time.sleep(300)
+
+def prevent_system_sleep(enable: bool):
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        ES_CONTINUOUS = 0x80000000
+        ES_SYSTEM_REQUIRED = 0x00000001
+        if enable:
+            ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)
+        else:
+            ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS)
+    except:
+        pass
+
+# ===== Portfolio Evaluation =====
+def evaluate_portfolio_and_opportunities(
+    client,
+    current_symbols: List[str],
+    forced_symbols: List[str],
+    scan_universe: List[str],
+    interval_seconds: int,
+    cap_per_stock: float,
+    max_positions: int
+) -> Dict:
+    results = {
+        "current_scores": {},
+        "opportunities": [],
+        "rebalance_suggestions": []
+    }
+    
+    # Score current positions
+    for symbol in current_symbols:
         try:
-            closes = fetch_closes(client, symbol, int(secs), bars)
-            if not closes or len(closes) < max(config.LONG_WINDOW + 10, 30):
+            closes = fetch_closes(client, symbol, interval_seconds, config.LONG_WINDOW + 50)
+            if not closes:
                 continue
-            sim = simulate_signals_and_projection(closes, int(secs), override_cap_usd=actual_cap)
-            results.append((int(secs), float(sim["expected_trades_per_day"]), float(sim["expected_daily_usd"])) )
-        except Exception:
-            continue
-    if not results:
-        return None, []
-    # Pick the interval that maximizes expected_daily_usd (profit-driven)
-    chosen = max(results, key=lambda r: r[2])
-    return chosen[0], results
+            confidence = compute_confidence(closes)
+            action = decide_action(closes, config.SHORT_WINDOW, config.LONG_WINDOW)
+            
+            score = confidence
+            if action == "sell":
+                score -= 0.05
+            
+            if symbol in forced_symbols:
+                score += 999
+            
+            results["current_scores"][symbol] = score
+        except:
+            if symbol in forced_symbols:
+                results["current_scores"][symbol] = 998
+            else:
+                results["current_scores"][symbol] = -999
+    
+    # Scan for opportunities
+    if len(current_symbols) < max_positions or (results["current_scores"] and min(results["current_scores"].values()) < 0):
+        try:
+            scan_results = scan_stocks(
+                symbols=[s for s in scan_universe if s not in current_symbols],
+                interval_seconds=interval_seconds,
+                cap_per_stock=cap_per_stock,
+                max_results=5,
+                verbose=False
+            )
+            results["opportunities"] = scan_results
+        except Exception as e:
+            log_warn(f"Stock scan failed: {e}")
+    
+    # Generate rebalance suggestions
+    if results["opportunities"] and results["current_scores"]:
+        replaceable_stocks = {s: score for s, score in results["current_scores"].items() 
+                             if s not in forced_symbols}
+        
+        if replaceable_stocks:
+            worst_held = min(replaceable_stocks.items(), key=lambda x: x[1])
+            best_opportunity = results["opportunities"][0] if results["opportunities"] else None
+            
+            if best_opportunity and worst_held[1] < 0 and best_opportunity["score"] > worst_held[1] + 0.1:
+                results["rebalance_suggestions"].append((worst_held[0], best_opportunity["symbol"]))
+    
+    return results
 
-# Market hours helper
-def in_market_hours(client: REST) -> bool:
-    if not config.ENABLE_MARKET_HOURS_ONLY:
-        return True
-    try:
-        clock = client.get_clock()
-        return getattr(clock, "is_open", True)
-    except Exception:
-        LOG.debug("could not fetch market clock")
-        return True
-
-# Market open helpers
-def seconds_until_next_open(client: REST) -> float:
-    try:
-        clock = client.get_clock()
-        if getattr(clock, "is_open", False):
-            return 0.0
-        next_open = getattr(clock, "next_open", None)
-        if next_open is None:
-            return 300.0
-        t = next_open
-        if isinstance(t, str):
-            t = dt.datetime.fromisoformat(t.replace("Z", "+00:00"))
-        if t.tzinfo is None:
-            t = t.replace(tzinfo=pytz.UTC)
-        now = now_utc()
-        delta = (t - now).total_seconds()
-        if delta < 0:
-            return 0.0
-        # clamp overly large waits (we'll re-check periodically anyway)
-        return float(delta)
-    except Exception:
-        return 300.0
-
-def sleep_until_market_open(client: REST, min_check_seconds: float = 60.0, max_check_seconds: float = 900.0):
-    # Single-chunk strategy with 5-minute pre-wake; exit if far from open in task mode
-    if in_market_hours(client):
-        return
-    # Market is closed; release any keep-awake request until pre-open window
-    try:
-        prevent_system_sleep(False)
-    except Exception:
-        pass
-    try:
-        secs_total = seconds_until_next_open(client)
-    except Exception:
-        secs_total = 300.0
-    # Always wait until pre-open/open instead of exiting (avoid restart loops)
-    prewake = max(0.0, secs_total - 300.0)
-    if prewake > 0:
-        log_info("Market closed. Sleeping %.0fs until 5m before open", prewake)
-        time.sleep(prewake)
-    # If market opened while we were sleeping to prewake, skip remaining sleep
-    if in_market_hours(client):
-        return
-    # Pre-open window: keep system awake and finish remaining sleep until open
-    try:
-        remain = max(0.0, seconds_until_next_open(client))
-    except Exception:
-        remain = 300.0
-    if remain <= 0.0 or in_market_hours(client):
-        return
-    log_info("Pre-open window: sleeping %.0fs until open (keeping system awake)", remain)
-    prevent_system_sleep(True)
-    time.sleep(remain)
-    prevent_system_sleep(False)
-
-# Main
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-t", "--time", type=float, default=(config.DEFAULT_INTERVAL_SECONDS / 3600.0), help="Polling interval hours (e.g., 2 => 2h, .001 => ~3.6s)")
-    parser.add_argument("-s", "--symbol", type=str, default=config.DEFAULT_TICKER, help="Ticker symbol")
-    parser.add_argument("-m", "--max-cap", type=float, default=config.MAX_CAP_USD, help="Max cap per symbol (USD)")
-    parser.add_argument("--tp", type=float, default=config.TAKE_PROFIT_PERCENT, help="Override take-profit percent")
-    parser.add_argument("--sl", type=float, default=config.STOP_LOSS_PERCENT, help="Override stop-loss percent")
-    parser.add_argument("--frac", type=float, default=config.TRADE_SIZE_FRAC_OF_CAP, help="Override base trade fraction of cap")
-    parser.add_argument("--fixed-usd", type=float, default=config.FIXED_TRADE_USD, help="Override fixed USD per buy (0 to disable)")
-    parser.add_argument("--no-dynamic", action="store_true", help="Disable dynamic sizing/TP/SL; use provided base values")
-    # remove per-buy override to keep sizing purely dynamic
-    parser.add_argument("--go-live", action="store_true", help="Enable live trading (requires CONFIRM_GO_LIVE=YES)")
-    parser.add_argument("--allow-missing-keys", action="store_true", help="Debug: allow missing API keys")
+# ===== Main =====
+def main():
+    parser = argparse.ArgumentParser(description="Unified trading bot (single or multi-stock)")
+    parser.add_argument("-t", "--time", type=float, required=True,
+                       help="Trading interval in hours (0.25=15min, 1.0=1hr)")
+    parser.add_argument("-m", "--max-cap", type=float, required=True,
+                       help="Total capital (for multi-stock) or max capital (for single-stock)")
+    parser.add_argument("-s", "--symbol", type=str,
+                       help="For single-stock mode: stock symbol. For multi-stock: leave blank or use --stocks")
+    parser.add_argument("--stocks", nargs="+",
+                       help="Force specific stocks in portfolio")
+    parser.add_argument("--max-stocks", type=int, default=15,
+                       help="Max positions (default: 15 for multi-stock, use 1 for single-stock)")
+    parser.add_argument("--cap-per-stock", type=float,
+                       help="Capital per stock (default: total/max)")
+    parser.add_argument("--tp", type=float,
+                       help="Take profit percent (overrides config)")
+    parser.add_argument("--sl", type=float,
+                       help="Stop loss percent (overrides config)")
+    parser.add_argument("--frac", type=float,
+                       help="Position size fraction (overrides config)")
+    parser.add_argument("--no-dynamic", action="store_true",
+                       help="Disable dynamic adjustments")
+    parser.add_argument("--rebalance-every", type=int, default=4,
+                       help="Rebalance every N intervals (multi-stock only)")
+    parser.add_argument("--go-live", action="store_true",
+                       help="Enable live trading")
+    parser.add_argument("--allow-missing-keys", action="store_true",
+                       help="Debug mode")
+    
     args = parser.parse_args()
-
-    # no per-buy override; sizing is dynamic
-
+    
+    # Determine mode
+    is_multi_stock = args.max_stocks > 1 or args.stocks
+    
+    if is_multi_stock:
+        # Multi-stock mode
+        forced_stocks = [s.upper() for s in args.stocks] if args.stocks else []
+        
+        if len(forced_stocks) > args.max_stocks:
+            log_warn(f"ERROR: Specified {len(forced_stocks)} stocks but max is {args.max_stocks}")
+            return 1
+        
+        cap_per_stock = args.cap_per_stock or (args.max_cap / args.max_stocks)
+        
+        if cap_per_stock < 10:
+            log_warn(f"WARNING: Capital per stock is ${cap_per_stock:.2f} (very small)")
+            response = input("Continue anyway? (y/n): ").strip().lower()
+            if response != 'y':
+                return 1
+    else:
+        # Single-stock mode
+        if not args.symbol:
+            log_warn("ERROR: Single-stock mode requires -s/--symbol")
+            return 1
+        
+        symbol = args.symbol.upper()
+        cap_per_stock = args.max_cap
+        forced_stocks = [symbol]
+    
+    # Setup
+    interval_seconds = int(args.time * 3600)
+    
     try:
-        if args.go_live:
-            # require CONFIRM_GO_LIVE=YES env var
-            if not config.wants_live_mode(cli_flag_go_live=True):
-                log_warn("Attempted to go live without CONFIRM_GO_LIVE=YES. Aborting.")
-                return 3
-            log_warn("LIVE MODE requested by user. Make sure ALPACA_BASE_URL and keys are live.")
         client = make_client(allow_missing=args.allow_missing_keys, go_live=args.go_live)
-    except Exception:
-        log_exc("Failed to create Alpaca client")
+    except Exception as e:
+        log_warn(f"Failed to create client: {e}")
         return 2
-
-    # Convert hours to seconds, but allow very small hour values for sub-minute polling
-    interval = max(1.0, float(args.time) * 3600.0)
-    symbol = args.symbol.upper()
-    max_cap = float(args.max_cap)
-
-    log_info("Starting bot for %s interval=%.1fs (%.3fh) max_cap=$%.2f", symbol, interval, interval/3600.0, max_cap)
-    try:
-        enforce_log_max_lines(100)
-    except Exception:
-        pass
-
-    # Base parameters from CLI (outside loop)
-    base_tp = float(args.tp)
-    base_sl = float(args.sl)
-    base_frac = float(args.frac)
-    fixed_usd = float(args.fixed_usd)
-    dynamic_enabled = (not args.no_dynamic)
-
-    # ensure ledger
-    if not os.path.exists(config.PNL_LEDGER_PATH):
-        write_json(config.PNL_LEDGER_PATH, {"records": []})
-
-    # initial interval suggestion + daily projection based on history
-    try:
-        # Reduced bar count for faster startup (efficiency optimization)
-        bars = max(config.INTERVAL_SUGGESTION_WINDOW_BARS, config.LONG_WINDOW + 100)
-        # Reduced candidate set to avoid excessive API calls (10 steps instead of 20)
-        min_secs = 60  # Start at 1 minute instead of 23s
-        max_secs = int(6.5 * 3600)
-        steps = 10  # Reduced from 20
-        ratio = (max_secs / float(min_secs)) ** (1.0 / max(1, steps - 1))
-        cand = []
-        cur = float(min_secs)
-        for _ in range(steps):
-            cand.append(int(max(5, round(cur))))
-            cur *= ratio
-        # Include key common intervals and current interval only
-        cand.extend([60, 300, 900, 3600, int(max(5, int(interval)))])
-        # Snap all candidates to supported sizes to avoid duplicates
-        snapped = [snap_interval_to_supported_seconds(x) for x in cand]
-        candidates = sorted(set(snapped))
-        suggested, details = suggest_interval_from_public_history(client, symbol, candidates, bars, cap_usd=max_cap)
-        if details:
-            # Log summary from public history (no re-fetching for efficiency)
-            cur = next((d for d in details if d[0] == int(interval)), None)
-            if cur:
-                log_info("Projection (public hist @%ds): trades/day=%.2f expected_daily=$%.2f", cur[0], cur[1], cur[2])
-            best = next((d for d in details if d[0] == suggested), None)
-            if best and best[0] != int(interval):
-                best_hours = best[0] / 3600.0
-                log_warn("Suggested interval (public history): %ds (%.4fh) (current %ds) — expected_daily=$%.2f", best[0], best_hours, int(interval), best[2])
-    except Exception:
-        log_exc("Interval suggestion/projection failed (non-fatal)")
-
-    # main loop
+    
+    # Initialize portfolio manager
+    portfolio = PortfolioManager() if is_multi_stock else None
+    
+    # Log startup
+    log_info(f"{'='*70}")
+    log_info(f"UNIFIED TRADING BOT STARTING")
+    log_info(f"{'='*70}")
+    log_info(f"  Mode: {'Multi-Stock Portfolio' if is_multi_stock else 'Single-Stock'}")
+    log_info(f"  Interval: {interval_seconds}s ({args.time}h)")
+    log_info(f"  Total Capital: ${args.max_cap}")
+    log_info(f"  Max Positions: {args.max_stocks}")
+    log_info(f"  Cap Per Stock: ${cap_per_stock:.2f}")
+    
+    if is_multi_stock:
+        log_info(f"  Forced Stocks: {len(forced_stocks)}")
+        log_info(f"  Auto-Fill Slots: {args.max_stocks - len(forced_stocks)}")
+        log_info(f"  Rebalance Every: {args.rebalance_every} intervals")
+        
+        # Sync with broker
+        try:
+            account = client.get_account()
+            positions = client.list_positions()
+            log_info(f"Broker: ${float(account.portfolio_value):.2f} total value")
+            log_info(f"Found {len(positions)} existing positions")
+            for pos in positions:
+                portfolio.update_position(
+                    pos.symbol,
+                    float(pos.qty),
+                    float(pos.avg_entry_price),
+                    float(pos.market_value),
+                    float(pos.unrealized_pl)
+                )
+        except Exception as e:
+            log_warn(f"Could not sync: {e}")
+        
+        scan_universe = get_stock_universe()
+    else:
+        log_info(f"  Symbol: {symbol}")
+    
+    log_info(f"{'='*70}\n")
+    
+    iteration = 0
+    
     try:
         while True:
-            # Always enforce truncation to keep bot.log within cap, even when file writes are via Tee
-            try:
-                enforce_log_max_lines(100)
-            except Exception:
-                pass
-            start = now_utc()
-
+            iteration += 1
+            
             if not in_market_hours(client):
                 sleep_until_market_open(client)
                 continue
-            # Ensure the system doesn't sleep during active market hours
+            
             prevent_system_sleep(True)
-
-            try:
-                bars_needed = max(config.LONG_WINDOW + 2, config.VOLATILITY_WINDOW + 2)
-                closes = fetch_closes(client, symbol, int(interval), bars_needed)
-                if not closes or len(closes) < config.LONG_WINDOW:
-                    log_info("Not enough bars (%d) for signal (need %d). Sleeping %.1fs.", len(closes), config.LONG_WINDOW, interval)
-                    time.sleep(interval)
-                    continue
-            except Exception:
-                backoff = min(60, interval * 2)
-                log_exc("Market data fetch error; sleeping %.1fs", backoff)
-                time.sleep(backoff)
-                continue
-
-            action = decide_action(closes, config.SHORT_WINDOW, config.LONG_WINDOW)
-            confidence = compute_confidence(closes)
-            last_price = float(closes[-1])
-
-            log_info("Decision=%s confidence=%.4f price=%.4f short_ma=%.4f long_ma=%.4f", action, confidence, last_price, sma(closes, config.SHORT_WINDOW) or 0.0, sma(closes, config.LONG_WINDOW) or 0.0)
-
-            try:
-                enforce_safety(client, symbol)
-            except Exception:
-                log_exc("Safety enforcement error (non-fatal)")
-
-            if action == "buy":
-                ok, msg = buy_flow(client, symbol, last_price, max_cap, max(0.0, confidence), base_frac, base_tp, base_sl, dynamic_enabled, fixed_usd_override=fixed_usd, interval_seconds=int(interval))
-                log_info("Buy result: ok=%s msg=%s", ok, msg)
-            elif action == "sell":
-                ok, msg = sell_flow(client, symbol, confidence=min(0.0, confidence))
-                log_info("Sell result: ok=%s msg=%s", ok, msg)
+            
+            log_info(f"=== Iteration {iteration} ===")
+            
+            if is_multi_stock:
+                # Multi-stock logic
+                current_positions = portfolio.get_all_positions()
+                held_symbols = list(current_positions.keys())
+                log_info(f"Positions: {len(held_symbols)}/{args.max_stocks}")
+                
+                # Update positions
+                for sym in held_symbols:
+                    try:
+                        pos = get_position(client, sym)
+                        if pos:
+                            portfolio.update_position(sym, pos["qty"], pos["avg_entry_price"], 
+                                                    pos["market_value"], pos["unrealized_pl"])
+                        else:
+                            portfolio.remove_position(sym)
+                    except:
+                        pass
+                
+                # Rebalancing check
+                should_rebalance = (iteration % args.rebalance_every == 0)
+                
+                if should_rebalance or len(held_symbols) < len(forced_stocks):
+                    log_info("Evaluating portfolio...")
+                    evaluation = evaluate_portfolio_and_opportunities(
+                        client, held_symbols, forced_stocks, scan_universe,
+                        interval_seconds, cap_per_stock, args.max_stocks
+                    )
+                    
+                    # Execute rebalancing
+                    for sell_sym, buy_sym in evaluation["rebalance_suggestions"]:
+                        log_info(f"🔄 REBALANCE: Sell {sell_sym} → Buy {buy_sym}")
+                        ok, msg = sell_flow(client, sell_sym)
+                        if ok:
+                            portfolio.remove_position(sell_sym)
+                            log_info(f"✅ {msg}")
+                
+                # Determine stocks to trade
+                stocks_to_evaluate = list(set(forced_stocks + held_symbols))
+                
+                # Add opportunities if room
+                if len(stocks_to_evaluate) < args.max_stocks:
+                    try:
+                        opportunities = scan_stocks(
+                            symbols=[s for s in scan_universe if s not in stocks_to_evaluate],
+                            interval_seconds=interval_seconds,
+                            cap_per_stock=cap_per_stock,
+                            max_results=args.max_stocks - len(stocks_to_evaluate),
+                            verbose=False
+                        )
+                        for opp in opportunities:
+                            if opp["expected_daily"] >= config.PROFITABILITY_MIN_EXPECTED_USD:
+                                stocks_to_evaluate.append(opp["symbol"])
+                                log_info(f"  Adding {opp['symbol']} (${opp['expected_daily']:.2f}/day)")
+                                if len(stocks_to_evaluate) >= args.max_stocks:
+                                    break
+                    except:
+                        pass
+                
+                # Trade each stock
+                log_info(f"\nTrading {len(stocks_to_evaluate)} stocks:")
+                for i, sym in enumerate(stocks_to_evaluate, 1):
+                    try:
+                        log_info(f"[{i}/{len(stocks_to_evaluate)}] {sym}...")
+                        closes = fetch_closes(client, sym, interval_seconds, config.LONG_WINDOW + 10)
+                        if not closes:
+                            log_info(f"  No data")
+                            continue
+                        
+                        action = decide_action(closes, config.SHORT_WINDOW, config.LONG_WINDOW)
+                        confidence = compute_confidence(closes)
+                        last_price = closes[-1]
+                        
+                        log_info(f"  ${last_price:.2f} | {action.upper()} | conf={confidence:.4f}")
+                        
+                        enforce_safety(client, sym)
+                        
+                        if action == "buy":
+                            ok, msg = buy_flow(
+                                client, sym, last_price, cap_per_stock,
+                                max(0.0, confidence),
+                                args.frac or config.TRADE_SIZE_FRAC_OF_CAP,
+                                args.tp or config.TAKE_PROFIT_PERCENT,
+                                args.sl or config.STOP_LOSS_PERCENT,
+                                dynamic_enabled=not args.no_dynamic,
+                                interval_seconds=interval_seconds
+                            )
+                            log_info(f"  {'✅' if ok else '⚪'} {msg}")
+                        elif action == "sell":
+                            ok, msg = sell_flow(client, sym)
+                            log_info(f"  {'✅' if ok else '⚪'} {msg}")
+                    except Exception as e:
+                        log_warn(f"  Error: {e}")
+                
+                # Portfolio summary
+                total_value = portfolio.get_total_market_value()
+                total_pl = portfolio.get_total_unrealized_pl()
+                log_info(f"\nPortfolio: ${total_value:.2f} | P&L: ${total_pl:+.2f}\n")
+            
             else:
-                LOG.debug("No trade this interval")
-
-            try:
-                p = get_position(client, symbol)
-                if p:
-                    log_info("Snapshot: qty=%.6f mkt=%.2f unreal_pl=%.2f", p["qty"], p["market_value"], p["unrealized_pl"])
-            except Exception:
-                LOG.debug("Snapshot fetch failed")
-
-            # Final trim at end of loop to ensure cap holds even after large write bursts
-            try:
-                enforce_log_max_lines(100)
-            except Exception:
-                pass
-            elapsed = (now_utc() - start).total_seconds()
-            to_sleep = max(0.0, interval - elapsed)
-            LOG.debug("Loop took %.2fs sleeping %.2fs", elapsed, to_sleep)
-            time.sleep(to_sleep)
+                # Single-stock logic
+                log_info(f"Trading {symbol}...")
+                closes = fetch_closes(client, symbol, interval_seconds, config.LONG_WINDOW + 10)
+                if not closes:
+                    log_info("No data available")
+                    time.sleep(interval_seconds)
+                    continue
+                
+                action = decide_action(closes, config.SHORT_WINDOW, config.LONG_WINDOW)
+                confidence = compute_confidence(closes)
+                last_price = closes[-1]
+                
+                log_info(f"${last_price:.2f} | {action.upper()} | conf={confidence:.4f}")
+                
+                enforce_safety(client, symbol)
+                
+                if action == "buy":
+                    ok, msg = buy_flow(
+                        client, symbol, last_price, cap_per_stock,
+                        max(0.0, confidence),
+                        args.frac or config.TRADE_SIZE_FRAC_OF_CAP,
+                        args.tp or config.TAKE_PROFIT_PERCENT,
+                        args.sl or config.STOP_LOSS_PERCENT,
+                        dynamic_enabled=not args.no_dynamic,
+                        interval_seconds=interval_seconds
+                    )
+                    log_info(f"{'✅' if ok else '⚪'} {msg}")
+                elif action == "sell":
+                    ok, msg = sell_flow(client, symbol)
+                    log_info(f"{'✅' if ok else '⚪'} {msg}\n")
+            
+            time.sleep(interval_seconds)
+    
     except KeyboardInterrupt:
-        log_info("KeyboardInterrupt - exiting")
-        try:
-            prevent_system_sleep(False)
-        except Exception:
-            pass
+        log_info("Interrupted - shutting down")
+        prevent_system_sleep(False)
         return 0
-    except Exception:
-        log_exc("Unhandled exception - exiting")
-        try:
-            prevent_system_sleep(False)
-        except Exception:
-            pass
+    except Exception as e:
+        log_error(f"Fatal error: {e}")
+        prevent_system_sleep(False)
         return 1
+
 
 if __name__ == "__main__":
     sys.exit(main())

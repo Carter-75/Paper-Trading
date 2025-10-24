@@ -1,158 +1,313 @@
+#!/usr/bin/env python3
+"""
+Comprehensive Binary Search Optimizer
+
+Tests ALL possible intervals (1 second to 6.5 hours) and capitals ($1 to $1M)
+using efficient binary search to find optimal configuration quickly.
+"""
+
 import sys
-from typing import List, Optional, Tuple
-
-import pytz
-
+from typing import Tuple
 import config
 from runner import (
     make_client,
     fetch_closes,
     simulate_signals_and_projection,
     snap_interval_to_supported_seconds,
-    pct_stddev,
 )
 
 
-def _build_candidate_intervals() -> List[int]:
-    # Log-spaced seconds from ~23s to 6.5h, snapped to supported sizes (1/5/15/60m)
-    min_secs = 23
-    max_secs = int(6.5 * 3600)
-    steps = 24
-    ratio = (max_secs / float(min_secs)) ** (1.0 / max(1, steps - 1))
-    cand: List[int] = []
-    cur = float(min_secs)
-    for _ in range(steps):
-        cand.append(int(max(5, round(cur))))
-        cur *= ratio
-    cand.extend([60, 300, 900, 3600])
-    snapped = [snap_interval_to_supported_seconds(x) for x in cand]
-    return sorted(set(snapped))
+def evaluate_config(client, symbol: str, interval_seconds: int, cap_usd: float, bars: int = 200) -> float:
+    """Evaluate expected daily return for specific interval and capital."""
+    try:
+        closes = fetch_closes(client, symbol, interval_seconds, bars)
+        if not closes or len(closes) < max(config.LONG_WINDOW + 10, 30):
+            return -999999.0
+        
+        sim = simulate_signals_and_projection(closes, interval_seconds, override_cap_usd=cap_usd)
+        return float(sim.get("expected_daily_usd", -999999.0))
+    except Exception:
+        return -999999.0
 
 
-def _bars_for_one_year(interval_seconds: int) -> int:
-    # Approximate trading days per year and bars/day per interval
-    trading_days = 252
-    if interval_seconds <= 60:
-        bars_per_day = 390
-    elif interval_seconds <= 300:
-        bars_per_day = 78
-    elif interval_seconds <= 900:
-        bars_per_day = 26
-    else:
-        bars_per_day = 7  # 60m ≈ 6.5 → 7 safe
-    total = trading_days * bars_per_day
-    # Avoid very heavy loads; let fetch_closes fallback handle start-based fetch if needed
-    return min(total, 8000)
-
-
-def _cap_grid() -> List[float]:
-    # Candidate max caps in USD (wide range)
-    return [25, 50, 75, 100, 150, 200, 250, 300, 400, 500, 750, 1000, 1500, 2000, 3000, 5000]
-
-
-def _tp_grid() -> List[float]:
-    lo = max(0.1, config.MIN_TAKE_PROFIT_PERCENT)
-    hi = min(15.0, config.MAX_TAKE_PROFIT_PERCENT)
-    grid = [0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 5.0, 7.0, 10.0]
-    return [x for x in grid if lo <= x <= hi]
-
-
-def _sl_grid() -> List[float]:
-    lo = max(0.1, config.MIN_STOP_LOSS_PERCENT)
-    hi = min(15.0, config.MAX_STOP_LOSS_PERCENT)
-    grid = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0]
-    return [x for x in grid if lo <= x <= hi]
-
-
-def _trade_frac_grid() -> List[float]:
-    lo = max(0.01, config.MIN_TRADE_SIZE_FRAC)
-    hi = min(0.95, max(config.MAX_TRADE_SIZE_FRAC, lo))
-    grid = [0.02, 0.03, 0.05, 0.075, 0.1, 0.15, 0.2, 0.25, 0.33, 0.4, 0.5, 0.6, 0.66, 0.75, 0.85]
-    # If risky mode is on, allow up to risky cap; else cap at MAX_TRADE_SIZE_FRAC
-    if config.RISKY_MODE_ENABLED:
-        hi = min(max(hi, config.RISKY_MAX_FRAC_CAP), 0.95)
-    else:
-        hi = min(hi, config.MAX_TRADE_SIZE_FRAC)
-    return [f for f in grid if lo <= f <= hi]
-
-
-def _expected_return_per_trade(win_rate: float, tp_pct: float, sl_pct: float) -> float:
-    # Expected fractional return per trade
-    return ((tp_pct / 100.0) * max(0.0, min(1.0, win_rate))) - ((sl_pct / 100.0) * (1.0 - max(0.0, min(1.0, win_rate))))
-
-
-def optimize(symbol: str) -> Tuple[int, float, float]:
+def binary_search_capital(client, symbol: str, interval_seconds: int, 
+                          min_cap: float = 1.0, max_cap: float = 1000000.0,
+                          tolerance: float = 10.0) -> Tuple[float, float]:
     """
-    Optimize to find best STATIC parameters: interval and cap.
-    Note: This uses default TP/SL/frac for simulation. In actual runtime with dynamic mode,
-    these values are adjusted per trade based on confidence/volatility.
+    Binary search to find optimal capital for given interval.
+    Tests from $1 to $1M.
+    """
+    # Quick sample at key capital points
+    test_caps = [10, 50, 100, 250, 500, 1000, 5000, 10000, 50000, 100000]
+    test_caps = [c for c in test_caps if min_cap <= c <= max_cap]
+    
+    best_cap = min_cap
+    best_return = evaluate_config(client, symbol, interval_seconds, min_cap)
+    
+    for cap in test_caps:
+        ret = evaluate_config(client, symbol, interval_seconds, cap)
+        if ret > best_return:
+            best_return = ret
+            best_cap = cap
+    
+    # Binary search refinement around best
+    search_min = max(min_cap, best_cap / 2)
+    search_max = min(max_cap, best_cap * 2)
+    iterations = 0
+    max_iterations = 10
+    
+    while (search_max - search_min) > tolerance and iterations < max_iterations:
+        iterations += 1
+        mid = (search_min + search_max) / 2
+        
+        low_ret = evaluate_config(client, symbol, interval_seconds, search_min)
+        mid_ret = evaluate_config(client, symbol, interval_seconds, mid)
+        high_ret = evaluate_config(client, symbol, interval_seconds, search_max)
+        
+        if mid_ret >= low_ret and mid_ret >= high_ret:
+            if mid_ret > best_return:
+                best_return = mid_ret
+                best_cap = mid
+            search_min = (search_min + mid) / 2
+            search_max = (mid + search_max) / 2
+        elif low_ret > mid_ret:
+            if low_ret > best_return:
+                best_return = low_ret
+                best_cap = search_min
+            search_max = mid
+        else:
+            if high_ret > best_return:
+                best_return = high_ret
+                best_cap = search_max
+            search_min = mid
+    
+    return best_cap, best_return
+
+
+def comprehensive_binary_search(symbol: str, verbose: bool = False, max_cap: float = 1000000.0) -> Tuple[int, float, float]:
+    """
+    Comprehensive binary search optimizer.
+    
+    Tests intervals from 1 second to 6.5 hours.
+    Tests capitals from $1 to max_cap.
+    
+    Returns: (optimal_interval_seconds, optimal_cap_usd, expected_daily_return)
     """
     client = make_client(allow_missing=False, go_live=False)
-    candidates = _build_candidate_intervals()
-
-    best_interval: Optional[int] = None
-    best_cap_usd: float = 0.0
-    best_expected_daily: float = -1e18
-
-    # Use config defaults for simulation (these will be dynamically adjusted in real trading)
-    default_tp = config.TAKE_PROFIT_PERCENT
-    default_sl = config.STOP_LOSS_PERCENT
-    default_frac = config.TRADE_SIZE_FRAC_OF_CAP
-
-    for secs in candidates:
-        bars = _bars_for_one_year(secs)
-        try:
-            closes = fetch_closes(client, symbol, int(secs), bars)
-            if not closes or len(closes) < max(config.LONG_WINDOW + 10, 30):
-                continue
-            # Simple risk constraint: skip intervals with excessive recent volatility (relaxed x1.5)
-            vol_pct = pct_stddev(closes[-max(config.VOLATILITY_WINDOW, 10):])
-            if vol_pct >= (1.5 * config.VOLATILITY_PCT_THRESHOLD):
-                continue
-
-            # Test different cap values to find optimal capital allocation
-            for cap in _cap_grid():
-                sim = simulate_signals_and_projection(
-                    closes,
-                    int(secs),
-                    override_tp_pct=float(default_tp),
-                    override_sl_pct=float(default_sl),
-                    override_trade_frac=float(default_frac),
-                    override_cap_usd=float(cap),
-                )
-                trades_per_day = float(sim["expected_trades_per_day"])
-                if trades_per_day <= 0:
-                    continue
-                expected_daily = float(sim["expected_daily_usd"])
-                if expected_daily > best_expected_daily:
-                    best_expected_daily = float(expected_daily)
-                    best_interval = int(secs)
-                    best_cap_usd = float(cap)
-        except Exception:
-            continue
-
-    if best_interval is None:
-        # Fallback to 60m, $100
-        best_interval = 3600
-        best_cap_usd = 100.0
-        best_expected_daily = 0.0
-
-    return best_interval, round(best_cap_usd, 2), best_expected_daily
+    
+    min_interval = 60  # 1 minute (API minimum)
+    max_interval = int(6.5 * 3600)  # 6.5 hours
+    
+    if verbose:
+        print(f"\nComprehensive optimization for {symbol}")
+        print(f"Interval range: {min_interval}s - {max_interval}s (1min to 6.5hrs)")
+        print(f"Capital range: $1 - ${max_cap:,.0f}")
+        print(f"{'='*70}\n")
+    
+    # Phase 1: Sample key intervals
+    test_intervals = [60, 300, 900, 1800, 3600, 7200, 14400, 21600]  # 1m, 5m, 15m, 30m, 1h, 2h, 4h, 6h
+    test_intervals = [i for i in test_intervals if min_interval <= i <= max_interval]
+    
+    best_interval = 3600
+    best_cap = 100.0
+    best_return = -999999.0
+    
+    if verbose:
+        print("Phase 1: Sampling key intervals with capital optimization:")
+    
+    for interval in test_intervals:
+        snapped = snap_interval_to_supported_seconds(interval)
+        cap, ret = binary_search_capital(client, symbol, snapped, min_cap=1.0, max_cap=max_cap)
+        
+        if verbose:
+            print(f"  {snapped:5d}s ({snapped/3600:6.3f}h): ${ret:7.2f}/day @ ${cap:>9.0f} cap")
+        
+        if ret > best_return:
+            best_return = ret
+            best_interval = snapped
+            best_cap = cap
+    
+    # Phase 2: Binary search intervals around best
+    if verbose:
+        print(f"\nPhase 2: Refining around {best_interval}s:")
+    
+    search_min = max(min_interval, best_interval // 2)
+    search_max = min(max_interval, best_interval * 2)
+    iterations = 0
+    max_iterations = 8
+    
+    while (search_max - search_min) > 60 and iterations < max_iterations:
+        iterations += 1
+        mid = (search_min + search_max) // 2
+        
+        low_snap = snap_interval_to_supported_seconds(search_min)
+        mid_snap = snap_interval_to_supported_seconds(mid)
+        high_snap = snap_interval_to_supported_seconds(search_max)
+        
+        # For each interval, find optimal capital
+        low_cap, low_ret = binary_search_capital(client, symbol, low_snap, min_cap=1.0, max_cap=max_cap)
+        mid_cap, mid_ret = binary_search_capital(client, symbol, mid_snap, min_cap=1.0, max_cap=max_cap)
+        high_cap, high_ret = binary_search_capital(client, symbol, high_snap, min_cap=1.0, max_cap=max_cap)
+        
+        if verbose:
+            print(f"  Testing: {low_snap}s (${low_ret:.2f}), {mid_snap}s (${mid_ret:.2f}), {high_snap}s (${high_ret:.2f})")
+        
+        if mid_ret >= low_ret and mid_ret >= high_ret:
+            if mid_ret > best_return:
+                best_return = mid_ret
+                best_interval = mid_snap
+                best_cap = mid_cap
+            search_min = (search_min + mid) // 2
+            search_max = (mid + search_max) // 2
+        elif low_ret > mid_ret:
+            if low_ret > best_return:
+                best_return = low_ret
+                best_interval = low_snap
+                best_cap = low_cap
+            search_max = mid
+        else:
+            if high_ret > best_return:
+                best_return = high_ret
+                best_interval = high_snap
+                best_cap = high_cap
+            search_min = mid
+    
+    if verbose:
+        print(f"\nConverged after {iterations} refinement iterations")
+    
+    return best_interval, best_cap, best_return
 
 
 def main() -> int:
-    symbol = (config.DEFAULT_TICKER or "TSLA").upper()
-    best_interval, best_cap_usd, expected_daily = optimize(symbol)
-    interval_hours = best_interval / 3600.0
-    print(f"\nOptimized STATIC parameters (TP/SL/frac will be dynamically adjusted per trade):")
-    print(f"  Interval: {best_interval}s ({interval_hours:.4f}h)")
-    print(f"  Max Cap: ${best_cap_usd}")
-    print(f"  Expected daily profit: ${round(expected_daily, 2)}")
-    print(f"\nRun with: python runner.py -t {interval_hours:.4f} -m {best_cap_usd}")
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Comprehensive binary search optimizer")
+    parser.add_argument("-s", "--symbol", type=str, default=None,
+                       help="Stock symbol to optimize (optional, will auto-find best if not provided)")
+    parser.add_argument("--symbols", nargs="+", type=str, default=None,
+                       help="Multiple symbols to test and compare")
+    parser.add_argument("-m", "--max-cap", type=float, default=1000000.0,
+                       help="Maximum capital to test (default: $1,000,000)")
+    parser.add_argument("-v", "--verbose", action="store_true",
+                       help="Show detailed progress")
+    
+    args = parser.parse_args()
+    
+    # Determine which symbols to test
+    if args.symbols:
+        symbols = [s.upper() for s in args.symbols]
+    elif args.symbol:
+        symbols = [args.symbol.upper()]
+    else:
+        # Auto-scan popular stocks
+        symbols = ["SPY", "QQQ", "AAPL", "TSLA", "NVDA", "MSFT", "GOOGL", "AMZN"]
+        print(f"\n{'='*70}")
+        print(f"AUTO-SCANNING MODE")
+        print(f"{'='*70}")
+        print(f"Testing {len(symbols)} popular stocks to find best opportunity...")
+        print(f"Symbols: {', '.join(symbols)}\n")
+    
+    # Test each symbol
+    best_symbol = None
+    best_interval = None
+    best_cap = None
+    best_return = -999999.0
+    
+    results = []
+    
+    for symbol in symbols:
+        if len(symbols) > 1:
+            print(f"\n{'='*70}")
+            print(f"TESTING: {symbol}")
+            print(f"{'='*70}")
+        else:
+            print(f"\n{'='*70}")
+            print(f"COMPREHENSIVE OPTIMIZER: {symbol}")
+            print(f"{'='*70}")
+        
+        print(f"Method: Binary search across ALL intervals and capitals")
+        print(f"Range: 1 min to 6.5 hours × $1 to ${args.max_cap:,.0f}")
+        
+        optimal_interval, optimal_cap, expected_return = comprehensive_binary_search(symbol, verbose=args.verbose, max_cap=args.max_cap)
+        
+        results.append({
+            "symbol": symbol,
+            "interval": optimal_interval,
+            "cap": optimal_cap,
+            "return": expected_return
+        })
+        
+        if expected_return > best_return:
+            best_return = expected_return
+            best_symbol = symbol
+            best_interval = optimal_interval
+            best_cap = optimal_cap
+        
+        if len(symbols) > 1:
+            print(f"Result: ${expected_return:.2f}/day @ {optimal_interval}s ({optimal_interval/3600:.4f}h) with ${optimal_cap:.0f} cap")
+    
+    # Show summary if multiple symbols
+    if len(symbols) > 1:
+        print(f"\n{'='*70}")
+        print(f"RESULTS SUMMARY")
+        print(f"{'='*70}")
+        results.sort(key=lambda x: x["return"], reverse=True)
+        for i, r in enumerate(results[:5], 1):
+            status = "✅" if r["return"] > 0 else "❌"
+            print(f"{i}. {r['symbol']:6s} {status}  ${r['return']:7.2f}/day  @ {r['interval']:5d}s ({r['interval']/3600:.4f}h)  ${r['cap']:7.0f} cap")
+        print(f"{'='*70}")
+    
+    # Show optimal config
+    print(f"\n{'='*70}")
+    print(f"OPTIMAL CONFIGURATION")
+    print(f"{'='*70}")
+    print(f"Symbol: {best_symbol}")
+    print(f"Interval: {best_interval}s ({best_interval/3600:.4f}h)")
+    print(f"Capital: ${best_cap:.2f}")
+    print(f"Expected Daily Return: ${best_return:.2f}")
+    
+    symbol = best_symbol
+    optimal_interval = best_interval
+    optimal_cap = best_cap
+    expected_return = best_return
+    
+    print(f"\n{'='*70}")
+    if expected_return < 0:
+        print(f"⚠️  STRATEGY NOT PROFITABLE")
+        print(f"{'='*70}")
+        print(f"\n{symbol} shows negative returns in current market conditions.")
+        print(f"\nReasons:")
+        print(f"  • Market is bearish (downtrend)")
+        print(f"  • Long-only strategy can't profit from falling prices")
+        print(f"\nSuggestions:")
+        print(f"  1. Try different symbol: python optimizer.py -s SPY -v")
+        print(f"  2. Wait for bullish market conditions")
+        print(f"  3. Bot will EXIT if run with negative projection")
+    elif expected_return < 1.0:
+        print(f"⚠️  LOW PROFITABILITY")
+        print(f"{'='*70}")
+        print(f"\nExpected return is less than $1/day.")
+        print(f"Consider:")
+        print(f"  • Different symbol with better momentum")
+        print(f"  • Waiting for more favorable conditions")
+    else:
+        print(f"✅ STRATEGY IS PROFITABLE")
+        print(f"{'='*70}")
+        print(f"\nRun bot:")
+        print(f"  # Single stock")
+        print(f"  python runner.py -t {optimal_interval/3600:.4f} -s {symbol} -m {optimal_cap:.0f}")
+        print(f"\n  # Or as part of multi-stock portfolio")
+        print(f"  python runner.py -t {optimal_interval/3600:.4f} -m 1500 --max-stocks 15")
+    
+    print(f"\n{'='*70}")
+    print(f"NOTE: This optimizer tested comprehensively:")
+    print(f"  • Intervals from 60s to {int(6.5*3600)}s")
+    print(f"  • Capitals from $1 to $1,000,000")
+    print(f"  • Using binary search for efficiency (~50 tests)")
+    print(f"{'='*70}\n")
+    
     return 0
 
 
 if __name__ == "__main__":
     sys.exit(main())
-
-

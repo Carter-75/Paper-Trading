@@ -29,7 +29,6 @@ CONFIRM_GO_LIVE: str = os.getenv("CONFIRM_GO_LIVE", "NO")
 # -------------------
 # Strategy / runtime bases (these remain as user-configured defaults)
 # -------------------
-DEFAULT_TICKER: str = os.getenv("DEFAULT_TICKER", "TSLA")
 DEFAULT_INTERVAL_SECONDS: float = float(os.getenv("DEFAULT_INTERVAL_SECONDS", "900"))
 SHORT_WINDOW: int = int(os.getenv("SHORT_WINDOW", "9"))
 LONG_WINDOW: int = int(os.getenv("LONG_WINDOW", "21"))
@@ -96,9 +95,11 @@ RISKY_MAX_FRAC_CAP: float = float(os.getenv("RISKY_MAX_FRAC_CAP", "0.95") or 1.0
 
 # Profitability/Confidence gates
 PROFITABILITY_GATE_ENABLED: bool = os.getenv("PROFITABILITY_GATE_ENABLED", "1") in ("1", "true", "True")
-PROFITABILITY_MIN_EXPECTED_USD: float = float(os.getenv("PROFITABILITY_MIN_EXPECTED_USD", "0.00") or 0.0)
+PROFITABILITY_MIN_EXPECTED_USD: float = float(os.getenv("PROFITABILITY_MIN_EXPECTED_USD", "0.10") or 0.0)  # Raised to 10¢ minimum
 STRONG_CONFIDENCE_THRESHOLD: float = float(os.getenv("STRONG_CONFIDENCE_THRESHOLD", "0.08"))
 STRONG_CONFIDENCE_BYPASS_ENABLED: bool = os.getenv("STRONG_CONFIDENCE_BYPASS_ENABLED", "1") in ("1", "true", "True")
+# Startup safety: exit if expected return is negative
+EXIT_ON_NEGATIVE_PROJECTION: bool = os.getenv("EXIT_ON_NEGATIVE_PROJECTION", "1") in ("1", "true", "True")
 
 # -------------------
 # Helpers
