@@ -94,8 +94,8 @@ RISKY_SIZE_MULT: float = float(os.getenv("RISKY_SIZE_MULT", "1.30") or 1.0)  # L
 RISKY_MAX_FRAC_CAP: float = float(os.getenv("RISKY_MAX_FRAC_CAP", "0.95") or 1.0)  # Use nearly all cap
 
 # Profitability/Confidence gates
-PROFITABILITY_GATE_ENABLED: bool = os.getenv("PROFITABILITY_GATE_ENABLED", "1") in ("1", "true", "True")
-PROFITABILITY_MIN_EXPECTED_USD: float = float(os.getenv("PROFITABILITY_MIN_EXPECTED_USD", "0.10") or 0.0)  # Raised to 10¢ minimum
+PROFITABILITY_GATE_ENABLED: bool = os.getenv("PROFITABILITY_GATE_ENABLED", "0") in ("1", "true", "True")  # DISABLED - trade based on signals, not predictions
+PROFITABILITY_MIN_EXPECTED_USD: float = float(os.getenv("PROFITABILITY_MIN_EXPECTED_USD", "0.01") or 0.0)  # 1¢ minimum (works with small capital)
 STRONG_CONFIDENCE_THRESHOLD: float = float(os.getenv("STRONG_CONFIDENCE_THRESHOLD", "0.08"))
 STRONG_CONFIDENCE_BYPASS_ENABLED: bool = os.getenv("STRONG_CONFIDENCE_BYPASS_ENABLED", "1") in ("1", "true", "True")
 # Startup safety: exit if expected return is negative

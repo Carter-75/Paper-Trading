@@ -31,7 +31,9 @@ def score_stock(symbol: str, interval_seconds: int, cap_per_stock: float, bars: 
         client = make_client(allow_missing=False, go_live=False)
         closes = fetch_closes(client, symbol, interval_seconds, bars)
         
-        if not closes or len(closes) < max(config.LONG_WINDOW + 10, 30):
+        # Lower minimum requirement to work with limited data
+        min_bars = max(config.LONG_WINDOW + 2, 25)
+        if not closes or len(closes) < min_bars:
             return None
         
         # Calculate metrics
@@ -68,7 +70,10 @@ def score_stock(symbol: str, interval_seconds: int, cap_per_stock: float, bars: 
             "current_price": closes[-1] if closes else 0.0
         }
     except Exception as e:
-        print(f"Warning: Could not score {symbol}: {e}")
+        if verbose:
+            print(f"Warning: Could not score {symbol}: {e}")
+            import traceback
+            traceback.print_exc()
         return None
 
 

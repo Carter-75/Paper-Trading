@@ -1,0 +1,102 @@
+INIT 2025-10-27T10:36:47 user=NT AUTHORITY\SYSTEM
+2025-10-27 10:37:39,364 INFO - 
+Portfolio: $0.00 | P&L: $+0.00
+======================================================================
+UNIFIED TRADING BOT STARTING
+======================================================================
+  Mode: Multi-Stock Portfolio
+  Interval: 900s (0.25h)
+  Total Capital: $100.0
+  Max Positions: 5
+  Forced Stocks: 0
+  Auto-Fill Slots: 5
+  Rebalance Every: 4 intervals
+  Allocation: Smart (profit-based)
+Broker: $100003.87 total value
+Found 0 existing positions
+======================================================================
+=== Iteration 1 ===
+Positions: 0/5 | Invested: $0.00/$100.00
+Scanned 0 opportunities (threshold: $0.10/day)
+Trading 0 stocks:
+Portfolio: $0.00 | P&L: $+0.00
+Interrupted - shutting down
+======================================================================
+UNIFIED TRADING BOT STARTING
+======================================================================
+  Mode: Multi-Stock Portfolio
+  Interval: 900s (0.25h)
+  Total Capital: $100.0
+  Max Positions: 5
+  Forced Stocks: 0
+  Auto-Fill Slots: 5
+  Rebalance Every: 4 intervals
+  Allocation: Smart (profit-based)
+Broker: $100003.87 total value
+Found 0 existing positions
+======================================================================
+=== Iteration 1 ===
+Positions: 0/5 | Invested: $0.00/$100.00
+Scanned 0 opportunities (threshold: $0.10/day)
+Trading 0 stocks:
+Portfolio: $0.00 | P&L: $+0.00
+======================================================================
+UNIFIED TRADING BOT STARTING
+======================================================================
+  Mode: Multi-Stock Portfolio
+  Interval: 900s (0.25h)
+  Total Capital: $100.0
+  Max Positions: 5
+  Forced Stocks: 0
+  Auto-Fill Slots: 5
+  Rebalance Every: 4 intervals
+  Allocation: Smart (profit-based)
+Broker: $100003.87 total value
+Found 0 existing positions
+======================================================================
+=== Iteration 1 ===
+Positions: 0/5 | Invested: $0.00/$100.00
+Scanned 5 opportunities (threshold: $0.10/day)
+  SPY: $0.34/day (score: 0.35)
+    -> ADDED to portfolio
+  QQQ: $0.34/day (score: 0.35)
+    -> ADDED to portfolio
+  AAPL: $0.34/day (score: 0.35)
+    -> ADDED to portfolio
+  GOOGL: $0.34/day (score: 0.35)
+    -> ADDED to portfolio
+  NVDA: $0.34/day (score: 0.35)
+    -> ADDED to portfolio
+Calculating smart capital allocation...
+Scoring 5 stocks for capital allocation...
+  SPY: exp_daily=$1.69, conf=0.0004, score=1.69
+  QQQ: exp_daily=$1.69, conf=0.0011, score=1.70
+  AAPL: exp_daily=$1.69, conf=0.0016, score=1.71
+  GOOGL: exp_daily=$1.69, conf=0.0017, score=1.71
+  NVDA: exp_daily=$1.69, conf=0.0003, score=1.69
+Viable stocks: 5/5
+Target Capital Allocation:
+  [NEW]  GOOGL: $24.02
+  [NEW]  AAPL: $23.45
+  [NEW]  QQQ: $20.39
+  [NEW]  SPY: $16.25
+  [NEW]  NVDA: $15.88
+Trading 5 stocks:
+[1/5] SPY (target: $16.25)...
+  $683.56 | HOLD | conf=0.0004
+  -- No signal
+[2/5] QQQ (target: $20.39)...
+  $626.75 | HOLD | conf=0.0011
+  -- No signal
+[3/5] AAPL (target: $23.45)...
+  $265.45 | HOLD | conf=0.0016
+  -- No signal
+[4/5] GOOGL (target: $24.02)...
+  $266.94 | HOLD | conf=0.0017
+  -- No signal
+[5/5] NVDA (target: $15.88)...
+  $190.99 | HOLD | conf=0.0003
+  -- No signal
+
+Portfolio: $0.00 | P&L: $+0.00
+
