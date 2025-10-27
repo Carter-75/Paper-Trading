@@ -579,6 +579,19 @@ def allocate_capital_smartly(
         cap_each = total_capital / len(symbols) if symbols else 0
         return {s: cap_each for s in symbols}
     
+    # Aggressive mode: Amplify differences (winners get MORE, losers get LESS)
+    # This concentrates capital on best performers for faster gains
+    if len(viable_symbols) > 1:
+        min_score = min(scores[s] for s in viable_symbols)
+        max_score = max(scores[s] for s in viable_symbols)
+        score_range = max_score - min_score if max_score > min_score else 1
+        
+        # Amplify score differences (best stocks get 50% bonus, worst get 0%)
+        for s in viable_symbols:
+            normalized = (scores[s] - min_score) / score_range if score_range > 0 else 0.5
+            aggression_bonus = 0.5 * normalized  # Best +50%, worst +0%
+            scores[s] = scores[s] * (1.0 + aggression_bonus)
+    
     # Calculate proportional allocation
     total_score = sum(scores[s] for s in viable_symbols)
     
@@ -711,8 +724,8 @@ def main():
                        help="For single-stock mode: stock symbol. For multi-stock: leave blank or use --stocks")
     parser.add_argument("--stocks", nargs="+",
                        help="Force specific stocks in portfolio")
-    parser.add_argument("--max-stocks", type=int, default=15,
-                       help="Max positions (default: 15 for multi-stock, use 1 for single-stock)")
+    parser.add_argument("--max-stocks", type=int, default=5,
+                       help="Max positions (default: 5 for concentrated gains, increase for more diversification)")
     parser.add_argument("--cap-per-stock", type=float,
                        help="Capital per stock (default: total/max)")
     parser.add_argument("--tp", type=float,

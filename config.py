@@ -34,7 +34,7 @@ SHORT_WINDOW: int = int(os.getenv("SHORT_WINDOW", "9"))
 LONG_WINDOW: int = int(os.getenv("LONG_WINDOW", "21"))
 
 # sizing (increased default from 0.50 to 0.65 for more aggressive profit targeting)
-TRADE_SIZE_FRAC_OF_CAP: float = float(os.getenv("TRADE_SIZE_FRAC_OF_CAP", "0.65"))
+TRADE_SIZE_FRAC_OF_CAP: float = float(os.getenv("TRADE_SIZE_FRAC_OF_CAP", "0.75"))  # Increased from 0.65 for more aggressive trading
 FIXED_TRADE_USD: float = float(os.getenv("FIXED_TRADE_USD", "0.0"))
 
 # per-symbol cap (USD)
