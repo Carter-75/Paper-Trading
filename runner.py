@@ -658,13 +658,12 @@ def allocate_capital_smartly(
     log_info(f"Scoring {len(symbols)} stocks for capital allocation...")
     for symbol in symbols:
         try:
-            closes = fetch_closes(client, symbol, interval_seconds, config.LONG_WINDOW + 50)
+            closes = fetch_closes(client, symbol, interval_seconds, 200)  # Match scanner's data length
             if not closes or len(closes) < config.LONG_WINDOW + 10:
                 scores[symbol] = 0.0
                 log_info(f"  {symbol}: No data (score: 0.0)")
                 continue
             
-            log_info(f"  DEBUG ALLOCATOR: {symbol} using cap=${total_capital}")
             sim = simulate_signals_and_projection(closes, interval_seconds, override_cap_usd=total_capital)
             expected_daily = sim.get("expected_daily_usd", 0.0)
             confidence = compute_confidence(closes)
