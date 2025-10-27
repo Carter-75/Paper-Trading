@@ -1096,15 +1096,24 @@ def main():
                             log_info(f"[{i}/{len(stocks_to_evaluate)}] {sym} (target: ${stock_cap:.2f})...")
                         
                         # Check if we need to sell excess (over-allocated)
+                        # BUT: Only sell if the stock is underperforming or there's a better opportunity
                         if existing_pos and allocation_diff < -10:  # Over target by $10+
-                            log_info(f"  REBALANCE: Over-allocated by ${-allocation_diff:.2f} - selling to rebalance")
-                            ok, msg = sell_flow(client, sym)
-                            if ok:
-                                portfolio.remove_position(sym)
-                                log_info(f"  OK {msg}")
+                            # Check if this stock is still profitable
+                            # If it's still good and in our top allocation, keep it!
+                            if sym in stock_allocations and stock_allocations[sym] > 10:
+                                # Stock is still in optimal portfolio, keep the excess
+                                log_info(f"  HOLD: Over-allocated by ${-allocation_diff:.2f} but still profitable - keeping")
+                                # Don't sell, continue to signal check
                             else:
-                                log_info(f"  -- {msg}")
-                            continue
+                                # Stock is no longer in optimal portfolio, or allocation is too small
+                                log_info(f"  REBALANCE: Over-allocated by ${-allocation_diff:.2f} and not in optimal portfolio - selling")
+                                ok, msg = sell_flow(client, sym)
+                                if ok:
+                                    portfolio.remove_position(sym)
+                                    log_info(f"  OK {msg}")
+                                else:
+                                    log_info(f"  -- {msg}")
+                                continue
                         
                         closes = fetch_closes(client, sym, interval_seconds, config.LONG_WINDOW + 10)
                         if not closes:

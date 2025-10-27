@@ -407,7 +407,7 @@ python "$BotDir\runner.py" -t 0.25 -s AAPL -m 100 --max-stocks 1
 
 From project directory:
 ```powershell
-.\botctl.ps1 start python -u runner.py -t 0.25 -s AAPL -m 100
+.\botctl.ps1 start python -u runner.py
 ```
 
 From anywhere:
