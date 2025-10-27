@@ -820,8 +820,8 @@ def main():
                        help="For single-stock mode: stock symbol. For multi-stock: leave blank or use --stocks")
     parser.add_argument("--stocks", nargs="+",
                        help="Force specific stocks in portfolio")
-    parser.add_argument("--max-stocks", type=int, default=5,
-                       help="Max positions (default: 5 for concentrated gains, increase for more diversification)")
+    parser.add_argument("--max-stocks", type=int, default=15,
+                       help="Max positions (default: 15, bot will use fewer if not enough profitable stocks)")
     parser.add_argument("--cap-per-stock", type=float,
                        help="Capital per stock (default: total/max)")
     parser.add_argument("--tp", type=float,
