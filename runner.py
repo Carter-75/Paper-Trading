@@ -148,6 +148,42 @@ def snap_interval_to_supported_seconds(seconds: int) -> int:
         return 14400
 
 def fetch_closes(client, symbol: str, interval_seconds: int, limit_bars: int) -> List[float]:
+    # Try yfinance first (FREE, unlimited, great history)
+    try:
+        import yfinance as yf
+        
+        # Map seconds to yfinance interval
+        if interval_seconds <= 300:
+            yf_interval = "5m"
+            days = max(5, (limit_bars * 5 / 60 / 6.5) * 1.5)  # 5min bars, 6.5 hour day
+        elif interval_seconds <= 900:
+            yf_interval = "15m"
+            days = max(10, (limit_bars * 15 / 60 / 6.5) * 1.5)  # 15min bars
+        elif interval_seconds <= 3600:
+            yf_interval = "1h"
+            days = max(20, (limit_bars / 6.5) * 1.5)  # hourly bars
+        else:
+            yf_interval = "1d"
+            days = min(365, limit_bars * 1.5)  # daily bars
+        
+        from datetime import datetime, timedelta
+        import pytz
+        end = datetime.now(pytz.UTC)
+        start = end - timedelta(days=int(days))
+        
+        ticker = yf.Ticker(symbol)
+        hist = ticker.history(start=start, end=end, interval=yf_interval)
+        
+        if not hist.empty and 'Close' in hist.columns:
+            closes = list(hist['Close'].values)
+            # Return the most recent bars up to limit
+            result = closes[-limit_bars:] if len(closes) > limit_bars else closes
+            if len(result) >= 25:  # Got enough data
+                return result
+    except Exception as e:
+        pass  # Fall back to Alpaca
+    
+    # Fallback to Alpaca
     try:
         snap = snap_interval_to_supported_seconds(interval_seconds)
         
@@ -280,7 +316,7 @@ def adjust_runtime_params(confidence: float, base_tp: float, base_sl: float, bas
     if config.RISKY_MODE_ENABLED:
         tp *= config.RISKY_TP_MULT
         sl *= config.RISKY_SL_MULT
-        frac *= config.RISKY_FRAC_MULT
+        frac *= config.RISKY_SIZE_MULT  # Fixed: was RISKY_FRAC_MULT
         frac = min(frac, config.RISKY_MAX_FRAC_CAP)
     
     return tp, sl, frac

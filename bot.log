@@ -1,102 +1,102 @@
 INIT 2025-10-27T10:36:47 user=NT AUTHORITY\SYSTEM
-2025-10-27 10:37:39,364 INFO - 
-Portfolio: $0.00 | P&L: $+0.00
-======================================================================
-UNIFIED TRADING BOT STARTING
-======================================================================
-  Mode: Multi-Stock Portfolio
-  Interval: 900s (0.25h)
-  Total Capital: $100.0
-  Max Positions: 5
-  Forced Stocks: 0
-  Auto-Fill Slots: 5
-  Rebalance Every: 4 intervals
-  Allocation: Smart (profit-based)
-Broker: $100003.87 total value
-Found 0 existing positions
-======================================================================
-=== Iteration 1 ===
-Positions: 0/5 | Invested: $0.00/$100.00
-Scanned 0 opportunities (threshold: $0.10/day)
-Trading 0 stocks:
-Portfolio: $0.00 | P&L: $+0.00
-Interrupted - shutting down
-======================================================================
-UNIFIED TRADING BOT STARTING
-======================================================================
-  Mode: Multi-Stock Portfolio
-  Interval: 900s (0.25h)
-  Total Capital: $100.0
-  Max Positions: 5
-  Forced Stocks: 0
-  Auto-Fill Slots: 5
-  Rebalance Every: 4 intervals
-  Allocation: Smart (profit-based)
-Broker: $100003.87 total value
-Found 0 existing positions
-======================================================================
-=== Iteration 1 ===
-Positions: 0/5 | Invested: $0.00/$100.00
-Scanned 0 opportunities (threshold: $0.10/day)
-Trading 0 stocks:
-Portfolio: $0.00 | P&L: $+0.00
-======================================================================
-UNIFIED TRADING BOT STARTING
-======================================================================
-  Mode: Multi-Stock Portfolio
-  Interval: 900s (0.25h)
-  Total Capital: $100.0
-  Max Positions: 5
-  Forced Stocks: 0
-  Auto-Fill Slots: 5
-  Rebalance Every: 4 intervals
-  Allocation: Smart (profit-based)
-Broker: $100003.87 total value
-Found 0 existing positions
-======================================================================
-=== Iteration 1 ===
-Positions: 0/5 | Invested: $0.00/$100.00
-Scanned 5 opportunities (threshold: $0.10/day)
-  SPY: $0.34/day (score: 0.35)
+  MSFT: $4.70/day (score: 4.37)
     -> ADDED to portfolio
-  QQQ: $0.34/day (score: 0.35)
+  NVDA: $4.47/day (score: 3.66)
     -> ADDED to portfolio
-  AAPL: $0.34/day (score: 0.35)
+  BA: $3.16/day (score: 2.53)
     -> ADDED to portfolio
-  GOOGL: $0.34/day (score: 0.35)
+  NFLX: $2.47/day (score: 1.97)
     -> ADDED to portfolio
-  NVDA: $0.34/day (score: 0.35)
+  META: $2.00/day (score: 1.60)
     -> ADDED to portfolio
 Calculating smart capital allocation...
 Scoring 5 stocks for capital allocation...
-  SPY: exp_daily=$1.69, conf=0.0004, score=1.69
-  QQQ: exp_daily=$1.69, conf=0.0011, score=1.70
-  AAPL: exp_daily=$1.69, conf=0.0016, score=1.71
-  GOOGL: exp_daily=$1.69, conf=0.0017, score=1.71
-  NVDA: exp_daily=$1.69, conf=0.0003, score=1.69
+  MSFT: exp_daily=$-6.24, conf=0.0084, score=6.32
+  NVDA: exp_daily=$69.89, conf=0.0160, score=70.05
+  BA: exp_daily=$-19.97, conf=0.0025, score=19.99
+  NFLX: exp_daily=$-26.21, conf=0.0017, score=26.23
+  META: exp_daily=$1.25, conf=0.0100, score=1.35
 Viable stocks: 5/5
 Target Capital Allocation:
-  [NEW]  GOOGL: $24.02
-  [NEW]  AAPL: $23.45
-  [NEW]  QQQ: $20.39
-  [NEW]  SPY: $16.25
-  [NEW]  NVDA: $15.88
+  [NEW]  NVDA: $54.70
+  [NEW]  NFLX: $16.13
+  [NEW]  BA: $11.82
+  [NEW]  MSFT: $8.68
+  [NEW]  META: $8.68
 Trading 5 stocks:
-[1/5] SPY (target: $16.25)...
-  $683.56 | HOLD | conf=0.0004
+[1/5] MSFT (target: $8.68)...
+  $532.47 | BUY | conf=0.0084
+  -- Expected $-0.54/day < $0.1
+[2/5] NVDA (target: $54.70)...
+  $190.96 | BUY | conf=0.0160
+WARN:   Error: module 'config' has no attribute 'RISKY_FRAC_MULT'
+[3/5] BA (target: $11.82)...
+  $222.19 | BUY | conf=0.0025
+  -- Low confidence: 0.0025
+[4/5] NFLX (target: $16.13)...
+  $1097.65 | HOLD | conf=0.0017
   -- No signal
-[2/5] QQQ (target: $20.39)...
-  $626.75 | HOLD | conf=0.0011
+[5/5] META (target: $8.68)...
+  $752.30 | BUY | conf=0.0100
+WARN:   Error: module 'config' has no attribute 'RISKY_FRAC_MULT'
+Portfolio: $0.00 | P&L: $+0.00
+======================================================================
+UNIFIED TRADING BOT STARTING
+======================================================================
+  Mode: Multi-Stock Portfolio
+  Interval: 900s (0.25h)
+  Total Capital: $1500.0
+  Max Positions: 5
+  Forced Stocks: 0
+  Auto-Fill Slots: 5
+  Rebalance Every: 4 intervals
+  Allocation: Smart (profit-based)
+Broker: $100003.87 total value
+Found 0 existing positions
+======================================================================
+=== Iteration 1 ===
+Positions: 0/5 | Invested: $0.00/$1500.00
+Scanned 5 opportunities (threshold: $0.10/day)
+  MSFT: $70.49/day (score: 65.49)
+    -> ADDED to portfolio
+  NVDA: $67.02/day (score: 54.94)
+    -> ADDED to portfolio
+  BA: $47.38/day (score: 37.90)
+    -> ADDED to portfolio
+  NFLX: $36.98/day (score: 29.58)
+    -> ADDED to portfolio
+  META: $30.04/day (score: 24.04)
+    -> ADDED to portfolio
+Calculating smart capital allocation...
+Scoring 5 stocks for capital allocation...
+  MSFT: exp_daily=$-6.24, conf=0.0084, score=6.32
+  NVDA: exp_daily=$69.89, conf=0.0159, score=70.05
+  BA: exp_daily=$-19.97, conf=0.0025, score=19.99
+  NFLX: exp_daily=$-26.21, conf=0.0017, score=26.23
+  META: exp_daily=$1.25, conf=0.0100, score=1.35
+Viable stocks: 5/5
+Target Capital Allocation:
+  [NEW]  NVDA: $945.72
+  [NEW]  NFLX: $278.78
+  [NEW]  BA: $204.38
+  [NEW]  MSFT: $58.98
+  [NEW]  META: $12.13
+Trading 5 stocks:
+[1/5] MSFT (target: $58.98)...
+  $532.59 | BUY | conf=0.0084
+  -- Expected $-3.68/day < $0.1
+[2/5] NVDA (target: $945.72)...
+  $190.89 | BUY | conf=0.0160
+  -- Order failed: fractional orders must be DAY orders
+[3/5] BA (target: $204.38)...
+  $222.33 | BUY | conf=0.0025
+  -- Low confidence: 0.0025
+[4/5] NFLX (target: $278.78)...
+  $1098.00 | HOLD | conf=0.0017
   -- No signal
-[3/5] AAPL (target: $23.45)...
-  $265.45 | HOLD | conf=0.0016
-  -- No signal
-[4/5] GOOGL (target: $24.02)...
-  $266.94 | HOLD | conf=0.0017
-  -- No signal
-[5/5] NVDA (target: $15.88)...
-  $190.99 | HOLD | conf=0.0003
-  -- No signal
+[5/5] META (target: $12.13)...
+  $752.03 | BUY | conf=0.0100
+  -- Order failed: fractional orders must be DAY orders
 
 Portfolio: $0.00 | P&L: $+0.00
 
