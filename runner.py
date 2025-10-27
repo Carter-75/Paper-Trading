@@ -664,7 +664,7 @@ def allocate_capital_smartly(
                 log_info(f"  {symbol}: No data (score: 0.0)")
                 continue
             
-            sim = simulate_signals_and_projection(closes, interval_seconds, override_cap_usd=100)
+            sim = simulate_signals_and_projection(closes, interval_seconds, override_cap_usd=total_capital)
             expected_daily = sim.get("expected_daily_usd", 0.0)
             confidence = compute_confidence(closes)
             
