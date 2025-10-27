@@ -48,7 +48,16 @@ function New-StartScript([string]$line) {
     Add-Content -Path $ScriptPS1 -Value "Add-Content -Path '.\bot.log' -Value ('INIT ' + (Get-Date).ToString('s') + ' user=' + [System.Security.Principal.WindowsIdentity]::GetCurrent().Name)"
     Add-Content -Path $ScriptPS1 -Value 'while ($true) {'
     Add-Content -Path $ScriptPS1 -Value "  $line 2>&1 | Tee-Object -FilePath '.\bot.log' -Append"
-    Add-Content -Path $ScriptPS1 -Value '  Start-Sleep -Seconds 10'
+    Add-Content -Path $ScriptPS1 -Value '  $exitCode = $LASTEXITCODE'
+    Add-Content -Path $ScriptPS1 -Value '  if ($exitCode -eq 0) {'
+    Add-Content -Path $ScriptPS1 -Value '    # Exit code 0 = market closed cleanly, stop and let scheduled task handle next run'
+    Add-Content -Path $ScriptPS1 -Value '    Add-Content -Path ''.\bot.log'' -Value "Market closed - task will restart automatically when market opens"'
+    Add-Content -Path $ScriptPS1 -Value '    exit 0'
+    Add-Content -Path $ScriptPS1 -Value '  } else {'
+    Add-Content -Path $ScriptPS1 -Value '    # Non-zero exit = crash, restart quickly'
+    Add-Content -Path $ScriptPS1 -Value '    Add-Content -Path ''.\bot.log'' -Value "Bot crashed (exit $exitCode) - restarting in 10s"'
+    Add-Content -Path $ScriptPS1 -Value '    Start-Sleep -Seconds 10'
+    Add-Content -Path $ScriptPS1 -Value '  }'
     Add-Content -Path $ScriptPS1 -Value '}'
     try { Set-Content -Path $CmdFile -Value $line } catch {}
 }

@@ -201,7 +201,21 @@ Only trades your 3 picks.
 - `--rebalance-every N` - Rebalance frequency (default: 4)
 
 **💡 Smart Allocation (Always Enabled):**
-The bot automatically uses **smart capital allocation** - it analyzes each stock's profitability and allocates MORE capital to better opportunities, LESS to poor performers. This maximizes total portfolio returns.
+The bot automatically uses **smart capital allocation** to maximize returns:
+
+**How It Works:**
+1. **Max cap is your total budget** across ALL stocks (e.g., $1500 total, not per stock)
+2. **Scans all stocks** and ranks by profitability
+3. **Allocates more $ to better performers** (e.g., TSLA $600, AAPL $500, NVDA $400)
+4. **Sells underperformers** to free capital for better opportunities
+5. **Holds cash when needed** - being under max cap is totally fine!
+
+**Example:**
+```
+You have: TSLA $300, AAPL $400, NVDA $200 (Total: $900/$1500)
+Bot finds: TSLA still great, AAPL good, MSFT better than NVDA
+Action: Sells NVDA ($200) → Buys MSFT ($500) → Result: $900→$1000 invested
+```
 
 To force equal split instead, specify `--cap-per-stock` manually.
 
@@ -399,7 +413,7 @@ From project directory:
 From anywhere:
 ```powershell
 $BotPath = "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\botctl.ps1"
-pwsh -NoProfile -ExecutionPolicy Bypass -File $BotPath start python -u runner.py -t 0.25 -s AAPL -m 100
+pwsh -NoProfile -ExecutionPolicy Bypass -File $BotPath start python -u runner.py -t 0.25 -m 100
 ```
 
 **Control Commands (As Admin):**

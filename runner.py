@@ -38,11 +38,14 @@ load_dotenv()
 # ===== Logging Setup =====
 LOG = logging.getLogger("paper_trading_bot")
 LOG.setLevel(logging.INFO)
+LOG.propagate = False  # Prevent duplicate logging from parent loggers
 
-_console = logging.StreamHandler(sys.stdout)
-_console.setLevel(logging.INFO)
-_console.setFormatter(logging.Formatter("%(asctime)s %(levelname)s - %(message)s"))
-LOG.addHandler(_console)
+# Only add handler if not already added (prevents duplicates on module re-import)
+if not LOG.handlers:
+    _console = logging.StreamHandler(sys.stdout)
+    _console.setLevel(logging.INFO)
+    _console.setFormatter(logging.Formatter("%(asctime)s %(levelname)s - %(message)s"))
+    LOG.addHandler(_console)
 
 FILE_LOG_PATH = config.LOG_PATH
 DISABLE_FILE_LOG = os.getenv("BOT_TEE_LOG", "") in ("1", "true", "True")
@@ -73,31 +76,29 @@ def enforce_log_max_lines(max_lines: int = 100):
             return
         with open(FILE_LOG_PATH, "r", encoding="utf-8", errors="ignore") as fh:
             lines = fh.readlines()
-        init_line = None
-        for ln in reversed(lines):
-            if ln.startswith("INIT "):
-                init_line = ln
-                break
-        last_header_idx = None
-        for i in range(len(lines) - 1, -1, -1):
-            if "Starting bot for" in lines[i]:
-                last_header_idx = i
-                break
-        header_line = lines[last_header_idx] if last_header_idx is not None else None
+        
+        # Keep only non-empty lines
+        lines = [ln for ln in lines if ln.strip()]
         
         if len(lines) <= max_lines:
             return
         
-        kept = lines[-(max_lines - 2):]
-        final_lines = []
+        # Find INIT line
+        init_line = None
+        for ln in lines:
+            if ln.startswith("INIT "):
+                init_line = ln
+                break
+        
+        # Keep last N lines
+        kept = lines[-max_lines:]
+        
+        # Ensure INIT line is at the top if not already included
         if init_line and init_line not in kept:
-            final_lines.append(init_line)
-        if header_line and header_line not in kept:
-            final_lines.append(header_line)
-        final_lines.extend(kept)
+            kept = [init_line] + kept[1:]  # Replace first line with INIT
         
         with open(FILE_LOG_PATH, "w", encoding="utf-8") as fh:
-            fh.writelines(final_lines)
+            fh.writelines(kept)
     except Exception:
         pass
 
@@ -281,14 +282,20 @@ def adjust_runtime_params(confidence: float, base_tp: float, base_sl: float, bas
     
     return tp, sl, frac
 
-def compute_order_qty_from_remaining(current_price: float, remaining_cap: float, fraction: float) -> int:
+def compute_order_qty_from_remaining(current_price: float, remaining_cap: float, fraction: float) -> float:
+    """Calculate quantity to buy - supports fractional shares"""
     usable = remaining_cap * fraction
-    return int(usable / current_price)
+    qty = usable / current_price
+    # Round to 6 decimal places (standard for fractional shares)
+    return round(qty, 6)
 
-def buy_flow(client, symbol: str, last_price: float, max_cap: float,
+def buy_flow(client, symbol: str, last_price: float, available_cap: float,
              confidence: float, base_frac: float, base_tp: float, base_sl: float,
              dynamic_enabled: bool = True, interval_seconds: int = None):
-    
+    """
+    Buy a stock using available capital.
+    available_cap: How much capital is available for THIS specific trade
+    """
     pos = get_position(client, symbol)
     if pos:
         return (False, "Position exists")
@@ -300,7 +307,7 @@ def buy_flow(client, symbol: str, last_price: float, max_cap: float,
     if interval_seconds:
         closes = fetch_closes(client, symbol, interval_seconds, config.LONG_WINDOW + 50)
         if closes:
-            sim = simulate_signals_and_projection(closes, interval_seconds, override_cap_usd=max_cap)
+            sim = simulate_signals_and_projection(closes, interval_seconds, override_cap_usd=available_cap)
             expected_daily = float(sim.get("expected_daily_usd", 0.0))
             if expected_daily < config.PROFITABILITY_MIN_EXPECTED_USD:
                 return (False, f"Expected ${expected_daily:.2f}/day < ${config.PROFITABILITY_MIN_EXPECTED_USD}")
@@ -316,8 +323,8 @@ def buy_flow(client, symbol: str, last_price: float, max_cap: float,
     else:
         tp, sl, frac = base_tp, base_sl, base_frac
     
-    qty = compute_order_qty_from_remaining(last_price, max_cap, frac)
-    if qty < 1:
+    qty = compute_order_qty_from_remaining(last_price, available_cap, frac)
+    if qty < 0.001:  # Minimum fractional share
         return (False, "Insufficient capital")
     
     try:
@@ -334,7 +341,8 @@ def buy_flow(client, symbol: str, last_price: float, max_cap: float,
             take_profit={'limit_price': round(tp_price, 2)},
             stop_loss={'stop_price': round(sl_price, 2)}
         )
-        return (True, f"Bought {qty} @ ${last_price:.2f} (TP:{tp:.2f}% SL:{sl:.2f}%)")
+        shares_text = f"{qty:.6f}".rstrip('0').rstrip('.') if qty < 1 else f"{qty:.2f}"
+        return (True, f"Bought {shares_text} shares @ ${last_price:.2f} (TP:{tp:.2f}% SL:{sl:.2f}%)")
     except Exception as e:
         return (False, f"Order failed: {e}")
 
@@ -478,12 +486,37 @@ def in_market_hours(client) -> bool:
         return now.weekday() < 5 and 9 <= now.hour < 16
 
 def sleep_until_market_open(client):
-    log_info("Market closed. Sleeping until open...")
+    # Show countdown info once
+    try:
+        clock = client.get_clock()
+        if clock.next_open:
+            now = dt.datetime.now(pytz.UTC)
+            next_open = clock.next_open
+            if next_open.tzinfo is None:
+                next_open = pytz.UTC.localize(next_open)
+            
+            time_until_open = (next_open - now).total_seconds()
+            hours = int(time_until_open // 3600)
+            minutes = int((time_until_open % 3600) // 60)
+            
+            log_info(f"Market closed. Opens in {hours}h {minutes}m ({next_open.astimezone(pytz.timezone('US/Eastern')).strftime('%I:%M %p ET')})")
+        else:
+            log_info("Market closed. Waiting until open...")
+    except:
+        log_info("Market closed. Waiting until open...")
+    
+    # Exit immediately if in scheduled task mode
+    if SCHEDULED_TASK_MODE:
+        log_info("Scheduled task mode - exiting until next run")
+        sys.exit(0)
+    
+    # Otherwise sleep silently and check periodically (no log spam)
+    log_info("Sleeping silently until market opens...")
     while not in_market_hours(client):
-        if SCHEDULED_TASK_MODE:
-            log_info("Market closed in scheduled task mode - exiting")
-            sys.exit(0)
-        time.sleep(300)
+        time.sleep(300)  # Check every 5 minutes, but don't log
+    
+    # Market opened
+    log_info("Market is now open!")
 
 def prevent_system_sleep(enable: bool):
     if sys.platform != "win32":
@@ -644,6 +677,31 @@ def main():
     # Import here to avoid circular dependency
     from stock_scanner import scan_stocks, get_stock_universe
     
+    # Quick check: Don't even start if market is closed and won't open soon
+    if SCHEDULED_TASK_MODE:
+        try:
+            now = dt.datetime.now(pytz.timezone('US/Eastern'))
+            # Only run if it's a weekday and either market is open or within 1 hour of opening
+            is_weekday = now.weekday() < 5
+            hour = now.hour
+            minute = now.minute
+            time_in_minutes = hour * 60 + minute
+            market_open_minutes = 9 * 60 + 30  # 9:30 AM
+            market_close_minutes = 16 * 60      # 4:00 PM
+            
+            # Exit if it's weekend OR if market closed and more than 1 hour away
+            if not is_weekday:
+                print("Weekend - exiting")
+                return 0
+            if time_in_minutes < (market_open_minutes - 60):  # Before 8:30 AM
+                print(f"Too early ({now.strftime('%I:%M %p')}) - exiting")
+                return 0
+            if time_in_minutes > market_close_minutes:  # After 4:00 PM
+                print(f"Market closed ({now.strftime('%I:%M %p')}) - exiting")
+                return 0
+        except:
+            pass  # If check fails, continue anyway
+    
     parser = argparse.ArgumentParser(description="Unified trading bot (single or multi-stock)")
     parser.add_argument("-t", "--time", type=float, required=True,
                        help="Trading interval in hours (0.25=15min, 1.0=1hr)")
@@ -698,15 +756,13 @@ def main():
         cap_per_stock = args.cap_per_stock or (args.max_cap / args.max_stocks)
         use_smart_allocation = args.cap_per_stock is None  # Smart unless user forced specific cap
         
-        if cap_per_stock < 10:
-            log_warn(f"Capital per stock is ${cap_per_stock:.2f} (very small)")
-            # Auto-continue in scheduled/non-interactive mode
+        # Only warn if user manually set cap-per-stock to a very small value
+        if not use_smart_allocation and cap_per_stock < 10:
+            log_warn(f"Manual cap per stock is ${cap_per_stock:.2f} (very small)")
             if not SCHEDULED_TASK_MODE:
                 response = input("Continue anyway? (y/n): ").strip().lower()
                 if response != 'y':
                     return 1
-            else:
-                log_info("  Auto-continuing in scheduled mode...")
     else:
         # Single-stock mode
         if not args.symbol:
@@ -737,7 +793,6 @@ def main():
     log_info(f"  Interval: {interval_seconds}s ({args.time}h)")
     log_info(f"  Total Capital: ${args.max_cap}")
     log_info(f"  Max Positions: {args.max_stocks}")
-    log_info(f"  Cap Per Stock: ${cap_per_stock:.2f}")
     
     if is_multi_stock:
         log_info(f"  Forced Stocks: {len(forced_stocks)}")
@@ -765,19 +820,25 @@ def main():
         scan_universe = get_stock_universe()
     else:
         log_info(f"  Symbol: {symbol}")
+        log_info(f"Broker: ${float(client.get_account().portfolio_value):.2f} total value" if client else "")
     
     log_info(f"{'='*70}\n")
     
     iteration = 0
     
     try:
+        # Keep PC awake during market hours only
+        prevent_system_sleep(False)  # Allow sleep initially
+        
         while True:
             iteration += 1
 
             if not in_market_hours(client):
+                prevent_system_sleep(False)  # Allow PC to sleep
                 sleep_until_market_open(client)
                 continue
             
+            # Market is open - keep PC awake
             prevent_system_sleep(True)
 
             log_info(f"=== Iteration {iteration} ===")
@@ -786,7 +847,22 @@ def main():
                 # Multi-stock logic
                 current_positions = portfolio.get_all_positions()
                 held_symbols = list(current_positions.keys())
-                log_info(f"Positions: {len(held_symbols)}/{args.max_stocks}")
+                total_invested = portfolio.get_total_market_value()
+                
+                log_info(f"Positions: {len(held_symbols)}/{args.max_stocks} | Invested: ${total_invested:.2f}/${args.max_cap:.2f}")
+                
+                # Safety check: If account value drops below max_cap, something is very wrong
+                try:
+                    account = client.get_account()
+                    account_value = float(account.portfolio_value)
+                    if account_value < args.max_cap * 0.5:  # Lost more than 50%
+                        log_error(f"Account value ${account_value:.2f} dropped below 50% of max cap!")
+                        log_error("Emergency shutdown - liquidating all positions")
+                        for sym in held_symbols:
+                            sell_flow(client, sym)
+                        sys.exit(1)
+                except:
+                    pass
                 
                 # Update positions
                 for sym in held_symbols:
@@ -812,11 +888,11 @@ def main():
                     
                     # Execute rebalancing
                     for sell_sym, buy_sym in evaluation["rebalance_suggestions"]:
-                        log_info(f"🔄 REBALANCE: Sell {sell_sym} → Buy {buy_sym}")
+                        log_info(f"REBALANCE: Sell {sell_sym} -> Buy {buy_sym}")
                         ok, msg = sell_flow(client, sell_sym)
                         if ok:
                             portfolio.remove_position(sell_sym)
-                            log_info(f"✅ {msg}")
+                            log_info(f"OK: {msg}")
                 
                 # Determine stocks to trade
                 stocks_to_evaluate = list(set(forced_stocks + held_symbols))
@@ -842,11 +918,39 @@ def main():
                 
                 # Smart allocation: calculate capital per stock dynamically
                 if use_smart_allocation and stocks_to_evaluate:
-                    log_info("📊 Calculating smart capital allocation...")
+                    log_info("Calculating smart capital allocation...")
                     stock_allocations = allocate_capital_smartly(
                         client, stocks_to_evaluate, forced_stocks, 
                         args.max_cap, interval_seconds
                     )
+                    
+                    # Identify potential sells: stocks we hold but aren't in optimal allocation
+                    held_not_optimal = [s for s in held_symbols if s not in stock_allocations]
+                    
+                    # Consider selling underperformers if we need capital for better stocks
+                    available_capital = args.max_cap - total_invested
+                    needed_capital = sum(stock_allocations.values())
+                    
+                    if needed_capital > available_capital and held_not_optimal:
+                        log_info(f"  Need ${needed_capital:.2f}, have ${available_capital:.2f} available")
+                        log_info(f"  May sell: {', '.join(held_not_optimal)} (not in optimal portfolio)")
+                        
+                        # Sell weakest positions to free up capital
+                        for sym in held_not_optimal:
+                            pos = get_position(client, sym)
+                            if pos:
+                                log_info(f"  REBALANCE: Selling {sym} to reallocate capital")
+                                ok, msg = sell_flow(client, sym)
+                                if ok:
+                                    portfolio.remove_position(sym)
+                                    log_info(f"  OK: {msg}")
+                                    available_capital += pos["market_value"]
+                    
+                    # Show allocation breakdown
+                    log_info("Target Capital Allocation:")
+                    for sym in sorted(stock_allocations.keys(), key=lambda x: stock_allocations[x], reverse=True):
+                        has_position = "[HELD]" if sym in held_symbols else "[NEW] "
+                        log_info(f"  {has_position} {sym}: ${stock_allocations[sym]:.2f}")
                 else:
                     stock_allocations = {sym: cap_per_stock for sym in stocks_to_evaluate}
                 
@@ -855,7 +959,19 @@ def main():
                 for i, sym in enumerate(stocks_to_evaluate, 1):
                     try:
                         stock_cap = stock_allocations.get(sym, cap_per_stock)
-                        log_info(f"[{i}/{len(stocks_to_evaluate)}] {sym} (${stock_cap:.2f} allocated)...")
+                        
+                        # Check if we already have this position
+                        existing_pos = get_position(client, sym)
+                        existing_value = existing_pos["market_value"] if existing_pos else 0
+                        
+                        # Calculate how much MORE capital we can use for this stock
+                        additional_cap = max(0, stock_cap - existing_value)
+                        
+                        if existing_pos:
+                            log_info(f"[{i}/{len(stocks_to_evaluate)}] {sym} (holding: ${existing_value:.2f}, target: ${stock_cap:.2f})...")
+                        else:
+                            log_info(f"[{i}/{len(stocks_to_evaluate)}] {sym} (target: ${stock_cap:.2f})...")
+                        
                         closes = fetch_closes(client, sym, interval_seconds, config.LONG_WINDOW + 10)
                         if not closes:
                             log_info(f"  No data")
@@ -870,19 +986,31 @@ def main():
                         enforce_safety(client, sym)
                         
                         if action == "buy":
-                            ok, msg = buy_flow(
-                                client, sym, last_price, stock_cap,
-                                max(0.0, confidence),
-                                args.frac or config.TRADE_SIZE_FRAC_OF_CAP,
-                                args.tp or config.TAKE_PROFIT_PERCENT,
-                                args.sl or config.STOP_LOSS_PERCENT,
-                                dynamic_enabled=not args.no_dynamic,
-                                interval_seconds=interval_seconds
-                            )
-                            log_info(f"  {'✅' if ok else '⚪'} {msg}")
+                            if existing_pos:
+                                if additional_cap >= 10:  # Room to add more
+                                    log_info(f"  -- Already holding, could add ${additional_cap:.2f} more")
+                                else:
+                                    log_info(f"  -- Already at target allocation")
+                            else:
+                                # New position
+                                ok, msg = buy_flow(
+                                    client, sym, last_price, stock_cap,
+                                    max(0.0, confidence),
+                                    args.frac or config.TRADE_SIZE_FRAC_OF_CAP,
+                                    args.tp or config.TAKE_PROFIT_PERCENT,
+                                    args.sl or config.STOP_LOSS_PERCENT,
+                                    dynamic_enabled=not args.no_dynamic,
+                                    interval_seconds=interval_seconds
+                                )
+                                log_info(f"  {'OK' if ok else '--'} {msg}")
                         elif action == "sell":
                             ok, msg = sell_flow(client, sym)
-                            log_info(f"  {'✅' if ok else '⚪'} {msg}")
+                            log_info(f"  {'OK' if ok else '--'} {msg}")
+                        else:
+                            if existing_pos:
+                                log_info(f"  -- Holding (no signal)")
+                            else:
+                                log_info(f"  -- No signal")
                     except Exception as e:
                         log_warn(f"  Error: {e}")
                 
@@ -918,21 +1046,23 @@ def main():
                         dynamic_enabled=not args.no_dynamic,
                         interval_seconds=interval_seconds
                     )
-                    log_info(f"{'✅' if ok else '⚪'} {msg}")
+                    log_info(f"{'OK' if ok else '--'} {msg}")
                 elif action == "sell":
                     ok, msg = sell_flow(client, symbol)
-                    log_info(f"{'✅' if ok else '⚪'} {msg}\n")
+                    log_info(f"{'OK' if ok else '--'} {msg}\n")
             
             time.sleep(interval_seconds)
     
     except KeyboardInterrupt:
         log_info("Interrupted - shutting down")
-        prevent_system_sleep(False)
+        prevent_system_sleep(False)  # Allow PC to sleep
         return 0
     except Exception as e:
         log_error(f"Fatal error: {e}")
-        prevent_system_sleep(False)
+        prevent_system_sleep(False)  # Allow PC to sleep
         return 1
+    finally:
+        prevent_system_sleep(False)  # Always allow PC to sleep on exit
 
 
 if __name__ == "__main__":

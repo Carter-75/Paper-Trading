@@ -1,3 +1,95 @@
-INIT 2025-10-24T17:17:43 user=NT AUTHORITY\SYSTEM
-2025-10-24 17:17:47,731 WARNING - WARNING: Capital per stock is $6.67 (very small)
-2025-10-24 17:17:47,731 WARNING - WARNING: Capital per stock is $6.67 (very small)
+INIT 2025-10-24T18:10:58 user=NT AUTHORITY\SYSTEM
+2025-10-24 18:11:02,634 INFO - ======================================================================
+2025-10-24 18:11:02,634 INFO - UNIFIED TRADING BOT STARTING
+2025-10-24 18:11:02,635 INFO - ======================================================================
+2025-10-24 18:11:02,635 INFO -   Mode: Multi-Stock Portfolio
+2025-10-24 18:11:02,635 INFO -   Interval: 900s (0.25h)
+2025-10-24 18:11:02,635 INFO -   Total Capital: $100.0
+2025-10-24 18:11:02,635 INFO -   Max Positions: 15
+2025-10-24 18:11:02,635 INFO -   Forced Stocks: 0
+2025-10-24 18:11:02,635 INFO -   Auto-Fill Slots: 15
+2025-10-24 18:11:02,635 INFO -   Rebalance Every: 4 intervals
+2025-10-24 18:11:02,635 INFO -   Allocation: Smart (profit-based)
+2025-10-24 18:11:04,055 INFO - Broker: $100003.89 total value
+2025-10-24 18:11:04,056 INFO - Found 0 existing positions
+2025-10-24 18:11:04,056 INFO - ======================================================================
+
+2025-10-24 18:11:04,472 INFO - Market closed. Opens in 62h 18m (09:30 AM ET)
+2025-10-24 18:11:04,473 INFO - Scheduled task mode - exiting until next run
+Market closed - task will restart automatically when market opens
+INIT 2025-10-25T10:15:54 user=NT AUTHORITY\SYSTEM
+2025-10-25 10:16:04,170 INFO - ======================================================================
+2025-10-25 10:16:04,171 INFO - UNIFIED TRADING BOT STARTING
+2025-10-25 10:16:04,171 INFO - ======================================================================
+2025-10-25 10:16:04,171 INFO -   Mode: Multi-Stock Portfolio
+2025-10-25 10:16:04,171 INFO -   Interval: 900s (0.25h)
+2025-10-25 10:16:04,172 INFO -   Total Capital: $100.0
+2025-10-25 10:16:04,172 INFO -   Max Positions: 15
+2025-10-25 10:16:04,172 INFO -   Forced Stocks: 0
+2025-10-25 10:16:04,173 INFO -   Auto-Fill Slots: 15
+2025-10-25 10:16:04,173 INFO -   Rebalance Every: 4 intervals
+2025-10-25 10:16:04,173 INFO -   Allocation: Smart (profit-based)
+2025-10-25 10:16:05,718 INFO - Broker: $100003.87 total value
+2025-10-25 10:16:05,719 INFO - Found 0 existing positions
+2025-10-25 10:16:05,719 INFO - ======================================================================
+
+2025-10-25 10:16:14,428 INFO - Market closed. Opens in 46h 13m (09:30 AM ET)
+2025-10-25 10:16:14,429 INFO - Scheduled task mode - exiting until next run
+Market closed - task will restart automatically when market opens
+INIT 2025-10-27T03:17:27 user=NT AUTHORITY\SYSTEM
+2025-10-27 03:17:40,048 INFO - ======================================================================
+2025-10-27 03:17:40,049 INFO - UNIFIED TRADING BOT STARTING
+2025-10-27 03:17:40,049 INFO - ======================================================================
+2025-10-27 03:17:40,049 INFO -   Mode: Multi-Stock Portfolio
+2025-10-27 03:17:40,049 INFO -   Interval: 900s (0.25h)
+2025-10-27 03:17:40,049 INFO -   Total Capital: $100.0
+2025-10-27 03:17:40,049 INFO -   Max Positions: 15
+2025-10-27 03:17:40,049 INFO -   Forced Stocks: 0
+2025-10-27 03:17:40,049 INFO -   Auto-Fill Slots: 15
+2025-10-27 03:17:40,049 INFO -   Rebalance Every: 4 intervals
+2025-10-27 03:17:40,050 INFO -   Allocation: Smart (profit-based)
+2025-10-27 03:17:41,561 INFO - Broker: $100003.87 total value
+2025-10-27 03:17:41,561 INFO - Found 0 existing positions
+2025-10-27 03:17:41,561 INFO - ======================================================================
+
+2025-10-27 03:17:50,841 INFO - Market closed. Opens in 5h 12m (09:30 AM ET)
+2025-10-27 03:17:50,842 INFO - Scheduled task mode - exiting until next run
+Market closed - task will restart automatically when market opens
+INIT 2025-10-27T10:13:14 user=NT AUTHORITY\SYSTEM
+2025-10-27 10:13:28,702 INFO - ======================================================================
+2025-10-27 10:13:28,702 INFO - UNIFIED TRADING BOT STARTING
+2025-10-27 10:13:28,702 INFO - ======================================================================
+2025-10-27 10:13:28,703 INFO -   Mode: Multi-Stock Portfolio
+2025-10-27 10:13:28,703 INFO -   Interval: 900s (0.25h)
+2025-10-27 10:13:28,703 INFO -   Total Capital: $100.0
+2025-10-27 10:13:28,703 INFO -   Max Positions: 15
+2025-10-27 10:13:28,703 INFO -   Forced Stocks: 0
+2025-10-27 10:13:28,703 INFO -   Auto-Fill Slots: 15
+2025-10-27 10:13:28,703 INFO -   Rebalance Every: 4 intervals
+2025-10-27 10:13:28,703 INFO -   Allocation: Smart (profit-based)
+2025-10-27 10:13:30,508 INFO - Broker: $100003.87 total value
+2025-10-27 10:13:30,508 INFO - Found 0 existing positions
+2025-10-27 10:13:30,509 INFO - ======================================================================
+
+2025-10-27 10:13:30,576 INFO - === Iteration 1 ===
+2025-10-27 10:13:30,576 INFO - Positions: 0/15 | Invested: $0.00/$100.00
+--- Logging error ---
+Traceback (most recent call last):
+  File "C:\Python312\Lib\logging\__init__.py", line 1163, in emit
+    stream.write(msg + self.terminator)
+  File "C:\Python312\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\U0001f504' in position 33: character maps to <undefined>
+Call stack:
+  File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\runner.py", line 1040, in <module>
+    sys.exit(main())
+  File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\runner.py", line 929, in main
+    log_info(f"\n\U0001f504 Trading {len(stocks_to_evaluate)} stocks:")
+  File "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\runner.py", line 106, in log_info
+    LOG.info(msg)
+Message: '\n\U0001f504 Trading 0 stocks:'
+Arguments: ()
+2025-10-27 10:14:09,244 INFO - 
+Portfolio: $0.00 | P&L: $+0.00
+
