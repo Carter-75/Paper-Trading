@@ -1,0 +1,26 @@
+{
+  "positions": {
+    "AMD": {
+      "qty": 0.372702,
+      "avg_entry": 254.57,
+      "market_value": 94.778119,
+      "unrealized_pl": -0.100629,
+      "last_update": "2025-10-27T16:19:27.602452+00:00"
+    },
+    "GOOGL": {
+      "qty": 0.063636,
+      "avg_entry": 266.542,
+      "market_value": 16.964721,
+      "unrealized_pl": 0.003054,
+      "last_update": "2025-10-27T16:19:27.676455+00:00"
+    },
+    "NVDA": {
+      "qty": 0.25552,
+      "avg_entry": 190.873857,
+      "market_value": 48.789653,
+      "unrealized_pl": 0.017565,
+      "last_update": "2025-10-27T16:19:27.741990+00:00"
+    }
+  },
+  "last_updated": "2025-10-27T16:19:27.742987+00:00"
+}

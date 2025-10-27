@@ -61,7 +61,7 @@ def append_to_log_line(line: str):
     delay = 0.2
     for i in range(attempts):
         try:
-            enforce_log_max_lines(99)
+            enforce_log_max_lines(250)
             with open(FILE_LOG_PATH, "a", encoding="utf-8") as fh:
                 fh.write(line + "\n")
             return
@@ -74,8 +74,18 @@ def enforce_log_max_lines(max_lines: int = 100):
     try:
         if not os.path.exists(FILE_LOG_PATH):
             return
-        with open(FILE_LOG_PATH, "r", encoding="utf-8", errors="ignore") as fh:
-            lines = fh.readlines()
+        
+        # Add retry logic for file access
+        for attempt in range(3):
+            try:
+                with open(FILE_LOG_PATH, "r", encoding="utf-8", errors="ignore") as fh:
+                    lines = fh.readlines()
+                break
+            except PermissionError:
+                if attempt < 2:
+                    time.sleep(0.1)
+                else:
+                    return
         
         # Keep only non-empty lines
         lines = [ln for ln in lines if ln.strip()]
@@ -97,8 +107,15 @@ def enforce_log_max_lines(max_lines: int = 100):
         if init_line and init_line not in kept:
             kept = [init_line] + kept[1:]  # Replace first line with INIT
         
-        with open(FILE_LOG_PATH, "w", encoding="utf-8") as fh:
-            fh.writelines(kept)
+        # Write with retry
+        for attempt in range(3):
+            try:
+                with open(FILE_LOG_PATH, "w", encoding="utf-8") as fh:
+                    fh.writelines(kept)
+                break
+            except PermissionError:
+                if attempt < 2:
+                    time.sleep(0.1)
     except Exception:
         pass
 
