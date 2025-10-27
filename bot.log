@@ -1,102 +1,83 @@
-INIT 2025-10-27T10:36:47 user=NT AUTHORITY\SYSTEM
-  MSFT: $70.49/day (score: 65.49)
-    -> ADDED to portfolio
-  NVDA: $67.02/day (score: 54.94)
-    -> ADDED to portfolio
-  BA: $47.38/day (score: 37.90)
-    -> ADDED to portfolio
-  NFLX: $36.98/day (score: 29.58)
-    -> ADDED to portfolio
-  META: $30.04/day (score: 24.04)
-    -> ADDED to portfolio
-Calculating smart capital allocation...
-Scoring 5 stocks for capital allocation...
-  MSFT: exp_daily=$-6.24, conf=0.0084, score=6.32
-  NVDA: exp_daily=$69.89, conf=0.0159, score=70.05
-  BA: exp_daily=$-19.97, conf=0.0025, score=19.99
-  NFLX: exp_daily=$-26.21, conf=0.0017, score=26.23
-  META: exp_daily=$1.25, conf=0.0100, score=1.35
-Viable stocks: 5/5
-Target Capital Allocation:
-  [NEW]  NVDA: $945.72
-  [NEW]  NFLX: $278.78
-  [NEW]  BA: $204.38
-  [NEW]  MSFT: $58.98
-  [NEW]  META: $12.13
-Trading 5 stocks:
-[1/5] MSFT (target: $58.98)...
-  $532.59 | BUY | conf=0.0084
-  -- Expected $-3.68/day < $0.1
-[2/5] NVDA (target: $945.72)...
-  $190.89 | BUY | conf=0.0160
-  -- Order failed: fractional orders must be DAY orders
-[3/5] BA (target: $204.38)...
-  $222.33 | BUY | conf=0.0025
-  -- Low confidence: 0.0025
-[4/5] NFLX (target: $278.78)...
-  $1098.00 | HOLD | conf=0.0017
-  -- No signal
-[5/5] META (target: $12.13)...
-  $752.03 | BUY | conf=0.0100
-  -- Order failed: fractional orders must be DAY orders
-Portfolio: $0.00 | P&L: $+0.00
-======================================================================
-UNIFIED TRADING BOT STARTING
-======================================================================
-  Mode: Multi-Stock Portfolio
-  Interval: 900s (0.25h)
-  Total Capital: $1500.0
-  Max Positions: 5
-  Forced Stocks: 0
-  Auto-Fill Slots: 5
-  Rebalance Every: 4 intervals
-  Allocation: Smart (profit-based)
-Broker: $100003.87 total value
-Found 0 existing positions
-======================================================================
-=== Iteration 1 ===
-Positions: 0/5 | Invested: $0.00/$1500.00
-Scanned 5 opportunities (threshold: $0.10/day)
-  MSFT: $51.24/day (score: 43.21)
-    -> ADDED to portfolio
-  NVDA: $51.24/day (score: 41.00)
-    -> ADDED to portfolio
-  BA: $27.19/day (score: 21.75)
-    -> ADDED to portfolio
-  AMD: $26.15/day (score: 20.92)
-    -> ADDED to portfolio
-  NFLX: $16.73/day (score: 13.39)
-    -> ADDED to portfolio
-Calculating smart capital allocation...
-Scoring 5 stocks for capital allocation...
-  MSFT: exp_daily=$-6.24, conf=0.0084, score=6.32
-  NVDA: exp_daily=$69.89, conf=0.0159, score=70.05
-  BA: exp_daily=$-19.97, conf=0.0025, score=19.99
-  AMD: exp_daily=$46.18, conf=0.0065, score=46.24
-  NFLX: exp_daily=$-26.21, conf=0.0018, score=26.23
-Viable stocks: 5/5
-Target Capital Allocation:
-  [NEW]  NVDA: $701.79
-  [NEW]  AMD: $405.59
-  [NEW]  NFLX: $202.52
-  [NEW]  BA: $147.86
-  [NEW]  MSFT: $42.24
-Trading 5 stocks:
-[1/5] MSFT (target: $42.24)...
-  $532.52 | BUY | conf=0.0084
-  -- Expected $-2.64/day < $0.1
-[2/5] NVDA (target: $701.79)...
-  $190.87 | BUY | conf=0.0159
-  OK Bought 3.26 shares @ $190.87 (TP:2.70% SL:1.19%)
-[3/5] BA (target: $147.86)...
-  $222.33 | BUY | conf=0.0025
-  -- Low confidence: 0.0025
-[4/5] AMD (target: $405.59)...
-  $254.53 | BUY | conf=0.0065
-  OK Bought 1.37 shares @ $254.53 (TP:2.58% SL:1.16%)
-[5/5] NFLX (target: $202.52)...
-  $1097.30 | HOLD | conf=0.0018
-  -- No signal
+INIT 2025-10-27T11:01:21 user=NT AUTHORITY\SYSTEM
+2025-10-27 11:01:25,828 INFO - ======================================================================
+2025-10-27 11:01:25,828 INFO - UNIFIED TRADING BOT STARTING
+2025-10-27 11:01:25,828 INFO - ======================================================================
+2025-10-27 11:01:25,828 INFO -   Mode: Multi-Stock Portfolio
+2025-10-27 11:01:25,829 INFO -   Interval: 900s (0.25h)
+2025-10-27 11:01:25,829 INFO -   Total Capital: $100.0
+2025-10-27 11:01:25,829 INFO -   Max Positions: 5
+2025-10-27 11:01:25,829 INFO -   Forced Stocks: 0
+2025-10-27 11:01:25,829 INFO -   Auto-Fill Slots: 5
+2025-10-27 11:01:25,829 INFO -   Rebalance Every: 4 intervals
+2025-10-27 11:01:25,829 INFO -   Allocation: Smart (profit-based)
+2025-10-27 11:01:27,428 INFO - Broker: $100005.13 total value
+2025-10-27 11:01:27,429 INFO - Found 2 existing positions
+2025-10-27 11:01:27,437 INFO - ======================================================================
 
-Portfolio: $0.00 | P&L: $+0.00
+2025-10-27 11:01:27,500 INFO - === Iteration 1 ===
+2025-10-27 11:01:27,501 INFO - Positions: 2/5 | Invested: $972.10/$100.00
+
+Scanning 22 stocks...
+  [ 1/22] Evaluating SPY   ... $  -3.56/day (score:   -2.84)
+  [ 2/22] Evaluating QQQ   ... $  -1.60/day (score:   -1.28)
+  [ 3/22] Evaluating AAPL  ... $   0.14/day (score:    0.11)
+  [ 4/22] Evaluating MSFT  ... $   3.35/day (score:    2.80)
+  [ 5/22] Evaluating GOOGL ... $   0.49/day (score:    0.39)
+  [ 6/22] Evaluating AMZN  ... $  -2.09/day (score:   -1.67)
+  [ 7/22] Evaluating TSLA  ... $  -2.72/day (score:   -2.18)
+  [ 8/22] Evaluating META  ... $   0.77/day (score:    0.61)
+  [ 9/22] Evaluating NFLX  ... $   1.19/day (score:    0.95)
+  [10/22] Evaluating DIS   ... $  -1.81/day (score:   -1.45)
+  [11/22] Evaluating BA    ... $   1.81/day (score:    1.45)
+  [12/22] Evaluating JPM   ... $  -1.95/day (score:   -1.56)
+  [13/22] Evaluating GS    ... $  -2.16/day (score:   -1.73)
+  [14/22] Evaluating V     ... $  -1.19/day (score:   -0.95)
+  [15/22] Evaluating MA    ... $  -2.44/day (score:   -1.95)
+  [16/22] Evaluating COST  ... $  -5.79/day (score:   -4.63)
+  [17/22] Evaluating WMT   ... $  -6.48/day (score:   -5.19)
+  [18/22] Evaluating HD    ... $  -5.23/day (score:   -4.18)
+  [19/22] Evaluating NKE   ... $  -3.07/day (score:   -2.45)
+  [20/22] Evaluating MCD   ... $  -3.07/day (score:   -2.45)
+  [21/22] Evaluating SBUX  ... $  -3.63/day (score:   -2.90)
+  [22/22] Evaluating PEP   ... $  -4.53/day (score:   -3.63)
+2025-10-27 11:01:38,775 INFO - Scanned 3 opportunities (threshold: $0.10/day)
+2025-10-27 11:01:38,775 INFO -   MSFT: $3.35/day (score: 2.80)
+2025-10-27 11:01:38,775 INFO -     -> ADDED to portfolio
+2025-10-27 11:01:38,776 INFO -   BA: $1.81/day (score: 1.45)
+2025-10-27 11:01:38,776 INFO -     -> ADDED to portfolio
+2025-10-27 11:01:38,776 INFO -   NFLX: $1.19/day (score: 0.95)
+2025-10-27 11:01:38,776 INFO -     -> ADDED to portfolio
+2025-10-27 11:01:38,776 INFO - Calculating smart capital allocation...
+2025-10-27 11:01:38,776 INFO - Scoring 5 stocks for capital allocation...
+2025-10-27 11:01:39,236 INFO -   NVDA: exp_daily=$66.14, conf=0.0117, score=66.26
+2025-10-27 11:01:39,779 INFO -   AMD: exp_daily=$42.43, conf=0.0048, score=42.48
+2025-10-27 11:01:40,020 INFO -   MSFT: exp_daily=$-9.98, conf=0.0078, score=10.06
+2025-10-27 11:01:40,368 INFO -   BA: exp_daily=$-19.97, conf=0.0024, score=19.99
+2025-10-27 11:01:40,560 INFO -   NFLX: exp_daily=$-24.96, conf=0.0007, score=24.97
+2025-10-27 11:01:40,560 INFO - Viable stocks: 5/5
+2025-10-27 11:01:40,561 INFO - Target Capital Allocation:
+2025-10-27 11:01:40,561 INFO -   [HELD] NVDA: $44.06
+2025-10-27 11:01:40,561 INFO -   [HELD] AMD: $24.26
+2025-10-27 11:01:40,562 INFO -   [NEW]  NFLX: $12.54
+2025-10-27 11:01:40,562 INFO -   [NEW]  BA: $9.65
+2025-10-27 11:01:40,562 INFO -   [NEW]  MSFT: $9.50
+2025-10-27 11:01:40,562 INFO - 
+Trading 5 stocks:
+2025-10-27 11:01:40,628 INFO - [1/5] NVDA (holding: $621.20, target: $44.06)...
+2025-10-27 11:01:40,977 INFO -   $190.82 | BUY | conf=0.0117
+2025-10-27 11:01:41,039 INFO -   -- Already at target allocation
+2025-10-27 11:01:41,102 INFO - [2/5] AMD (holding: $350.38, target: $24.26)...
+2025-10-27 11:01:41,315 INFO -   $255.33 | BUY | conf=0.0048
+2025-10-27 11:01:41,380 INFO -   -- Already at target allocation
+2025-10-27 11:01:41,441 INFO - [3/5] MSFT (target: $9.50)...
+2025-10-27 11:01:41,818 INFO -   $532.64 | BUY | conf=0.0078
+2025-10-27 11:01:42,054 INFO -   -- Expected $-0.95/day < $0.1
+2025-10-27 11:01:42,112 INFO - [4/5] BA (target: $9.65)...
+2025-10-27 11:01:42,417 INFO -   $222.30 | BUY | conf=0.0024
+2025-10-27 11:01:42,536 INFO -   -- Low confidence: 0.0024
+2025-10-27 11:01:42,593 INFO - [5/5] NFLX (target: $12.54)...
+2025-10-27 11:01:42,824 INFO -   $1097.50 | HOLD | conf=0.0007
+2025-10-27 11:01:42,886 INFO -   -- No signal
+2025-10-27 11:01:42,886 INFO - 
+Portfolio: $972.09 | P&L: $+1.24
 

@@ -1087,12 +1087,24 @@ def main():
                         existing_value = existing_pos["market_value"] if existing_pos else 0
                         
                         # Calculate how much MORE capital we can use for this stock
-                        additional_cap = max(0, stock_cap - existing_value)
+                        allocation_diff = stock_cap - existing_value  # Can be negative if over-allocated
+                        additional_cap = max(0, allocation_diff)
                         
                         if existing_pos:
                             log_info(f"[{i}/{len(stocks_to_evaluate)}] {sym} (holding: ${existing_value:.2f}, target: ${stock_cap:.2f})...")
                         else:
                             log_info(f"[{i}/{len(stocks_to_evaluate)}] {sym} (target: ${stock_cap:.2f})...")
+                        
+                        # Check if we need to sell excess (over-allocated)
+                        if existing_pos and allocation_diff < -10:  # Over target by $10+
+                            log_info(f"  REBALANCE: Over-allocated by ${-allocation_diff:.2f} - selling to rebalance")
+                            ok, msg = sell_flow(client, sym)
+                            if ok:
+                                portfolio.remove_position(sym)
+                                log_info(f"  OK {msg}")
+                            else:
+                                log_info(f"  -- {msg}")
+                            continue
                         
                         closes = fetch_closes(client, sym, interval_seconds, config.LONG_WINDOW + 10)
                         if not closes:
@@ -1112,7 +1124,7 @@ def main():
                                 if additional_cap >= 10:  # Room to add more
                                     log_info(f"  -- Already holding, could add ${additional_cap:.2f} more")
                                 else:
-                                    log_info(f"  -- Already at target allocation")
+                                    log_info(f"  -- Already at target (within $10)")
                             else:
                                 # New position
                                 ok, msg = buy_flow(
