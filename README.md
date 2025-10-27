@@ -803,6 +803,40 @@ python "$BotDir\runner.py" -t 0.25 -m 1500 --max-stocks 15 --cap-per-stock 150
 
 ---
 
+## ⏰ Market Hours & Weekend Behavior
+
+**Important:** Stock prices **DO NOT change** when the market is closed!
+
+### How It Works:
+- **Market Open**: Monday-Friday, 9:30 AM - 4:00 PM ET
+- **Market Closed**: Evenings, Weekends, Holidays
+- **Bot Behavior**: Automatically sleeps when market closes, resumes when it opens
+
+### Your Positions Are Safe:
+✅ **Stock values FREEZE when market closes**
+- Your shares keep their exact value
+- No overnight/weekend price changes
+- No risk of losses while you sleep
+- Bot doesn't need to sell before close
+
+⚠️ **Gap Risk (Advanced)**
+While prices don't change when closed, they CAN "gap" at open:
+- News happens → Market opens with instant price change
+- This is normal market behavior
+- Bot's stop-loss orders protect you after open
+
+### Example:
+```
+Friday 4:00 PM: You own AAPL at $150/share → Market closes
+Weekend:       Stock STAYS at $150 (no change possible)
+Monday 9:30 AM: Market opens, AAPL might gap to $152 or $148
+                (Bot's orders activate immediately)
+```
+
+**Bottom Line:** The bot correctly handles weekends by doing nothing. Your positions are safe because trading is suspended. The market will resume Monday morning, and the bot will resume trading then.
+
+---
+
 ## 🎯 Common Workflows
 
 ### Workflow 1: Multi-Stock Portfolio (Easiest!)

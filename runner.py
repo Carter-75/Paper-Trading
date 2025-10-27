@@ -71,29 +71,37 @@ def append_to_log_line(line: str):
                 delay *= 2
 
 def enforce_log_max_lines(max_lines: int = 100):
+    """Truncate log file to max_lines, preserving INIT line at top."""
     try:
         if not os.path.exists(FILE_LOG_PATH):
             return
         
-        # Add retry logic for file access
+        # Read with retry logic for file access
+        lines = None
         for attempt in range(3):
             try:
                 with open(FILE_LOG_PATH, "r", encoding="utf-8", errors="ignore") as fh:
                     lines = fh.readlines()
                 break
-            except PermissionError:
+            except (PermissionError, OSError) as e:
                 if attempt < 2:
-                    time.sleep(0.1)
+                    time.sleep(0.2 * (attempt + 1))  # Increasing delay
                 else:
+                    # If we can't read after retries, log the issue but don't crash
+                    print(f"Warning: Could not read log file for truncation: {e}", file=sys.stderr)
                     return
+        
+        if lines is None:
+            return
         
         # Keep only non-empty lines
         lines = [ln for ln in lines if ln.strip()]
         
+        # If under limit, no truncation needed
         if len(lines) <= max_lines:
             return
         
-        # Find INIT line
+        # Find INIT line (should be first line with "INIT " prefix)
         init_line = None
         for ln in lines:
             if ln.startswith("INIT "):
@@ -107,17 +115,47 @@ def enforce_log_max_lines(max_lines: int = 100):
         if init_line and init_line not in kept:
             kept = [init_line] + kept[1:]  # Replace first line with INIT
         
-        # Write with retry
-        for attempt in range(3):
-            try:
-                with open(FILE_LOG_PATH, "w", encoding="utf-8") as fh:
-                    fh.writelines(kept)
-                break
-            except PermissionError:
-                if attempt < 2:
-                    time.sleep(0.1)
-    except Exception:
-        pass
+        # Write with retry - use temp file for atomic write
+        import tempfile
+        temp_path = None
+        try:
+            # Write to temp file first
+            fd, temp_path = tempfile.mkstemp(dir=os.path.dirname(FILE_LOG_PATH), text=True)
+            with os.fdopen(fd, 'w', encoding='utf-8') as temp_fh:
+                temp_fh.writelines(kept)
+            
+            # Atomic replace (on Windows, need to remove dest first)
+            if os.path.exists(FILE_LOG_PATH):
+                try:
+                    os.remove(FILE_LOG_PATH)
+                except (PermissionError, OSError):
+                    # If file is locked, try waiting and retry
+                    time.sleep(0.5)
+                    try:
+                        os.remove(FILE_LOG_PATH)
+                    except (PermissionError, OSError) as e:
+                        # Clean up temp file and give up
+                        if temp_path and os.path.exists(temp_path):
+                            os.remove(temp_path)
+                        print(f"Warning: Could not truncate log (file locked): {e}", file=sys.stderr)
+                        return
+            
+            # Move temp file to actual log
+            os.rename(temp_path, FILE_LOG_PATH)
+            temp_path = None  # Successfully moved, no cleanup needed
+            
+        except Exception as e:
+            # Clean up temp file if it exists
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except:
+                    pass
+            print(f"Warning: Log truncation failed: {e}", file=sys.stderr)
+            
+    except Exception as e:
+        # Last resort - log to stderr but don't crash
+        print(f"Warning: Unexpected error in log truncation: {e}", file=sys.stderr)
 
 def log_info(msg: str):
     LOG.info(msg)
