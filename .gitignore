@@ -7,3 +7,7 @@ venv/
 .DS_Store
 *.log
 
+# Bot runtime files
+last_start_cmd.txt
+portfolio.json
+
