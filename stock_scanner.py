@@ -40,11 +40,13 @@ def score_stock(symbol: str, interval_seconds: int, cap_per_stock: float, bars: 
         confidence = compute_confidence(closes)
         vol_pct = pct_stddev(closes[-config.VOLATILITY_WINDOW:])
         
-        # Run simulation
+        # Run simulation with the provided capital
+        # cap_per_stock is actually max_cap when called from runner.py
+        print(f"  DEBUG SCANNER: {symbol} using cap=${cap_per_stock}")
         sim = simulate_signals_and_projection(
             closes,
             interval_seconds,
-            override_cap_usd=cap_per_stock
+            override_cap_usd=cap_per_stock  # This should match what allocation uses
         )
         
         expected_daily = float(sim.get("expected_daily_usd", 0.0))
