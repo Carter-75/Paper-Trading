@@ -31,8 +31,8 @@ def score_stock(symbol: str, interval_seconds: int, cap_per_stock: float, bars: 
         client = make_client(allow_missing=False, go_live=False)
         closes = fetch_closes(client, symbol, interval_seconds, bars)
         
-        # Lower minimum requirement to work with limited data
-        min_bars = max(config.LONG_WINDOW + 2, 25)
+        # Minimum bars needed
+        min_bars = config.LONG_WINDOW + 2
         if not closes or len(closes) < min_bars:
             return None
         

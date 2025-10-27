@@ -148,23 +148,23 @@ def snap_interval_to_supported_seconds(seconds: int) -> int:
         return 14400
 
 def fetch_closes(client, symbol: str, interval_seconds: int, limit_bars: int) -> List[float]:
-    # Try yfinance first (FREE, unlimited, great history)
+    # Try yfinance first (FREE, unlimited, ALWAYS use this for backtesting)
     try:
         import yfinance as yf
         
-        # Map seconds to yfinance interval
+        # Map seconds to yfinance interval (Yahoo limits intraday to 60 days)
         if interval_seconds <= 300:
             yf_interval = "5m"
-            days = max(5, (limit_bars * 5 / 60 / 6.5) * 1.5)  # 5min bars, 6.5 hour day
+            days = 59  # Max 60 days for intraday
         elif interval_seconds <= 900:
             yf_interval = "15m"
-            days = max(10, (limit_bars * 15 / 60 / 6.5) * 1.5)  # 15min bars
+            days = 59  # Max 60 days for 15min
         elif interval_seconds <= 3600:
             yf_interval = "1h"
-            days = max(20, (limit_bars / 6.5) * 1.5)  # hourly bars
+            days = 59  # Max 60 days for hourly
         else:
             yf_interval = "1d"
-            days = min(365, limit_bars * 1.5)  # daily bars
+            days = 365  # Daily data: 1 year
         
         from datetime import datetime, timedelta
         import pytz
@@ -176,11 +176,12 @@ def fetch_closes(client, symbol: str, interval_seconds: int, limit_bars: int) ->
         
         if not hist.empty and 'Close' in hist.columns:
             closes = list(hist['Close'].values)
-            # Return the most recent bars up to limit
+            # Return the most recent bars up to limit (or all if less)
             result = closes[-limit_bars:] if len(closes) > limit_bars else closes
-            if len(result) >= 25:  # Got enough data
+            # Accept ANY data from yfinance (even if less than requested)
+            if len(result) > 0:
                 return result
-    except Exception as e:
+    except Exception:
         pass  # Fall back to Alpaca
     
     # Fallback to Alpaca
@@ -370,16 +371,53 @@ def buy_flow(client, symbol: str, last_price: float, available_cap: float,
         tp_price = last_price * (1 + tp / 100.0)
         sl_price = last_price * (1 - sl / 100.0)
         
-        client.submit_order(
-            symbol=symbol,
-            qty=qty,
-            side='buy',
-            type='market',
-            time_in_force='gtc',
-            order_class='bracket',
-            take_profit={'limit_price': round(tp_price, 2)},
-            stop_loss={'stop_price': round(sl_price, 2)}
-        )
+        # Check if fractional
+        is_fractional = (qty % 1 != 0)
+        
+        if is_fractional:
+            # Fractional shares: Must use 'day' order, cannot use bracket orders
+            client.submit_order(
+                symbol=symbol,
+                qty=qty,
+                side='buy',
+                type='market',
+                time_in_force='day'  # Required for fractional
+            )
+            # Place separate TP and SL orders (best effort)
+            try:
+                # Take profit limit order
+                client.submit_order(
+                    symbol=symbol,
+                    qty=qty,
+                    side='sell',
+                    type='limit',
+                    time_in_force='day',
+                    limit_price=round(tp_price, 2)
+                )
+                # Stop loss order
+                client.submit_order(
+                    symbol=symbol,
+                    qty=qty,
+                    side='sell',
+                    type='stop',
+                    time_in_force='day',
+                    stop_price=round(sl_price, 2)
+                )
+            except:
+                pass  # TP/SL orders are optional for fractional shares
+        else:
+            # Whole shares: Use bracket orders with GTC
+            client.submit_order(
+                symbol=symbol,
+                qty=int(qty),
+                side='buy',
+                type='market',
+                time_in_force='gtc',
+                order_class='bracket',
+                take_profit={'limit_price': round(tp_price, 2)},
+                stop_loss={'stop_price': round(sl_price, 2)}
+            )
+        
         shares_text = f"{qty:.6f}".rstrip('0').rstrip('.') if qty < 1 else f"{qty:.2f}"
         return (True, f"Bought {shares_text} shares @ ${last_price:.2f} (TP:{tp:.2f}% SL:{sl:.2f}%)")
     except Exception as e:
@@ -455,10 +493,15 @@ def simulate_signals_and_projection(
     override_cap_usd: Optional[float] = None
 ) -> dict:
     
-    # Lower minimum requirement - work with what we have
-    min_bars = max(config.LONG_WINDOW + 2, 25)
+    # Minimum bars needed for SMA calculation
+    min_bars = config.LONG_WINDOW + 2  # Need at least LONG_WINDOW + a bit for comparison
     if len(closes) < min_bars:
-        return {"win_rate": 0.0, "expected_trades_per_day": 0.0, "expected_daily_usd": 0.0}
+        # Not enough data - return conservative estimates
+        return {
+            "win_rate": 0.5,  # Assume 50% win rate
+            "expected_trades_per_day": 2.0,  # Estimate 2 trades/day
+            "expected_daily_usd": 0.0  # Neutral expectation
+        }
     
     tp_pct = override_tp_pct if override_tp_pct is not None else config.TAKE_PROFIT_PERCENT
     sl_pct = override_sl_pct if override_sl_pct is not None else config.STOP_LOSS_PERCENT

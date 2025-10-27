@@ -1,62 +1,4 @@
 INIT 2025-10-27T10:36:47 user=NT AUTHORITY\SYSTEM
-  MSFT: $4.70/day (score: 4.37)
-    -> ADDED to portfolio
-  NVDA: $4.47/day (score: 3.66)
-    -> ADDED to portfolio
-  BA: $3.16/day (score: 2.53)
-    -> ADDED to portfolio
-  NFLX: $2.47/day (score: 1.97)
-    -> ADDED to portfolio
-  META: $2.00/day (score: 1.60)
-    -> ADDED to portfolio
-Calculating smart capital allocation...
-Scoring 5 stocks for capital allocation...
-  MSFT: exp_daily=$-6.24, conf=0.0084, score=6.32
-  NVDA: exp_daily=$69.89, conf=0.0160, score=70.05
-  BA: exp_daily=$-19.97, conf=0.0025, score=19.99
-  NFLX: exp_daily=$-26.21, conf=0.0017, score=26.23
-  META: exp_daily=$1.25, conf=0.0100, score=1.35
-Viable stocks: 5/5
-Target Capital Allocation:
-  [NEW]  NVDA: $54.70
-  [NEW]  NFLX: $16.13
-  [NEW]  BA: $11.82
-  [NEW]  MSFT: $8.68
-  [NEW]  META: $8.68
-Trading 5 stocks:
-[1/5] MSFT (target: $8.68)...
-  $532.47 | BUY | conf=0.0084
-  -- Expected $-0.54/day < $0.1
-[2/5] NVDA (target: $54.70)...
-  $190.96 | BUY | conf=0.0160
-WARN:   Error: module 'config' has no attribute 'RISKY_FRAC_MULT'
-[3/5] BA (target: $11.82)...
-  $222.19 | BUY | conf=0.0025
-  -- Low confidence: 0.0025
-[4/5] NFLX (target: $16.13)...
-  $1097.65 | HOLD | conf=0.0017
-  -- No signal
-[5/5] META (target: $8.68)...
-  $752.30 | BUY | conf=0.0100
-WARN:   Error: module 'config' has no attribute 'RISKY_FRAC_MULT'
-Portfolio: $0.00 | P&L: $+0.00
-======================================================================
-UNIFIED TRADING BOT STARTING
-======================================================================
-  Mode: Multi-Stock Portfolio
-  Interval: 900s (0.25h)
-  Total Capital: $1500.0
-  Max Positions: 5
-  Forced Stocks: 0
-  Auto-Fill Slots: 5
-  Rebalance Every: 4 intervals
-  Allocation: Smart (profit-based)
-Broker: $100003.87 total value
-Found 0 existing positions
-======================================================================
-=== Iteration 1 ===
-Positions: 0/5 | Invested: $0.00/$1500.00
-Scanned 5 opportunities (threshold: $0.10/day)
   MSFT: $70.49/day (score: 65.49)
     -> ADDED to portfolio
   NVDA: $67.02/day (score: 54.94)
@@ -97,6 +39,64 @@ Trading 5 stocks:
 [5/5] META (target: $12.13)...
   $752.03 | BUY | conf=0.0100
   -- Order failed: fractional orders must be DAY orders
+Portfolio: $0.00 | P&L: $+0.00
+======================================================================
+UNIFIED TRADING BOT STARTING
+======================================================================
+  Mode: Multi-Stock Portfolio
+  Interval: 900s (0.25h)
+  Total Capital: $1500.0
+  Max Positions: 5
+  Forced Stocks: 0
+  Auto-Fill Slots: 5
+  Rebalance Every: 4 intervals
+  Allocation: Smart (profit-based)
+Broker: $100003.87 total value
+Found 0 existing positions
+======================================================================
+=== Iteration 1 ===
+Positions: 0/5 | Invested: $0.00/$1500.00
+Scanned 5 opportunities (threshold: $0.10/day)
+  MSFT: $51.24/day (score: 43.21)
+    -> ADDED to portfolio
+  NVDA: $51.24/day (score: 41.00)
+    -> ADDED to portfolio
+  BA: $27.19/day (score: 21.75)
+    -> ADDED to portfolio
+  AMD: $26.15/day (score: 20.92)
+    -> ADDED to portfolio
+  NFLX: $16.73/day (score: 13.39)
+    -> ADDED to portfolio
+Calculating smart capital allocation...
+Scoring 5 stocks for capital allocation...
+  MSFT: exp_daily=$-6.24, conf=0.0084, score=6.32
+  NVDA: exp_daily=$69.89, conf=0.0159, score=70.05
+  BA: exp_daily=$-19.97, conf=0.0025, score=19.99
+  AMD: exp_daily=$46.18, conf=0.0065, score=46.24
+  NFLX: exp_daily=$-26.21, conf=0.0018, score=26.23
+Viable stocks: 5/5
+Target Capital Allocation:
+  [NEW]  NVDA: $701.79
+  [NEW]  AMD: $405.59
+  [NEW]  NFLX: $202.52
+  [NEW]  BA: $147.86
+  [NEW]  MSFT: $42.24
+Trading 5 stocks:
+[1/5] MSFT (target: $42.24)...
+  $532.52 | BUY | conf=0.0084
+  -- Expected $-2.64/day < $0.1
+[2/5] NVDA (target: $701.79)...
+  $190.87 | BUY | conf=0.0159
+  OK Bought 3.26 shares @ $190.87 (TP:2.70% SL:1.19%)
+[3/5] BA (target: $147.86)...
+  $222.33 | BUY | conf=0.0025
+  -- Low confidence: 0.0025
+[4/5] AMD (target: $405.59)...
+  $254.53 | BUY | conf=0.0065
+  OK Bought 1.37 shares @ $254.53 (TP:2.58% SL:1.16%)
+[5/5] NFLX (target: $202.52)...
+  $1097.30 | HOLD | conf=0.0018
+  -- No signal
 
 Portfolio: $0.00 | P&L: $+0.00
 
