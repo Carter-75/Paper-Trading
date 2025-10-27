@@ -756,10 +756,11 @@ def evaluate_portfolio_and_opportunities(
     # Scan for opportunities
     if len(current_symbols) < max_positions or (results["current_scores"] and min(results["current_scores"].values()) < 0):
         try:
+            # Note: cap_per_stock here is actually max_cap from the caller
             scan_results = scan_stocks(
                 symbols=[s for s in scan_universe if s not in current_symbols],
                 interval_seconds=interval_seconds,
-                cap_per_stock=cap_per_stock,
+                cap_per_stock=cap_per_stock,  # This is max_cap, passed from main
                 max_results=5,
                 verbose=False
             )
@@ -992,7 +993,7 @@ def main():
                     log_info("Evaluating portfolio...")
                     evaluation = evaluate_portfolio_and_opportunities(
                         client, held_symbols, forced_stocks, scan_universe,
-                        interval_seconds, cap_per_stock, args.max_stocks
+                        interval_seconds, args.max_cap, args.max_stocks  # Use max_cap for consistent predictions
                     )
                     
                     # Execute rebalancing
@@ -1012,7 +1013,7 @@ def main():
                         opportunities = scan_stocks(
                             symbols=[s for s in scan_universe if s not in stocks_to_evaluate],
                             interval_seconds=interval_seconds,
-                            cap_per_stock=cap_per_stock,
+                            cap_per_stock=args.max_cap,  # Use total capital for consistent predictions with smart allocation
                             max_results=args.max_stocks - len(stocks_to_evaluate),
                             verbose=True  # Enable to see what's failing
                         )
