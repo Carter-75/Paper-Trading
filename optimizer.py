@@ -307,10 +307,10 @@ def main() -> int:
         print(f"COMPOUNDING PROJECTIONS (THEORETICAL)")
         print(f"{'='*70}")
         
-        daily_return_pct = (optimal_return / optimal_cap) * 100
+        daily_return_pct = (expected_return / optimal_cap) * 100
         
         print(f"Starting capital: ${optimal_cap:.2f}")
-        print(f"Daily return: ${optimal_return:.2f} ({daily_return_pct:.3f}%/day)")
+        print(f"Daily return: ${expected_return:.2f} ({daily_return_pct:.3f}%/day)")
         print(f"\nProjected balance after:")
         
         for months in [1, 3, 6, 12, 24, 60]:
