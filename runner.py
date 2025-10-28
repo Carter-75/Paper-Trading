@@ -58,7 +58,10 @@ LOG.propagate = False  # Prevent duplicate logging from parent loggers
 
 # Only add handler if not already added (prevents duplicates on module re-import)
 if not LOG.handlers:
-    _console = logging.StreamHandler(sys.stdout)
+    # Use UTF-8 encoding to support emoji characters on Windows
+    import io
+    utf8_stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace', line_buffering=True)
+    _console = logging.StreamHandler(utf8_stdout)
     _console.setLevel(logging.INFO)
     _console.setFormatter(logging.Formatter("%(asctime)s %(levelname)s - %(message)s"))
     LOG.addHandler(_console)

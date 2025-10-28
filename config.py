@@ -211,7 +211,11 @@ def validate_risk_config() -> Optional[str]:
 _validation_error = validate_risk_config()
 if _validation_error and not ALLOW_MISSING_KEYS_FOR_DEBUG:
     import sys
-    print(f"\n⚠️  WARNING: {_validation_error}\n", file=sys.stderr)
+    import io
+    # Use UTF-8 encoding to support emoji characters on Windows
+    utf8_stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace', line_buffering=True)
+    print(f"\n⚠️  WARNING: {_validation_error}\n", file=utf8_stderr)
+    utf8_stderr.flush()
 
 # Preset configurations
 def apply_conservative_preset():

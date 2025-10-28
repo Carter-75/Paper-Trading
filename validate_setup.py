@@ -158,6 +158,11 @@ def simulate_args(args_dict: dict) -> None:
 
 def main():
     import argparse
+    import io
+    
+    # Configure stdout for UTF-8 to support emoji on Windows
+    if hasattr(sys.stdout, 'buffer'):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace', line_buffering=True)
     
     parser = argparse.ArgumentParser(description="Validate multi-stock bot configuration")
     parser.add_argument("-t", "--interval", type=float, default=0.25,
