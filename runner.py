@@ -400,6 +400,55 @@ def fetch_closes(client, symbol: str, interval_seconds: int, limit_bars: int) ->
     
     return []
 
+def fetch_closes_with_volume(client, symbol: str, interval_seconds: int, 
+                             limit_bars: int) -> Tuple[List[float], List[float]]:
+    """
+    Fetch both closing prices and volume data.
+    Returns (closes, volumes) or ([], []) if failed.
+    """
+    try:
+        import yfinance as yf
+        
+        # Map seconds to yfinance interval
+        if interval_seconds <= 300:
+            yf_interval = "5m"
+            days = 59
+        elif interval_seconds <= 900:
+            yf_interval = "15m"
+            days = 59
+        elif interval_seconds <= 3600:
+            yf_interval = "1h"
+            days = 59
+        else:
+            yf_interval = "1d"
+            days = 365
+        
+        from datetime import datetime, timedelta
+        import pytz
+        end = datetime.now(pytz.UTC)
+        start = end - timedelta(days=int(days))
+        
+        ticker = yf.Ticker(symbol)
+        hist = ticker.history(start=start, end=end, interval=yf_interval)
+        
+        if not hist.empty and 'Close' in hist.columns and 'Volume' in hist.columns:
+            closes = list(hist['Close'].values)
+            volumes = list(hist['Volume'].values)
+            
+            # Return most recent bars
+            closes = closes[-limit_bars:] if len(closes) > limit_bars else closes
+            volumes = volumes[-limit_bars:] if len(volumes) > limit_bars else volumes
+            
+            if len(closes) > 0 and len(volumes) > 0:
+                return (closes, volumes)
+    except Exception as e:
+        log_warn(f"Volume fetch failed for {symbol}: {e}")
+    
+    # Fallback: return closes only (no volume)
+    closes = fetch_closes(client, symbol, interval_seconds, limit_bars)
+    volumes = [1.0] * len(closes)  # Dummy volumes
+    return (closes, volumes)
+
 # ===== Trading Logic =====
 def sma(closes: List[float], window: int) -> float:
     if len(closes) < window:

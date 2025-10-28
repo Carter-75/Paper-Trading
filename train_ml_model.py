@@ -6,12 +6,20 @@ Run after collecting 3+ months of trading data
 
 import sys
 from ml_predictor import TradingMLPredictor
-from runner import make_client, fetch_closes, fetch_closes_with_volume
 import config
+
+# Import after loading config
+def get_runner_functions():
+    """Import runner functions after config is loaded"""
+    from runner import make_client, fetch_closes_with_volume
+    return make_client, fetch_closes_with_volume
 
 def collect_training_data(symbols: list, interval_seconds: int, bars: int = 500):
     """Collect historical data for training"""
     print(f"Collecting data for {len(symbols)} symbols...")
+    
+    # Import runner functions
+    make_client, fetch_closes_with_volume = get_runner_functions()
     
     client = make_client(allow_missing=False, go_live=False)
     training_data = []
@@ -63,14 +71,14 @@ def main():
     success = predictor.train(training_data, test_size=0.3)
     
     if success:
-        print("\n✅ Model training complete!")
+        print("\n[OK] Model training complete!")
         print(f"Model saved to {predictor.model_path}")
         print("\nTo use the model:")
-        print("1. Set ENABLE_ML_PREDICTION=1 in .env")
+        print("1. Set ENABLE_ML_PREDICTION=1 in .env (already enabled by default)")
         print("2. Run your bot normally - it will use ML predictions")
         return 0
     else:
-        print("\n❌ Model training failed")
+        print("\n[ERROR] Model training failed")
         return 1
 
 
