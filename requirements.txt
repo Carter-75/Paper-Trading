@@ -3,3 +3,5 @@ python-dotenv
 pytz
 requests
 yfinance>=0.2.0
+pandas>=1.3.0
+lxml>=4.6.0

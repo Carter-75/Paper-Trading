@@ -6,7 +6,7 @@ Usage: python scan_best_stocks.py --interval 0.25 --cap 100 --top 5
 
 import argparse
 import sys
-from stock_scanner import scan_stocks, get_stock_universe, DEFAULT_STOCK_UNIVERSE
+from stock_scanner import scan_stocks, get_stock_universe, DEFAULT_TOP_100_STOCKS
 
 
 def main():
@@ -18,14 +18,21 @@ def main():
     parser.add_argument("-n", "--top", type=int, default=5,
                        help="Number of top stocks to show (default: 5)")
     parser.add_argument("-s", "--symbols", nargs="+",
-                       help="Specific symbols to scan (default: scan 24 popular stocks)")
+                       help="Specific symbols to scan (default: scan top 100 stocks by market cap)")
+    parser.add_argument("--no-dynamic", action="store_true",
+                       help="Use predefined list instead of dynamic top 100")
     parser.add_argument("-v", "--verbose", action="store_true",
                        help="Show detailed progress")
     
     args = parser.parse_args()
     
     interval_seconds = int(args.interval * 3600)
-    symbols = args.symbols if args.symbols else DEFAULT_STOCK_UNIVERSE
+    
+    # Get stock universe
+    if args.symbols:
+        symbols = args.symbols
+    else:
+        symbols = get_stock_universe(use_top_100=not args.no_dynamic)
     
     print(f"\n{'='*80}")
     print(f"STOCK SCANNER")
@@ -33,6 +40,8 @@ def main():
     print(f"Interval: {interval_seconds}s ({args.interval}h)")
     print(f"Cap per stock: ${args.cap}")
     print(f"Scanning: {len(symbols)} stocks")
+    if not args.symbols and not args.no_dynamic:
+        print(f"Mode: Top 100 by market cap (cached)")
     print(f"{'='*80}\n")
     
     results = scan_stocks(

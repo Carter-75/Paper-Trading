@@ -10,4 +10,7 @@ venv/
 # Bot runtime files
 last_start_cmd.txt
 portfolio.json
+pnl_ledger.json
+top_stocks_cache.json
+start_bot.ps1
 

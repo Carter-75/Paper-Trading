@@ -4,6 +4,9 @@ Stock Scanner - Evaluates and ranks multiple stocks for trading opportunities.
 """
 
 from typing import List, Tuple, Dict, Optional
+import os
+import json
+import time
 import config
 from runner import (
     make_client,
@@ -14,15 +17,130 @@ from runner import (
 )
 
 
-# Popular stocks with good liquidity
-DEFAULT_STOCK_UNIVERSE = [
+# Cache file for top stocks (refreshed every 7 days)
+CACHE_FILE = "top_stocks_cache.json"
+CACHE_DURATION_DAYS = 7
+
+# Fallback list if dynamic fetch fails
+FALLBACK_STOCK_UNIVERSE = [
     "SPY", "QQQ", "AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "NVDA",
     "META", "AMD", "NFLX", "DIS", "BA", "JPM", "GS", "V",
     "MA", "COST", "WMT", "HD", "NKE", "MCD", "SBUX", "PEP"
 ]
 
+# Top 100 US stocks by market cap (updated as of 2024)
+# This list is used as the primary source and can be refreshed dynamically
+DEFAULT_TOP_100_STOCKS = [
+    # Mega-cap tech (Top 10)
+    "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "BRK.B", "LLY", "V",
+    # Large-cap tech & communication (11-30)
+    "UNH", "XOM", "WMT", "JPM", "JNJ", "MA", "AVGO", "PG", "HD", "CVX",
+    "COST", "ABBV", "MRK", "BAC", "ORCL", "CRM", "KO", "AMD", "PEP", "TMO",
+    # Large-cap diversified (31-50)
+    "CSCO", "ACN", "LIN", "MCD", "ADBE", "NFLX", "ABT", "WFC", "DHR", "NKE",
+    "DIS", "VZ", "TXN", "CMCSA", "NEE", "PM", "INTC", "COP", "BMY", "UNP",
+    # Mid-large cap (51-70)
+    "RTX", "UPS", "HON", "QCOM", "INTU", "T", "LOW", "MS", "AMGN", "CAT",
+    "BA", "SBUX", "DE", "ELV", "GE", "AMAT", "BLK", "MDT", "AXP", "PLD",
+    # Growth & diversified (71-90)
+    "ADI", "GILD", "BKNG", "SYK", "LRCX", "AMT", "ISRG", "CI", "MMC", "VRTX",
+    "TJX", "REGN", "C", "CVS", "PGR", "MDLZ", "ZTS", "NOC", "SCHW", "MU",
+    # Additional liquid stocks (91-100)
+    "CB", "EOG", "SO", "DUK", "BSX", "BDX", "ITW", "MMM", "APD", "SLB",
+    # ETFs for diversification
+    "SPY", "QQQ", "IWM", "DIA"
+]
 
-def score_stock(symbol: str, interval_seconds: int, cap_per_stock: float, bars: int = 200) -> Optional[Dict]:
+
+def fetch_top_stocks_dynamic(limit: int = 100) -> List[str]:
+    """
+    Fetch top stocks dynamically from market data.
+    Uses caching to avoid excessive API calls.
+    
+    Args:
+        limit: Number of top stocks to return (default: 100)
+    
+    Returns:
+        List of stock symbols
+    """
+    # Check cache first
+    if os.path.exists(CACHE_FILE):
+        try:
+            with open(CACHE_FILE, 'r') as f:
+                cache = json.load(f)
+                cache_time = cache.get('timestamp', 0)
+                cache_age_days = (time.time() - cache_time) / (24 * 3600)
+                
+                if cache_age_days < CACHE_DURATION_DAYS:
+                    symbols = cache.get('symbols', [])
+                    if len(symbols) >= limit:
+                        return symbols[:limit]
+        except Exception:
+            pass
+    
+    # Try to fetch dynamically using yfinance
+    try:
+        import yfinance as yf
+        import pandas as pd
+        
+        # Get S&P 500 components
+        sp500_url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+        tables = pd.read_html(sp500_url)
+        sp500_table = tables[0]
+        symbols = sp500_table['Symbol'].tolist()
+        
+        # Clean symbols (remove dots, special chars that cause issues)
+        cleaned_symbols = []
+        for sym in symbols:
+            # Replace dots with hyphens (BRK.B -> BRK-B)
+            clean_sym = sym.replace('.', '-')
+            cleaned_symbols.append(clean_sym)
+        
+        # Get market caps for top symbols
+        market_caps = {}
+        print(f"Fetching market caps for {len(cleaned_symbols)} stocks (this may take a minute)...")
+        
+        for i, symbol in enumerate(cleaned_symbols[:200], 1):  # Check top 200 from S&P 500
+            try:
+                ticker = yf.Ticker(symbol)
+                info = ticker.info
+                if 'marketCap' in info and info['marketCap']:
+                    market_caps[symbol] = info['marketCap']
+                if i % 20 == 0:
+                    print(f"  Progress: {i}/200 stocks checked...")
+            except Exception:
+                continue
+        
+        # Sort by market cap and take top N
+        sorted_symbols = sorted(market_caps.items(), key=lambda x: x[1], reverse=True)
+        top_symbols = [sym for sym, _ in sorted_symbols[:limit]]
+        
+        # Add major ETFs for diversification
+        etfs = ["SPY", "QQQ", "IWM", "DIA"]
+        for etf in etfs:
+            if etf not in top_symbols:
+                top_symbols.append(etf)
+        
+        # Cache the results
+        try:
+            with open(CACHE_FILE, 'w') as f:
+                json.dump({
+                    'timestamp': time.time(),
+                    'symbols': top_symbols
+                }, f)
+        except Exception:
+            pass
+        
+        print(f"✓ Successfully fetched top {len(top_symbols)} stocks")
+        return top_symbols[:limit]
+        
+    except Exception as e:
+        print(f"Warning: Could not fetch dynamic stock list ({e})")
+        print("Using predefined top 100 stocks...")
+        return DEFAULT_TOP_100_STOCKS[:limit]
+
+
+def score_stock(symbol: str, interval_seconds: int, cap_per_stock: float, bars: int = 200, verbose: bool = False) -> Optional[Dict]:
     """
     Score a stock based on profitability potential.
     Returns dict with score and metrics, or None if failed.
@@ -102,7 +220,7 @@ def scan_stocks(symbols: List[str], interval_seconds: int,
         if verbose:
             print(f"  [{i:2d}/{len(symbols)}] Evaluating {symbol:6s}...", end="", flush=True)
         
-        score_data = score_stock(symbol, interval_seconds, cap_per_stock)
+        score_data = score_stock(symbol, interval_seconds, cap_per_stock, verbose=verbose)
         
         if score_data:
             results.append(score_data)
@@ -120,12 +238,13 @@ def scan_stocks(symbols: List[str], interval_seconds: int,
     return results[:max_results]
 
 
-def get_stock_universe(user_symbols: Optional[List[str]] = None) -> List[str]:
+def get_stock_universe(user_symbols: Optional[List[str]] = None, use_top_100: bool = True) -> List[str]:
     """
     Get list of stocks to scan.
     
     Args:
-        user_symbols: User-provided list of symbols, or None for default universe
+        user_symbols: User-provided list of symbols, or None for automatic selection
+        use_top_100: If True, uses top 100 stocks by market cap (default: True)
     
     Returns:
         List of stock symbols to scan
@@ -133,7 +252,10 @@ def get_stock_universe(user_symbols: Optional[List[str]] = None) -> List[str]:
     if user_symbols:
         # Use user-provided symbols
         return [s.upper() for s in user_symbols]
+    elif use_top_100:
+        # Fetch top 100 stocks dynamically (with caching)
+        return fetch_top_stocks_dynamic(limit=100)
     else:
-        # Use default universe
-        return DEFAULT_STOCK_UNIVERSE.copy()
+        # Use fallback list (for testing or if dynamic fetch is disabled)
+        return FALLBACK_STOCK_UNIVERSE.copy()
 
