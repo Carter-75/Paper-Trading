@@ -30,7 +30,7 @@
 
 ---
 
-**Automated stock trading with advanced strategy filters, risk management, and optional ML prediction**
+**Automated stock trading with advanced strategy filters, risk management, and machine learning prediction**
 
 ## 🎯 What This Bot Does
 
@@ -78,12 +78,13 @@
 - **Dynamic TP/SL** - Adjusts targets based on market conditions
 - **Risk overlay** - More aggressive when opportunities are excellent
 
-### Automation
+### Full Automation (Admin Mode)
 - **Auto-start on boot/logon** - Never miss market open
 - **Wake at 9:25 AM** - PC powers on 5 minutes before market
 - **Keep-awake during trading** - Prevents sleep during market hours
 - **Auto-restart on crash** - Resilient against errors
 - **Market hours aware** - Sleeps when market is closed
+- **Clean shutdown** - Removes all runtime files on stop-forever
 
 ---
 
@@ -105,67 +106,122 @@ This bot now implements **9 major improvements** for 20-40% better performance:
 
 ## 🚀 Quick Start
 
-**Run as Administrator from anywhere using full paths:**
+**📌 RECOMMENDED: Run as Administrator from anywhere**
+
+The bot works in two modes:
+- **Admin Mode** (recommended): Full automation, scheduled tasks, auto-wake, restart on crash
+- **Simple Mode** (testing only): Just runs Python directly, no automation
 
 ```powershell
-# Set your project path (change this to your actual path)
+# ============================================
+# SETUP (ONE TIME)
+# ============================================
+
+# 1. Set your bot path (adjust to your actual path)
 $BotDir = "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading"
 
-# 1. Install dependencies (includes ML libraries)
+# 2. Open PowerShell as Administrator
+#    Right-click PowerShell → "Run as Administrator"
+
+# 3. Navigate to bot directory
 cd $BotDir
+
+# 4. Install dependencies (includes ML libraries)
 pip install -r requirements.txt
 
-# 2. Setup .env (see Environment Variables below)
-notepad "$BotDir\.env"
+# 5. Create .env file with your API keys
+notepad .env
+# (See Environment Variables section below for what to put in it)
 
-# 3. Train ML model (optional but recommended - takes 5-10 min)
-python "$BotDir\train_ml_model.py"
+# ============================================
+# OPTIONAL: TRAIN ML MODEL (Recommended)
+# ============================================
+# Takes 5-10 minutes, downloads historical data for 17 stocks
+python train_ml_model.py
 
-# 4. Find best interval & capital (optimizer tests multiple stocks)
-python "$BotDir\optimizer.py" -v
+# ============================================
+# FIND OPTIMAL PARAMETERS
+# ============================================
+# Tests 8 popular stocks, finds best interval & capital
+python optimizer.py -v
 
-# 5. Run bot with suggested interval & capital
-#    Bot will auto-select best 15 stocks and trade them!
-python "$BotDir\runner.py" -t 0.25 -m 1500
+# Output will suggest something like:
+#   Interval: 0.25 hours (15 min)
+#   Capital: $1500 total
+#   Use: python runner.py -t 0.25 -m 1500
 
-# That's it! Press Ctrl+C to stop.
+# ============================================
+# RUN THE BOT
+# ============================================
+
+# OPTION A: ADMIN MODE (Recommended - Full Automation)
+# Runs forever, auto-starts on boot, wakes PC before market
+.\botctl.ps1 start python -u runner.py -t 0.25 -m 1500
+
+# Check status anytime
+.\botctl.ps1 status
+
+# Watch logs live
+Get-Content bot.log -Wait -Tail 50
+
+# Control commands
+.\botctl.ps1 restart       # Restart bot
+.\botctl.ps1 stop          # Temporary stop (auto-restarts on boot)
+.\botctl.ps1 stop-forever  # Permanent stop + clean all generated files
+
+# OPTION B: SIMPLE MODE (Testing Only - No Automation)
+# Just for quick tests, no scheduled task, no auto-restart
+python runner.py -t 0.25 -m 1500
+# Press Ctrl+C to stop
 ```
 
-**You'll now see enhanced logs like:**
-```
-RSI: 45.2 (neutral/bullish)
-Volume: 1.8x avg (strong)
-Timeframes: short:buy | medium:buy | long:hold
-Kelly sizing: 68% of $100 = $68 (win_rate=62%)
-Correlation check: avg=0.42 (diversification OK)
-ML confirms BUY (conf=75%)
-Limit order @ $150.20 (market: $150.35)
-```
+**🎉 That's it! Your bot is now running!**
 
 ---
 
-## 📦 Installation
+## 📁 Project Setup
+
+### Prerequisites
+
+**Required:**
+- Python 3.9+
+- Alpaca Paper Account (free at alpaca.markets)
+- PowerShell 7+ (for Admin mode automation)
+
+**Optional:**
+- Polygon API Key (free tier works, but yfinance is primary)
+
+### Installation
 
 ```powershell
-# Install dependencies
+# Set your bot directory (adjust path)
+$BotDir = "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading"
+
+# Open PowerShell as Administrator
+# Navigate to bot directory
+cd $BotDir
+
+# Install Python dependencies
 pip install -r requirements.txt
 
-# Create .env file
-notepad .env
+# Verify installation
+python -c "import alpaca_trade_api, yfinance, sklearn; print('✅ All dependencies installed')"
 ```
 
-**Requirements:**
-- Python 3.9+
-- Alpaca Paper Account (alpaca.markets)
-- Polygon API Key (free tier works, but yfinance works too)
-- PowerShell 7+ (for background mode)
-- scikit-learn, numpy (auto-installed for ML features)
+**What gets installed:**
+- `alpaca-trade-api` - Broker integration
+- `yfinance` - Free market data
+- `requests` - HTTP client
+- `python-dotenv` - Environment variables
+- `scikit-learn` - Machine learning
+- `numpy` - Numerical computing
+- `pandas` - Data analysis
 
 ---
 
 ## 🔐 Environment Variables
 
-Create `.env` file:
+Create `.env` file in your bot directory:
 
 ```env
 # ===== REQUIRED =====
@@ -238,81 +294,20 @@ ML_CONFIDENCE_THRESHOLD=0.6            # 60% confidence to override signals
 ML_MODEL_PATH=ml_model.pkl             # Model file path
 ```
 
-### Advanced Configuration Explained
+**How to get API keys:**
 
-**Strategy Parameters:**
-- `DEFAULT_INTERVAL_SECONDS`: Default trading interval (900 = 15 minutes)
-- `SHORT_WINDOW`: Fast moving average period (9 bars)
-- `LONG_WINDOW`: Slow moving average period (21 bars)
-- `TRADE_SIZE_FRAC_OF_CAP`: Use 75% of allocated capital per trade (keep 25% buffer)
-- `MAX_CAP_USD`: Maximum capital per stock (default $100)
+1. **Alpaca Account:**
+   - Go to https://alpaca.markets
+   - Sign up for free paper trading
+   - Dashboard → API Keys → Generate new keys
+   - Copy `API Key ID` → `ALPACA_API_KEY`
+   - Copy `Secret Key` → `ALPACA_SECRET_KEY`
 
-**Risk Management:**
-- `TAKE_PROFIT_PERCENT`: Exit when profit reaches 3%
-- `STOP_LOSS_PERCENT`: Exit when loss reaches 1%
-- `TRAILING_STOP_PERCENT`: Optional trailing stop (0 = disabled)
-- `MAX_DAILY_LOSS_PERCENT`: Shut down if account drops 5% in one day
-- `MAX_DRAWDOWN_PERCENT`: Maximum drawdown allowed (10%)
-
-**Confidence & Volatility:**
-- `MIN_CONFIDENCE_TO_TRADE`: Minimum MA separation to trade (0.005 = 0.5%)
-- `CONFIDENCE_MULTIPLIER`: How much confidence affects position sizing (9.0)
-- `VOLATILITY_PCT_THRESHOLD`: Skip stocks with volatility > 15%
-- `VOLATILITY_WINDOW`: Look back 30 bars for volatility calculation
-
-**Profitability Gates:**
-- `PROFITABILITY_GATE_ENABLED`: Only trade stocks with positive expected return
-- `PROFITABILITY_MIN_EXPECTED_USD`: Minimum $0.01/day expected return
-- `STRONG_CONFIDENCE_THRESHOLD`: High confidence = 8% MA separation
-- `STRONG_CONFIDENCE_BYPASS_ENABLED`: Allow trades with strong signals even if expected return is low
-
-**Risky Mode (Aggressive Profit Targeting):**
-When enabled, bot takes larger positions with higher targets when opportunities are excellent:
-- `RISKY_MODE_ENABLED`: Enable aggressive mode (default: on)
-- `RISKY_EXPECTED_DAILY_USD_MIN`: Trigger threshold ($0.05/day)
-- `RISKY_TP_MULT`: Increase take profit by 25% (1.25×)
-- `RISKY_SL_MULT`: Widen stop loss by 15% (1.15×)
-- `RISKY_SIZE_MULT`: Increase position size by 30% (1.30×)
-- `RISKY_MAX_FRAC_CAP`: Use up to 95% of allocated capital
-
-**Advanced Strategy Filters (Phase 1):**
-- `RSI_ENABLED`: Enable RSI overbought/oversold filter (default: on)
-- `RSI_OVERBOUGHT`: Don't buy when RSI > this value (default: 70)
-- `RSI_OVERSOLD`: Don't sell when RSI < this value (default: 30)
-- `RSI_PERIOD`: RSI calculation period in bars (default: 14)
-- `MULTI_TIMEFRAME_ENABLED`: Require multiple timeframes to agree (default: on)
-- `MULTI_TIMEFRAME_MIN_AGREEMENT`: How many of 3 timeframes must agree (default: 2)
-- `VOLUME_CONFIRMATION_ENABLED`: Require volume confirmation (default: on)
-- `VOLUME_CONFIRMATION_THRESHOLD`: Required volume vs average (default: 1.2 = 20% above)
-
-**Risk Management (Phase 2):**
-- `ENABLE_DRAWDOWN_PROTECTION`: Stop trading on large drawdowns (default: on)
-- `MAX_PORTFOLIO_DRAWDOWN_PERCENT`: Max % drop from peak before stopping (default: 15%)
-- `ENABLE_KELLY_SIZING`: Use Kelly Criterion for position sizing (default: on)
-- `KELLY_USE_HALF`: Use Half-Kelly for safety (default: on)
-- `ENABLE_CORRELATION_CHECK`: Block correlated positions (default: on)
-- `MAX_CORRELATION_THRESHOLD`: Max allowed correlation (default: 0.7)
-
-**Execution Improvements (Phase 3):**
-- `USE_LIMIT_ORDERS`: Use limit orders instead of market (default: on)
-- `LIMIT_ORDER_OFFSET_PERCENT`: How much better than market (default: 0.1%)
-- `LIMIT_ORDER_TIMEOUT_SECONDS`: Max wait before switching to market (default: 300)
-- `ENABLE_SAFE_HOURS`: Avoid volatile market open/close (default: on)
-- `AVOID_FIRST_MINUTES`: Skip first N minutes after open (default: 15)
-- `AVOID_LAST_MINUTES`: Skip last N minutes before close (default: 15)
-
-**Machine Learning (Phase 4):**
-- `ENABLE_ML_PREDICTION`: Use Random Forest predictions (default: on)
-- `ML_CONFIDENCE_THRESHOLD`: Min confidence to override signals (default: 0.6 = 60%)
-- `ML_MODEL_PATH`: Path to trained model file (default: ml_model.pkl)
-
-**Logging & Safety:**
-- `LOG_PATH`: Log file location (bot.log)
-- `LOG_MAX_AGE_HOURS`: Auto-delete logs older than 48 hours
-- `PNL_LEDGER_PATH`: Trade history file (pnl_ledger.json)
-- `ENABLE_MARKET_HOURS_ONLY`: Only trade during market hours (9:30-4:00 ET)
-- `EXIT_ON_NEGATIVE_PROJECTION`: Exit if expected return is negative
-- `ALLOW_MISSING_KEYS_FOR_DEBUG`: Skip API key validation (testing only)
+2. **Polygon (Optional):**
+   - Go to https://polygon.io
+   - Sign up for free tier
+   - Dashboard → API Keys
+   - Copy key → `POLYGON_API_KEY`
 
 ---
 
@@ -329,27 +324,33 @@ Portfolio Management:
   stock_scanner.py       - Stock evaluation & ranking engine
   multi_stock_config.py  - Multi-stock portfolio settings
   
-Machine Learning (NEW):
+Machine Learning:
   ml_predictor.py        - Random Forest predictor for price movements
   train_ml_model.py      - ML training script (run once to train)
-  ml_model.pkl           - Trained model file (auto-created)
+  ml_model.pkl           - Trained model file (auto-created, ignored by git)
   
 Utilities:
   validate_setup.py      - Pre-flight configuration validator
   scan_best_stocks.py    - CLI tool to find best stocks right now
   
 Windows Automation:
-  botctl.ps1             - Task controller (start/stop/restart)
-  start_bot.ps1          - Auto-generated wrapper (created by botctl)
-  last_start_cmd.txt     - Last command saved (for restart)
+  botctl.ps1             - Task controller (start/stop/restart/status)
+  start_bot.ps1          - Auto-generated wrapper (created by botctl, ignored by git)
+  last_start_cmd.txt     - Last command saved (for restart, ignored by git)
   
-Data Files (auto-created):
+Runtime Files (auto-created, ignored by git):
   bot.log                - Trading activity log (auto-truncated to 250 lines)
   portfolio.json         - Current positions (symbol, qty, entry, value, P&L)
   pnl_ledger.json        - Trade history with realized gains/losses
   top_stocks_cache.json  - Top 100 stocks by market cap (refreshed daily)
-  .env                   - API keys & secrets (you create this)
+  
+Configuration:
+  .env                   - API keys & secrets (YOU create this, ignored by git)
+  .gitignore             - Files to exclude from version control
+  requirements.txt       - Python dependencies
 ```
+
+**Note:** All runtime files are automatically deleted when you run `.\botctl.ps1 stop-forever`
 
 **Architecture:**
 - **Entry point**: `runner.py` - Main trading engine
@@ -373,8 +374,11 @@ The bot includes a **Random Forest predictor** that's ENABLED by default. For be
 ### Quick ML Training
 
 ```powershell
+# Set your bot directory
+$BotDir = "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading"
+
 # Train on 17 diverse stocks (takes 5-10 minutes)
-python train_ml_model.py
+python "$BotDir\train_ml_model.py"
 ```
 
 This will:
@@ -413,81 +417,129 @@ Bot works perfectly fine without ML using just the strategy filters!
 
 ## 💻 Usage
 
-**⚡ Run as Administrator with full paths (works from anywhere):**
+**💡 All commands shown work from anywhere as Administrator**
 
+Set your bot directory once:
 ```powershell
 $BotDir = "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading"
 ```
 
-**Default Behavior:** Bot auto-selects best 15 stocks
+### Mode 1: Admin Mode (Recommended - Full Automation)
 
-### Multi-Stock (Default)
+**Start the bot:**
+```powershell
+# Multi-stock (auto-selects best 15 stocks)
+& "$BotDir\botctl.ps1" start python -u runner.py -t 0.25 -m 1500
+
+# Single stock
+& "$BotDir\botctl.ps1" start python -u runner.py -t 0.25 -s AAPL -m 100 --max-stocks 1
+
+# Custom stocks
+& "$BotDir\botctl.ps1" start python -u runner.py -t 0.25 -m 1000 --stocks TSLA NVDA --max-stocks 10
+```
+
+**What happens:**
+- ✅ Bot runs hidden in background
+- ✅ Auto-starts on system boot
+- ✅ Auto-starts on user logon
+- ✅ Wakes PC at 9:25 AM daily (5 min before market open)
+- ✅ Auto-restarts on crash
+- ✅ Logs everything to `bot.log`
+
+**Control the bot:**
+```powershell
+# Check if running
+& "$BotDir\botctl.ps1" status
+
+# Restart (holy grail - always works)
+& "$BotDir\botctl.ps1" restart
+
+# Watch logs live
+Get-Content "$BotDir\bot.log" -Wait -Tail 50
+
+# Temporary stop (task remains, auto-restarts on boot)
+& "$BotDir\botctl.ps1" stop
+
+# Permanent stop + clean all generated files
+& "$BotDir\botctl.ps1" stop-forever
+```
+
+### Mode 2: Simple Mode (Testing Only - No Automation)
+
+**For quick tests without scheduled tasks:**
+
+```powershell
+# Just run Python directly (works without admin)
+python "$BotDir\runner.py" -t 0.25 -m 1500
+
+# Press Ctrl+C to stop
+```
+
+**What you get:**
+- ✅ Bot runs in your current terminal
+- ✅ See logs immediately
+- ✅ Easy to start/stop
+- ❌ No auto-start on boot
+- ❌ No auto-restart on crash
+- ❌ No wake-before-market
+- ❌ Stops when you close PowerShell
+
+**Use this for:**
+- Testing configuration changes
+- Debugging issues
+- Running optimizer
+- Quick manual runs
+
+---
+
+## 🎯 Trading Modes
+
+### Multi-Stock Portfolio (Default)
 
 **Auto-Select All (Bot Picks Best Stocks):**
 ```powershell
+$BotDir = "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading"
+
 # Default: 15 stocks auto-selected
-python "$BotDir\runner.py" -t 0.25 -m 1500
+& "$BotDir\botctl.ps1" start python -u runner.py -t 0.25 -m 1500
 
 # Or explicitly set max stocks
-python "$BotDir\runner.py" -t 0.25 -m 1500 --max-stocks 10
+& "$BotDir\botctl.ps1" start python -u runner.py -t 0.25 -m 1500 --max-stocks 10
 ```
 Bot scans universe, picks best stocks (default: 15), trades & rebalances.
 
 **Force Specific + Auto-Fill:**
 ```powershell
-# Keep TSLA/AAPL, auto-select 8 more
-python "$BotDir\runner.py" -t 0.25 -m 1500 --stocks TSLA AAPL --max-stocks 10
+# Keep TSLA/AAPL always, auto-select 8 more
+& "$BotDir\botctl.ps1" start python -u runner.py -t 0.25 -m 1500 --stocks TSLA AAPL --max-stocks 10
 ```
-Keeps TSLA/AAPL always, auto-selects 8 more.
+Keeps TSLA/AAPL always, auto-selects 8 more to fill portfolio.
 
 **Manual Only:**
 ```powershell
-# Only trade your 3 picks
-python "$BotDir\runner.py" -t 0.25 -m 300 --stocks AAPL MSFT GOOGL --max-stocks 3
+# Only trade your 3 picks, no auto-selection
+& "$BotDir\botctl.ps1" start python -u runner.py -t 0.25 -m 300 --stocks AAPL MSFT GOOGL --max-stocks 3
 ```
-Only trades your 3 picks.
+Only trades your 3 picks, no scanning for others.
 
 **Arguments:**
 - `--max-stocks N` - Max positions (default: 15)
 - `--stocks SYM1 SYM2` - Force specific stocks
 - `--cap-per-stock USD` - Fixed capital per stock (disables smart allocation)
-- `--rebalance-every N` - Rebalance frequency (default: 4)
+- `--rebalance-every N` - Rebalance frequency (default: 4 intervals)
 
-**💡 Smart Allocation (Always Enabled):**
-The bot automatically uses **smart capital allocation** to maximize returns:
-
-**How It Works:**
-1. **Max cap is your total budget** across ALL stocks (e.g., $1500 total, not per stock)
-2. **Scans all stocks** and ranks by profitability
-3. **Allocates more $ to better performers** (e.g., TSLA $600, AAPL $500, NVDA $400)
-4. **Sells underperformers** to free capital for better opportunities
-5. **Holds cash when needed** - being under max cap is totally fine!
-
-**Example:**
-```
-You have: TSLA $300, AAPL $400, NVDA $200 (Total: $900/$1500)
-Bot finds: TSLA still great, AAPL good, MSFT better than NVDA
-Action: Sells NVDA ($200) → Buys MSFT ($500) → Result: $900→$1000 invested
-```
-
-To force equal split instead, specify `--cap-per-stock` manually.
-
-### Single Stock
+### Single Stock Mode
 
 **To trade just ONE stock, set `--max-stocks 1` and provide `-s SYMBOL`:**
 
-**From project directory:**
 ```powershell
+$BotDir = "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading"
+
 # Basic
-python runner.py -t 0.25 -s AAPL -m 100 --max-stocks 1
+& "$BotDir\botctl.ps1" start python -u runner.py -t 0.25 -s AAPL -m 100 --max-stocks 1
 
 # With custom params
-python runner.py -t 0.25 -s TSLA -m 500 --max-stocks 1 --tp 3.0 --sl 1.5
-```
-
-**From anywhere:**
-```powershell
-python "$BotDir\runner.py" -t 0.25 -s AAPL -m 100 --max-stocks 1
+& "$BotDir\botctl.ps1" start python -u runner.py -t 0.25 -s TSLA -m 500 --max-stocks 1 --tp 3.0 --sl 1.5
 ```
 
 **Arguments:**
@@ -502,30 +554,20 @@ python "$BotDir\runner.py" -t 0.25 -s AAPL -m 100 --max-stocks 1
 
 **Finds optimal INTERVAL and CAPITAL by testing multiple stocks.**
 
-**Default Mode (Multi-Stock):**
-```powershell
-# Just run it - tests multiple stocks using binary search
-python optimizer.py -v
-
-# Custom capital limit
-python optimizer.py -m 500 -v
-```
-
-**Single-Stock Mode (Optional):**
-```powershell
-# Only if you want to trade ONE specific stock
-python optimizer.py -s AAPL -v
-
-# Compare specific stocks
-python optimizer.py --symbols AAPL TSLA NVDA -v
-```
-
-**From anywhere:**
 ```powershell
 $BotDir = "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading"
+
+# Default: Tests multiple popular stocks (SPY, QQQ, AAPL, TSLA, etc.)
 python "$BotDir\optimizer.py" -v
+
+# Custom capital limit
 python "$BotDir\optimizer.py" -m 500 -v
-python "$BotDir\optimizer.py" -s AAPL -v  # Only for single-stock mode
+
+# Test specific stock (for single-stock mode)
+python "$BotDir\optimizer.py" -s AAPL -v
+
+# Compare specific stocks
+python "$BotDir\optimizer.py" --symbols AAPL TSLA NVDA -v
 ```
 
 **What It Does:**
@@ -535,8 +577,6 @@ python "$BotDir\optimizer.py" -s AAPL -v  # Only for single-stock mode
 4. Finds interval & capital that work best across stocks
 5. Returns: **Best interval + Best capital**
 
-**⚠️ For multi-stock trading, don't use `-s SYMBOL`!** Just run `python optimizer.py -v` to test multiple stocks.
-
 **Example Output:**
 ```
 ==================================================================
@@ -545,30 +585,7 @@ AUTO-SCANNING MODE
 Testing 8 popular stocks to find best parameters...
 Symbols: SPY, QQQ, AAPL, TSLA, NVDA, MSFT, GOOGL, AMZN
 
-==================================================================
-TESTING: SPY
-==================================================================
-Method: Binary search across ALL intervals and capitals
 ...
-Result: $2.15/day @ 900s (0.2500h) with $100 cap
-
-==================================================================
-TESTING: TSLA
-==================================================================
-...
-Result: $5.30/day @ 300s (0.0833h) with $250 cap
-
-... (tests all 8 stocks) ...
-
-==================================================================
-RESULTS SUMMARY
-==================================================================
-1. TSLA   ✅  $  5.30/day  @   300s (0.0833h)  $    250 cap
-2. NVDA   ✅  $  4.50/day  @   600s (0.1667h)  $    200 cap
-3. AAPL   ✅  $  3.45/day  @   900s (0.2500h)  $    150 cap
-4. SPY    ✅  $  2.15/day  @   900s (0.2500h)  $    100 cap
-5. QQQ    ✅  $  1.80/day  @  1800s (0.5000h)  $     75 cap
-==================================================================
 
 ==================================================================
 OPTIMAL CONFIGURATION
@@ -583,132 +600,53 @@ Expected Daily Return: $5.30
 Use these parameters with bot:
   
   # Multi-stock (bot auto-picks best 15 stocks!) - DEFAULT
-  python runner.py -t 0.0833 -m 3750
+  .\botctl.ps1 start python -u runner.py -t 0.0833 -m 3750
   
   # Single stock (if you want to trade just TSLA)
-  python runner.py -t 0.0833 -s TSLA -m 250 --max-stocks 1
+  .\botctl.ps1 start python -u runner.py -t 0.0833 -s TSLA -m 250 --max-stocks 1
 ```
 
 ---
 
-## 🧪 Testing
+## 🧪 Testing & Validation
 
-**From project directory:**
-
-### 1. Test Everything
-```powershell
-python test_all_systems.py
-```
-
-### 2. Check Current Signals
-```powershell
-python test_signals.py -s AAPL -t 0.25 -b 100
-```
-
-### 3. Scan Best Stocks
-```powershell
-python scan_best_stocks.py --interval 0.25 --cap 100 --top 5 --verbose
-```
-
-### 4. Validate Setup
-```powershell
-python validate_setup.py -t 0.25 -m 1500 --max-stocks 15
-```
-
-**From anywhere:**
 ```powershell
 $BotDir = "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading"
-python "$BotDir\test_all_systems.py"
-python "$BotDir\test_signals.py" -s AAPL -t 0.25 -b 100
-python "$BotDir\scan_best_stocks.py" --interval 0.25 --cap 100 --top 5 --verbose
+
+# 1. Validate your configuration before running
 python "$BotDir\validate_setup.py" -t 0.25 -m 1500 --max-stocks 15
+
+# 2. Test all systems
+python "$BotDir\test_all_systems.py"
+
+# 3. Check current signals for specific stocks
+python "$BotDir\test_signals.py" -s AAPL -t 0.25 -b 100
+
+# 4. Scan for best stocks right now
+python "$BotDir\scan_best_stocks.py" --interval 0.25 --cap 100 --top 15 --verbose
 ```
 
 ---
 
-## ⚙️ Running the Bot
+## 📊 Monitoring
 
-### Simple: Just Run It
-
-**From project directory:**
-```powershell
-# Multi-stock (default: auto-picks 15 best stocks)
-python runner.py -t 0.25 -m 1500
-
-# Single stock (must specify --max-stocks 1)
-python runner.py -t 0.25 -s AAPL -m 100 --max-stocks 1
-```
-
-**From anywhere:**
 ```powershell
 $BotDir = "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading"
-python "$BotDir\runner.py" -t 0.25 -m 1500
-python "$BotDir\runner.py" -t 0.25 -s AAPL -m 100 --max-stocks 1
-```
 
-**That's it!** Bot runs in your current window. Press Ctrl+C to stop.
+# Check bot status (Admin mode)
+& "$BotDir\botctl.ps1" status
 
-### Want It to Run Forever? Use Admin Mode
-
-**Only run as Admin if you want:**
-- Auto-start on boot/logon
-- Wake at 9:25 AM before market
-- Auto-restart on crash
-- Run hidden in background
-
-**Start (As Admin):**
-
-From project directory:
-```powershell
-.\botctl.ps1 start python -u runner.py
-```
-
-From anywhere:
-```powershell
-$BotPath = "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\botctl.ps1"
-pwsh -NoProfile -ExecutionPolicy Bypass -File $BotPath start python -u runner.py -t 0.25 -m 100
-```
-
-**Control Commands (As Admin):**
-
-From project directory:
-```powershell
-.\botctl.ps1 restart             # Holy grail - always works
-.\botctl.ps1 status              # Check status
-.\botctl.ps1 stop                # Temporary stop (auto-restarts on boot)
-.\botctl.ps1 stop-forever        # Permanent stop + cleanup
-```
-
-From anywhere:
-```powershell
-$BotPath = "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\botctl.ps1"
-& $BotPath restart
-& $BotPath status
-& $BotPath stop
-& $BotPath stop-forever
-```
-
-**What Admin Mode Does:**
-- ✅ Auto-starts on system boot
-- ✅ Auto-starts on user logon
-- ✅ Wakes system at 9:25 AM (5 min before market)
-- ✅ Keeps system awake during market hours (9:30 AM - 4:00 PM ET)
-- ✅ Auto-restarts on crash
-- ✅ Runs hidden in background
-
-**Non-Admin?** Just run `python runner.py ...` directly. Simple!
-
-### Monitor
-
-```powershell
-# Watch log live
-Get-Content bot.log -Wait -Tail 50
+# Watch logs live
+Get-Content "$BotDir\bot.log" -Wait -Tail 50
 
 # View portfolio (shows all current stocks + amounts)
-type portfolio.json
+Get-Content "$BotDir\portfolio.json" | ConvertFrom-Json | ConvertTo-Json
 
 # View P&L history
-type pnl_ledger.json
+Get-Content "$BotDir\pnl_ledger.json" | ConvertFrom-Json | ConvertTo-Json
+
+# Check Alpaca dashboard (browser)
+# https://app.alpaca.markets/paper/dashboard/overview
 ```
 
 **What Gets Saved:**
@@ -723,46 +661,48 @@ type pnl_ledger.json
 
 - **`pnl_ledger.json`** - Trade history with realized P&L
 
-- **`bot.log`** - All activity (truncated automatically)
+- **`bot.log`** - All activity (auto-truncated to 250 lines)
 
 - **`last_start_cmd.txt`** - Last command used (for restart)
 
-- **`start_bot.ps1`** - Wrapper script (auto-created for background mode)
+- **`start_bot.ps1`** - Wrapper script (auto-created for Admin mode)
 
-**Example `portfolio.json`:**
-```json
-{
-  "positions": {
-    "AAPL": {
-      "qty": 10,
-      "avg_entry": 150.25,
-      "market_value": 1520.00,
-      "unrealized_pl": 17.50,
-      "last_update": "2025-10-24T14:30:00Z"
-    },
-    "TSLA": {
-      "qty": 5,
-      "avg_entry": 245.80,
-      "market_value": 1250.00,
-      "unrealized_pl": 21.00,
-      "last_update": "2025-10-24T14:30:00Z"
-    }
-  },
-  "last_updated": "2025-10-24T14:30:00Z"
-}
-```
+- **`ml_model.pkl`** - Trained ML model (created by `train_ml_model.py`)
+
+- **`top_stocks_cache.json`** - Top 100 stocks cache (refreshed daily)
 
 ---
 
 ## 📖 CLI Reference
 
-**💡 Tip: All commands work from anywhere using full paths!**
+**💡 Tip: All commands work from anywhere as Administrator**
+
 ```powershell
 $BotDir = "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading"
-python "$BotDir\runner.py" -t 0.25 -s AAPL -m 100
 ```
 
-### runner.py (UNIFIED)
+### botctl.ps1 (Task Controller)
+
+```
+.\botctl.ps1 COMMAND [args]
+# Or from anywhere:
+& "$BotDir\botctl.ps1" COMMAND [args]
+
+Commands:
+  start           - Start bot in background (auto-restart, wake at 9:25 AM)
+  stop            - Temporarily stop (task remains, auto-restarts on boot)
+  restart         - Restart bot (holy grail - always works)
+  stop-forever    - Permanently stop + clean all generated files
+  status          - Show bot status and scheduled task info
+
+Examples:
+  .\botctl.ps1 start python -u runner.py -t 0.25 -m 1500
+  .\botctl.ps1 restart
+  .\botctl.ps1 status
+  .\botctl.ps1 stop-forever
+```
+
+### runner.py (Main Trading Bot)
 
 ```
 python runner.py -t HOURS -m CAPITAL [OPTIONS]
@@ -770,8 +710,8 @@ python runner.py -t HOURS -m CAPITAL [OPTIONS]
 python "$BotDir\runner.py" -t HOURS -m CAPITAL [OPTIONS]
 
 Required:
-  -t, --time HOURS          Trading interval
-  -m, --max-cap USD         Total capital
+  -t, --time HOURS          Trading interval (e.g., 0.25 = 15 minutes)
+  -m, --max-cap USD         Total capital across all stocks
 
 Stock Selection:
   --max-stocks N            Max positions (default: 15)
@@ -789,7 +729,7 @@ Optional:
   --allow-missing-keys      Debug mode
 ```
 
-### optimizer.py
+### optimizer.py (Parameter Finder)
 
 ```
 python optimizer.py [OPTIONS]
@@ -812,94 +752,109 @@ python test_all_systems.py
 python test_signals.py -s AAPL -t 0.25
 python scan_best_stocks.py --verbose
 python validate_setup.py -t 0.25 -m 1500 --max-stocks 15
+python train_ml_model.py
 
 # Or from anywhere:
 python "$BotDir\test_all_systems.py"
 python "$BotDir\test_signals.py" -s AAPL -t 0.25
 python "$BotDir\scan_best_stocks.py" --verbose
 python "$BotDir\validate_setup.py" -t 0.25 -m 1500 --max-stocks 15
+python "$BotDir\train_ml_model.py"
 ```
 
 ---
 
-## 💡 Examples
+## 💡 Complete Workflow Examples
 
-### Example 1: Multi-Stock Trading (Easiest!)
+### Workflow 1: Multi-Stock Portfolio (Easiest!)
+
 ```powershell
-# From project dir
-# Optimizer tests multiple stocks, finds best interval & capital
-python optimizer.py -v
-
-# Use those parameters - bot auto-picks best 15 stocks! (15 is default)
-python runner.py -t 0.083 -m 3750
-
-# From anywhere
+# ============================================
+# INITIAL SETUP (ONE TIME)
+# ============================================
 $BotDir = "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading"
-python "$BotDir\optimizer.py" -v
-python "$BotDir\runner.py" -t 0.083 -m 3750
-```
 
-### Example 2: Single Stock Trading
-```powershell
-# From project dir
-python optimizer.py -s AAPL -v
-python runner.py -t 0.25 -s AAPL -m 150 --max-stocks 1
+# Open PowerShell as Administrator
+cd $BotDir
+pip install -r requirements.txt
+notepad .env  # Add your Alpaca keys
 
-# From anywhere
-python "$BotDir\optimizer.py" -s AAPL -v
-python "$BotDir\runner.py" -t 0.25 -s AAPL -m 150 --max-stocks 1
-```
+# ============================================
+# FIND OPTIMAL PARAMETERS
+# ============================================
+python optimizer.py -v
+# Suggests: python runner.py -t 0.083 -m 3750
 
-### Example 3: Custom Capital Limit
-```powershell
-# From project dir
-# Only test up to $500 per stock
-python optimizer.py -m 500 -v
+# ============================================
+# START BOT (ADMIN MODE)
+# ============================================
+# Bot auto-picks best 15 stocks, runs forever
+.\botctl.ps1 start python -u runner.py -t 0.083 -m 3750
 
-# From anywhere
-python "$BotDir\optimizer.py" -m 500 -v
-```
-
-### Example 4: Force Specific Stocks in Portfolio
-```powershell
-# From project dir
-python runner.py -t 0.25 -m 1500 --max-stocks 15
-
-# From anywhere
-python "$BotDir\runner.py" -t 0.25 -m 1500 --max-stocks 15
-```
-
-### Example 5: Force Favorites + Auto-Fill
-```powershell
-# From project dir
-python runner.py -t 0.25 -m 1000 --stocks TSLA NVDA --max-stocks 10
-
-# From anywhere
-python "$BotDir\runner.py" -t 0.25 -m 1000 --stocks TSLA NVDA --max-stocks 10
-```
-
-### Example 6: Conservative Blue-Chips Only
-```powershell
-# From project dir
-python runner.py -t 1.0 -m 600 --stocks AAPL MSFT GOOGL --max-stocks 3
-
-# From anywhere
-python "$BotDir\runner.py" -t 1.0 -m 600 --stocks AAPL MSFT GOOGL --max-stocks 3
-```
-
-### Example 7: Run Forever (Admin Mode)
-```powershell
-# From project dir
-.\botctl.ps1 start python -u runner.py -t 0.25 -m 1500 --max-stocks 15
-Get-Content bot.log -Wait -Tail 50
+# Monitor
 .\botctl.ps1 status
+Get-Content bot.log -Wait -Tail 50
 
-# From anywhere
-$BotPath = "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\botctl.ps1"
-& $BotPath start python -u runner.py -t 0.25 -m 1500 --max-stocks 15
-Get-Content "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading\bot.log" -Wait -Tail 50
-& $BotPath restart
-& $BotPath stop-forever
+# ============================================
+# CONTROL
+# ============================================
+.\botctl.ps1 restart       # Restart anytime
+.\botctl.ps1 stop-forever  # Stop + clean everything
+```
+
+### Workflow 2: Single Stock Trading
+
+```powershell
+$BotDir = "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading"
+
+# 1. Find best params for AAPL
+python "$BotDir\optimizer.py" -s AAPL -v
+
+# 2. Verify signals look good
+python "$BotDir\test_signals.py" -s AAPL -t 0.25
+
+# 3. Start trading (Admin mode)
+& "$BotDir\botctl.ps1" start python -u runner.py -t 0.25 -s AAPL -m 150 --max-stocks 1
+
+# 4. Monitor
+& "$BotDir\botctl.ps1" status
+```
+
+### Workflow 3: Testing Configuration Changes
+
+```powershell
+$BotDir = "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading"
+
+# 1. Make changes to .env
+notepad "$BotDir\.env"
+
+# 2. Test in Simple mode (no admin needed)
+python "$BotDir\runner.py" -t 0.25 -m 1500
+
+# 3. Watch for a few cycles, press Ctrl+C when satisfied
+
+# 4. If looks good, restart Admin mode
+& "$BotDir\botctl.ps1" restart
+```
+
+### Workflow 4: Weekly Maintenance
+
+```powershell
+$BotDir = "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading"
+
+# Check bot status
+& "$BotDir\botctl.ps1" status
+
+# Review performance
+Get-Content "$BotDir\pnl_ledger.json" | ConvertFrom-Json | ConvertTo-Json
+
+# Re-optimize if market conditions changed
+python "$BotDir\optimizer.py" -v
+
+# Update parameters if needed
+& "$BotDir\botctl.ps1" stop
+# Edit command in last_start_cmd.txt or just start with new params
+.\botctl.ps1 start python -u runner.py -t <NEW_INTERVAL> -m <NEW_CAP>
 ```
 
 ---
@@ -919,27 +874,23 @@ MULTI_TIMEFRAME_ENABLED=0
 
 **Problem: Win rate didn't improve**
 - Run for 2+ weeks to collect sufficient data
-- Check logs for feature decisions: `tail -f bot.log`
+- Check logs for feature decisions: `Get-Content bot.log -Wait`
 - Verify all features are enabled: check startup logs
 - Try adjusting thresholds (see .env examples above)
 
 **Problem: ML model won't train**
 ```powershell
+$BotDir = "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading"
+
 # Install ML dependencies if missing
-pip install scikit-learn numpy
+pip install scikit-learn numpy pandas
 
 # Run training script
-python train_ml_model.py
+python "$BotDir\train_ml_model.py"
 
-# If still fails, disable ML
-# Add to .env:
-ENABLE_ML_PREDICTION=0
+# If still fails, disable ML in .env:
+# ENABLE_ML_PREDICTION=0
 ```
-
-**Problem: ML import errors on bot start**
-- Bot auto-disables ML if scikit-learn not installed
-- Either install: `pip install scikit-learn numpy`
-- Or disable in .env: `ENABLE_ML_PREDICTION=0`
 
 **Problem: Drawdown protection triggered too early**
 ```bash
@@ -955,259 +906,144 @@ LIMIT_ORDER_TIMEOUT_SECONDS=600
 USE_LIMIT_ORDERS=0
 ```
 
-**Problem: Bot won't trade during safe hours**
-```bash
-# Disable safe hours protection:
-ENABLE_SAFE_HOURS=0
-# Or adjust windows:
-AVOID_FIRST_MINUTES=5
-AVOID_LAST_MINUTES=5
+---
+
+### Admin Mode Issues
+
+**Problem: `.\botctl.ps1 start` fails**
+
+**Solution:**
+```powershell
+# 1. Ensure you're running as Administrator
+#    Right-click PowerShell → "Run as Administrator"
+
+# 2. Check execution policy
+Get-ExecutionPolicy
+# If it says "Restricted", run:
+Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
+
+# 3. Try again
+.\botctl.ps1 start python -u runner.py -t 0.25 -m 1500
+```
+
+**Problem: Task not auto-starting on boot**
+
+```powershell
+# Check if task exists
+Get-ScheduledTask -TaskName "PaperTradingBot"
+
+# If missing, recreate it
+.\botctl.ps1 stop-forever
+.\botctl.ps1 start python -u runner.py -t 0.25 -m 1500
+
+# Verify task settings
+.\botctl.ps1 status
+```
+
+**Problem: Bot not waking PC at 9:25 AM**
+
+```powershell
+# Check wake settings
+$task = Get-ScheduledTask -TaskName "PaperTradingBot"
+$task.Settings.WakeToRun  # Should be True
+
+# If False, recreate task
+.\botctl.ps1 stop-forever
+.\botctl.ps1 start python -u runner.py -t 0.25 -m 1500
 ```
 
 ---
-
-## 🔧 Troubleshooting (Classic Issues) & Debugging
 
 ### Common Errors & Solutions
 
-#### "No profitable stocks found"
+**"No profitable stocks found"**
 
-**Cause**: Market is bearish or strategy doesn't fit current conditions.
+Market is bearish or strategy doesn't fit current conditions.
 
-**Solutions**:
 ```powershell
+$BotDir = "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading"
+
 # 1. Scan to see what's available
-python scan_best_stocks.py --verbose
+python "$BotDir\scan_best_stocks.py" --verbose
 
-# 2. Try different interval (optimizer finds best)
-python optimizer.py -v
+# 2. Try different interval
+python "$BotDir\optimizer.py" -v
 
-# 3. Check specific stock signals
-python test_signals.py -s SPY -t 0.25
-
-# 4. Lower profitability threshold (temporary)
+# 3. Lower profitability threshold (temporary)
 # Add to .env:
-PROFITABILITY_MIN_EXPECTED_USD=0.001  # Lower from $0.01 to $0.001
+PROFITABILITY_MIN_EXPECTED_USD=0.001
 ```
 
-**Note**: If ALL stocks show negative returns, the market is likely bearish. The bot correctly holds cash instead of forcing bad trades.
+**"API rate limit exceeded"**
 
----
+Too many API calls.
 
-#### "API rate limit exceeded"
-
-**Cause**: Too many API calls (scanning too many stocks too frequently).
-
-**Solutions**:
 ```powershell
-# 1. Use longer intervals (fewer data requests)
-python runner.py -t 0.5 -m 1500  # 30 min instead of 15 min
+# Use longer intervals (fewer data requests)
+.\botctl.ps1 restart python -u runner.py -t 0.5 -m 1500  # 30 min
 
-# 2. Reduce number of stocks
-python runner.py -t 0.25 -m 1500 --max-stocks 10  # 10 instead of 15
-
-# 3. Rebalance less frequently
-python runner.py -t 0.25 -m 1500 --rebalance-every 8  # Every 2 hours
-
-# 4. Use yfinance (free, unlimited) - already default fallback
+# Or reduce number of stocks
+.\botctl.ps1 restart python -u runner.py -t 0.25 -m 1500 --max-stocks 10
 ```
 
-**Note**: yfinance is used first (unlimited), so rate limits are rare unless data is missing.
+**"Could not sync with broker" / "API authentication failed"**
 
----
+Invalid Alpaca API keys.
 
-#### "ERROR: Specified 5 stocks but max is 3"
-
-**Cause**: Too many forced stocks for the max-stocks limit.
-
-**Solution**:
 ```powershell
-# Either reduce forced stocks OR increase max-stocks
-python runner.py --stocks AAPL MSFT GOOGL --max-stocks 5  # Increase max
+$BotDir = "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading"
 
-# Or remove some forced stocks
-python runner.py --stocks AAPL MSFT --max-stocks 3  # Reduce forced
+# Check .env file
+Get-Content "$BotDir\.env"
+
+# Verify keys are correct (no quotes, no spaces)
+# CORRECT:   ALPACA_API_KEY=PKX7Y3M2...
+# WRONG:     ALPACA_API_KEY="PKX7Y3M2..."
+
+# Regenerate keys at: https://app.alpaca.markets/paper/dashboard/overview
 ```
 
----
+**"Bot exits with negative projection"**
 
-#### "Bot exits with negative projection"
+Strategy shows negative expected returns.
 
-**Cause**: Strategy shows negative expected returns. Config `EXIT_ON_NEGATIVE_PROJECTION=1` makes bot exit instead of trading.
-
-**Solutions**:
 ```powershell
 # 1. Find a profitable symbol
-python optimizer.py -v  # Tests 8 popular stocks
+python "$BotDir\optimizer.py" -v
 
-# 2. Try different intervals
-python optimizer.py -s AAPL -v  # Test AAPL specifically
-
-# 3. Disable exit-on-negative (bot will hold cash instead)
+# 2. Disable exit-on-negative (bot will hold cash instead)
 # Add to .env:
 EXIT_ON_NEGATIVE_PROJECTION=0
 ```
 
 ---
 
-#### "Could not sync with broker" / "API authentication failed"
-
-**Cause**: Invalid or missing Alpaca API keys.
-
-**Solutions**:
-```powershell
-# 1. Check .env file exists and has keys
-type .env
-
-# 2. Verify keys are correct (login to Alpaca, regenerate if needed)
-# https://app.alpaca.markets/paper/dashboard/overview
-
-# 3. Check for typos (no quotes, no spaces)
-# CORRECT:   ALPACA_API_KEY=PKX7Y3M2...
-# WRONG:     ALPACA_API_KEY="PKX7Y3M2..."
-# WRONG:     ALPACA_API_KEY = PKX7Y3M2...
-
-# 4. Make sure using paper trading URL
-# ALPACA_BASE_URL=https://paper-api.alpaca.markets
-```
-
----
-
-#### Background task not starting
-
-**Cause**: Not running as Administrator.
-
-**Solution**:
-```powershell
-# 1. Close PowerShell
-# 2. Right-click PowerShell → "Run as Administrator"
-# 3. cd to project directory
-# 4. Run command again
-.\botctl.ps1 start python -u runner.py -t 0.25 -m 100
-```
-
----
-
-#### "Bot is buying/selling constantly" (overtrading)
-
-**Cause**: Interval too short or strategy too sensitive.
-
-**Solutions**:
-```powershell
-# 1. Use longer interval
-python runner.py -t 0.5 -m 1500  # 30 min = fewer trades
-
-# 2. Increase confidence threshold
-# Add to .env:
-MIN_CONFIDENCE_TO_TRADE=0.01  # Increase from 0.005
-
-# 3. Check optimizer for recommended interval
-python optimizer.py -v
-```
-
----
-
-#### "Position size is too small" / "Insufficient capital"
-
-**Cause**: Not enough capital allocated per stock.
-
-**Solutions**:
-```powershell
-# 1. Increase capital per stock
-python runner.py -t 0.25 -m 1500 --max-stocks 10  # $150/stock instead of $100
-
-# 2. Or specify exact amount
-python runner.py -t 0.25 -m 1500 --cap-per-stock 200  # $200/stock
-
-# 3. Check minimum is at least $10/stock for fractional shares
-```
-
----
-
-#### Log file keeps growing / disk space issues
-
-**Cause**: Log truncation disabled or very active trading.
-
-**Solution**: The bot auto-truncates to 250 lines. If growing:
-```powershell
-# 1. Manually clear log
-Remove-Item bot.log
-
-# 2. Check if truncation is working (check bot.log stays ~250 lines)
-
-# 3. If needed, reduce log retention
-# Add to .env:
-LOG_MAX_AGE_HOURS=24  # Delete logs older than 24 hours
-```
-
----
-
 ### Debugging Tools
 
-#### 1. Validate Setup (Pre-flight Check)
 ```powershell
-python validate_setup.py -t 0.25 -m 1500 --max-stocks 15 --stocks AAPL TSLA
-```
-Shows configuration errors BEFORE running bot.
+$BotDir = "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading"
 
-#### 2. Watch Logs Live
-```powershell
-Get-Content bot.log -Wait -Tail 50
-```
-Real-time monitoring of bot activity.
+# 1. Validate setup before running
+python "$BotDir\validate_setup.py" -t 0.25 -m 1500 --max-stocks 15
 
-#### 3. Check Portfolio State
-```powershell
-type portfolio.json | ConvertFrom-Json | ConvertTo-Json
-```
-See current positions, values, P&L.
+# 2. Watch logs live
+Get-Content "$BotDir\bot.log" -Wait -Tail 50
 
-#### 4. Check Task Status (Admin Mode)
-```powershell
-.\botctl.ps1 status
-```
-Shows if bot is running, when it started, recent activity.
+# 3. Check portfolio state
+Get-Content "$BotDir\portfolio.json" | ConvertFrom-Json | ConvertTo-Json
 
-#### 5. Test Specific Stock
-```powershell
-python scan_best_stocks.py -s AAPL TSLA NVDA --verbose
-```
-Evaluate specific symbols to see expected performance.
+# 4. Check task status (Admin mode)
+& "$BotDir\botctl.ps1" status
 
----
-
-### Getting Help
-
-**Check logs first**:
-```powershell
-Get-Content bot.log -Tail 100
-```
-Most issues are explained in log messages.
-
-**Common log messages explained**:
-- `"No data available"` → Data provider issue (try different stock)
-- `"Low confidence"` → Signal too weak (working as intended)
-- `"Expected $X/day < $Y"` → Below profitability threshold (correct behavior)
-- `"High volatility: X%"` → Stock too risky (safety feature working)
-- `"Position exists"` → Already holding stock (can't buy more without adding capital)
-- `"No position"` → Can't sell what you don't own (expected)
-
-**Enable verbose logging**:
-Add to Python command: `--verbose` (if supported by that script)
-
-**Test everything**:
-```powershell
-# Run full system test (if available)
-python test_all_systems.py
+# 5. Test specific stock
+python "$BotDir\scan_best_stocks.py" -s AAPL TSLA NVDA --verbose
 ```
 
 ---
 
-## 📊 Trading Strategy & How It Works
+## 📊 Trading Strategy Explained
 
 ### Core Strategy: Dual Moving Average Crossover
-
-The bot uses a proven technical analysis strategy:
 
 **Indicators:**
 - **Short MA**: 9-period Simple Moving Average (fast)
@@ -1229,15 +1065,23 @@ The bot uses a proven technical analysis strategy:
 **Each Trading Interval:**
 
 1. **Market check** - Is market open? (9:30 AM - 4:00 PM ET)
-2. **Fetch data** - Get recent price bars (yfinance → Alpaca → Polygon)
-3. **Calculate indicators** - Compute 9/21 SMAs
-4. **Generate signal** - BUY/SELL/HOLD based on crossover
-5. **Compute confidence** - How strong is the signal?
-6. **Profitability check** - Expected daily return > $0.01?
-7. **Volatility check** - Recent volatility < 15%?
-8. **Dynamic adjustment** - Scale TP/SL/size based on confidence
-9. **Execute order** - Market order with bracket TP/SL
-10. **Safety enforcement** - Daily loss limit, max drawdown checks
+2. **Safe hours check** - Avoid first/last 15 minutes (configurable)
+3. **Fetch data** - Get recent price bars (yfinance → Alpaca → Polygon)
+4. **Calculate indicators** - Compute 9/21 SMAs, RSI, volume
+5. **Multi-timeframe check** - Confirm signal across 1x, 3x, 5x intervals
+6. **Generate signal** - BUY/SELL/HOLD based on crossover
+7. **Compute confidence** - How strong is the signal?
+8. **Volume confirmation** - Is volume 1.2x average?
+9. **RSI filter** - Block overbought buys / oversold sells
+10. **ML prediction** - Confirm or override with Random Forest
+11. **Profitability check** - Expected daily return > $0.01?
+12. **Volatility check** - Recent volatility < 15%?
+13. **Correlation check** - Avoid highly correlated holdings
+14. **Kelly sizing** - Calculate optimal position size
+15. **Drawdown protection** - Stop if portfolio down >15% from peak
+16. **Dynamic adjustment** - Scale TP/SL/size based on confidence
+17. **Execute order** - Limit order (0.1% better) with bracket TP/SL
+18. **Safety enforcement** - Daily loss limit, max drawdown checks
 
 **Multi-Stock Rebalancing (Every N Intervals):**
 
@@ -1251,38 +1095,26 @@ The bot uses a proven technical analysis strategy:
 ### Safety Features
 
 **Risk Management:**
-- **Take Profit**: Default 3% gain target (adjustable)
+- **Take Profit**: Default 2% gain target (adjustable)
 - **Stop Loss**: Default 1% loss limit (adjustable)
 - **Max daily loss**: Exits if account drops 5% in one day
+- **Drawdown protection**: Stops trading if down >15% from peak
 - **Volatility filter**: Skips stocks with >15% recent volatility
 - **Profitability gate**: Only trades stocks with positive expected return
 - **Confidence minimum**: Requires 0.5% MA separation to trade
-- **Position sizing**: Uses 75% of allocated capital (keeps 25% cash buffer)
+- **Position sizing**: Uses 65% of allocated capital (keeps 35% cash buffer)
+- **Kelly Criterion**: Calculates optimal position sizes based on win rate
+- **Correlation check**: Avoids highly correlated holdings (>0.7)
 
 **Market Hours:**
 - Bot automatically sleeps when market is closed
-- In scheduled task mode: exits cleanly, restarts at market open
-- In console mode: waits silently, resumes when market opens
+- In Admin mode: exits cleanly, restarts at market open
+- In Simple mode: waits silently, resumes when market opens
 - Respects weekends and holidays
-
-### Performance Expectations
-
-| Mode | Interval | Capital | Expected Return/Day | Win Rate | Trades/Day | Risk Level |
-|------|----------|---------|---------------------|----------|------------|------------|
-| Conservative | 1hr | $100/stock | $1-3 | 55-65% | 2-5 | Low |
-| Moderate | 15min | $100/stock | $2-5 | 50-60% | 5-10 | Medium |
-| Aggressive | 5min | $100/stock | $3-8 | 45-55% | 10-20 | High |
-| Multi-Stock | 15min | $1500 total | $20-40 | 50-60% | 15-30 | Medium |
-
-**Notes:**
-- Returns vary based on market conditions (bull/bear/sideways)
-- Historical simulation assumes perfect execution (real-world: slippage, fees)
-- Paper trading is commission-free (live trading has costs)
-- Results improve with longer backtesting periods
 
 ---
 
-## 🧠 Smart Capital Allocation Explained
+## 🧠 Smart Capital Allocation
 
 The bot's secret weapon is its **profit-weighted capital allocation** system.
 
@@ -1323,98 +1155,15 @@ Total invested: $1250 (holding $250 cash - being under max is OK!)
 
 **Result**: Best stocks get 2-3× more capital than average stocks.
 
-### Rebalancing Logic
-
-**Every 4 intervals** (customizable):
-
-1. **Re-score all holdings**
-   - Still profitable? Keep it
-   - Turned unprofitable? Candidate for replacement
-
-2. **Scan for new opportunities**
-   - Find 5 best stocks not currently held
-   - Compare with worst current holding
-
-3. **Execute swaps**
-   - If new stock scores 10%+ higher than worst holding
-   - Sell worst performer
-   - Buy better opportunity
-   - Reallocate capital
-
-4. **Forced stocks protection**
-   - User-specified symbols NEVER sold
-   - Always kept in portfolio
-   - Can still BUY/SELL based on signals, but position stays
-
 ### Disable Smart Allocation (Use Equal Split)
 
 If you prefer equal capital distribution:
 
 ```powershell
-# Force $150 per stock (overrides smart allocation)
-python runner.py -t 0.25 -m 1500 --max-stocks 15 --cap-per-stock 150
-```
-
-**When to use equal split:**
-- You trust your stock picks equally
-- You want predictable capital per stock
-- You're testing specific symbols
-
-**When to use smart allocation (default):**
-- You want the bot to maximize returns
-- You trust the profitability scoring
-- You want automatic optimization
-
----
-
-## 🎓 Key Concepts
-
-### How Stock Selection Works
-
-**Default (15 Stocks):**
-```powershell
-# Bot auto-selects best 15 stocks
-python runner.py -t 0.25 -m 1500
-```
-
-**Single Stock:**
-```powershell
-# Trade just AAPL - requires --max-stocks 1
-python runner.py -t 0.25 -s AAPL -m 100 --max-stocks 1
-```
-
-**Custom Number:**
-```powershell
-# Bot picks best 10 stocks
-python runner.py -t 0.25 -m 1000 --max-stocks 10
-```
-
-### Forced vs Auto-Selected Stocks
-
-**Forced:**
-- Specified via `--stocks`
-- NEVER replaced during rebalancing
-- Still subject to buy/sell signals
-
-**Auto-Selected:**
-- Found by scanner
-- CAN be replaced if underperforming
-- Rebalanced periodically
-
-### Capital Allocation
-
-```powershell
-# From project dir
-# $1500 total, 15 stocks = $100 per stock
-python runner.py -t 0.25 -m 1500 --max-stocks 15
-
-# Override: $150 per stock (total can use $2250)
-python runner.py -t 0.25 -m 1500 --max-stocks 15 --cap-per-stock 150
-
-# From anywhere
 $BotDir = "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading"
-python "$BotDir\runner.py" -t 0.25 -m 1500 --max-stocks 15
-python "$BotDir\runner.py" -t 0.25 -m 1500 --max-stocks 15 --cap-per-stock 150
+
+# Force $150 per stock (overrides smart allocation)
+& "$BotDir\botctl.ps1" start python -u runner.py -t 0.25 -m 1500 --max-stocks 15 --cap-per-stock 150
 ```
 
 ---
@@ -1422,11 +1171,12 @@ python "$BotDir\runner.py" -t 0.25 -m 1500 --max-stocks 15 --cap-per-stock 150
 ## ⚠️ Important Notes
 
 - **Always paper trade first** - Set `CONFIRM_GO_LIVE=NO` in .env
+- **Run as Administrator** - For full automation features
 - **Test with optimizer** - Find profitable setup before running
 - **Monitor logs** - Check `bot.log` regularly
-- **Bearish markets** - Bot will show negative returns (by design)
+- **Bearish markets** - Bot will show negative returns (by design - it's long-only)
 - **API limits** - Don't scan too frequently
-- **Background mode** - Requires Admin PowerShell
+- **stop-forever cleanup** - Removes all generated files (portfolio, logs, ML model, etc.)
 
 ---
 
@@ -1460,7 +1210,7 @@ Monday 9:30 AM: Market opens, AAPL might gap to $152 or $148
                 (Bot's orders activate immediately)
 ```
 
-**Bottom Line:** The bot correctly handles weekends by doing nothing. Your positions are safe because trading is suspended. The market will resume Monday morning, and the bot will resume trading then.
+**Bottom Line:** The bot correctly handles weekends by doing nothing. Your positions are safe because trading is suspended.
 
 ---
 
@@ -1478,66 +1228,71 @@ A: No! Everything is free:
 - Python & all libraries (free, open source)
 - Polygon is optional (free tier works if you have it)
 
+**Q: Do I need to run as Administrator?**
+A: **Not required, but strongly recommended**:
+- **Without Admin**: Bot runs fine in Simple mode (just Python directly)
+- **With Admin**: Get full automation (auto-start, scheduled tasks, wake-before-market, restart on crash)
+- **For testing**: Non-admin is perfect
+- **For production**: Admin mode is recommended
+
+**Q: Can I run the bot from anywhere on my system?**
+A: **Yes!** All commands support full paths:
+```powershell
+$BotDir = "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading"
+python "$BotDir\runner.py" -t 0.25 -m 1500
+& "$BotDir\botctl.ps1" start python -u runner.py -t 0.25 -m 1500
+```
+
 **Q: How much money do I need to start?**
 A: Paper trading: $0 (virtual money)
    Live trading: As little as $10 (fractional shares supported)
    Recommended: $500-1500 for multi-stock portfolio
 
 **Q: What stocks can I trade?**
-A: Any stock on US exchanges (NYSE, NASDAQ). Default universe: **Top 100 stocks by market cap** (automatically updated daily), including major tech (AAPL, MSFT, GOOGL, NVDA), financials (JPM, BAC), consumer (WMT, COST), healthcare (UNH, JNJ), and ETFs (SPY, QQQ, IWM, DIA) for diversification.
+A: Any stock on US exchanges (NYSE, NASDAQ). Default universe: **Top 100 stocks by market cap** (automatically updated daily).
 
 **Q: Can I trade crypto or forex?**
-A: No, this bot is designed for US stocks only. Alpaca doesn't support crypto/forex for paper trading.
+A: No, this bot is designed for US stocks only.
 
-**Q: How does the "top 100 stocks" selection work?**
-A: The bot automatically fetches the top 100 US stocks by market capitalization from the S&P 500:
-- **First run**: Downloads list from Wikipedia (takes ~1 minute), caches locally
-- **Same-day runs**: Uses cached list (instant - no delay)
-- **Daily refresh**: Automatically updates at the start of each new trading day
-- **Smart caching**: Refreshes if >24 hours old OR if it's a new trading day
-- **Fallback**: If download fails, uses predefined list of 100 major stocks
-- **Manual refresh**: Delete `top_stocks_cache.json` to force immediate refresh
-- **Disable dynamic fetch**: Use `--no-dynamic` flag in scan_best_stocks.py
+**Q: Why does the bot hold cash instead of using all my capital?**
+A: **This is intentional!** Smart allocation only invests in profitable opportunities. If stocks don't meet the profitability threshold, the bot holds cash instead of forcing bad trades.
 
-**Example:**
-```
-Monday 9:30 AM:  Fetches fresh top 100 → Caches
-Monday 11:00 AM: Uses cache (same day, instant)
-Monday 3:00 PM:  Uses cache (same day, instant)
-Tuesday 9:30 AM: New day detected → Refreshes → New cache
-```
-
-This ensures you're trading the most current top performers based on latest market conditions.
+---
 
 ### Technical Questions
 
-**Q: Why does the bot hold cash instead of using all my capital?**
-A: **This is intentional!** Smart allocation only invests in profitable opportunities. If stocks don't meet the profitability threshold ($0.01/day expected return), the bot holds cash instead of forcing bad trades. Being under max cap is a feature, not a bug.
+**Q: What happens if I run `.\botctl.ps1 stop-forever`?**
+A: It performs a complete cleanup:
+- Stops the bot immediately
+- Removes scheduled task
+- Deletes all runtime files:
+  - `bot.log`
+  - `portfolio.json`
+  - `pnl_ledger.json`
+  - `top_stocks_cache.json`
+  - `ml_model.pkl`
+  - `start_bot.ps1`
+  - `last_start_cmd.txt`
+- Gives you a clean slate
 
-**Q: What's the difference between `-m` (total capital) and `--cap-per-stock`?**
-A:
-- `-m 1500`: Total budget across ALL stocks
-- `--cap-per-stock 100`: Force exactly $100 per stock (disables smart allocation)
-- Default: Smart allocation divides `-m` proportionally by profitability
+**Q: What's the difference between `stop` and `stop-forever`?**
+A: 
+- `stop`: Temporary pause, scheduled task remains, auto-restarts on next boot/logon/9:25AM
+- `stop-forever`: Complete removal, deletes task and all generated files
 
-**Q: The bot shows "No profitable stocks found" - what do I do?**
-A:
-1. Market might be bearish (strategy is long-only)
-2. Try different interval: `python optimizer.py -v` to find better parameters
-3. Try different stocks: `python scan_best_stocks.py --verbose`
-4. Wait for better market conditions (sideways/uptrend)
+**Q: What files does .gitignore exclude?**
+A: All auto-generated runtime files:
+- `*.log` (bot.log)
+- `portfolio.json`
+- `pnl_ledger.json`
+- `top_stocks_cache.json`
+- `ml_model.pkl`
+- `start_bot.ps1`
+- `last_start_cmd.txt`
 
-**Q: Why did the optimizer suggest negative returns?**
-A: The market is currently bearish for that symbol/interval. The strategy is long-only (profits from uptrends). Either:
-- Try different symbols (some stocks are bullish even in bear markets)
-- Try different intervals (longer intervals smooth out volatility)
-- Wait for better market conditions
+Your source code and .env are safe to commit (except .env which is also ignored).
 
-**Q: What's the minimum interval I can use?**
-A: 1 minute (0.0167 hours). Shorter intervals = more trades but more noise. Recommended: 15 minutes (0.25 hours) for balance.
-
-**Q: Does the bot work on Mac or Linux?**
-A: The **trading bot** works on any OS (Python is cross-platform). The **scheduled task automation** (botctl.ps1) is Windows-only. On Mac/Linux, use cron jobs or screen/tmux instead.
+---
 
 ### Performance Questions
 
@@ -1548,20 +1303,30 @@ A: Varies by market conditions:
 - Bear market: Negative (bot will hold cash or exit)
 - **Past performance ≠ future results**
 
-**Q: Why is my paper trading performance different from the optimizer's prediction?**
-A: Several reasons:
-- Market conditions changed since optimization
-- Real execution has slippage (slight price differences)
-- Random variance (short-term results differ from long-term averages)
-- Optimizer uses historical data (backward looking)
-
-**Q: Can I backtest before running live?**
-A: The optimizer IS the backtester. It simulates historical trades and shows expected returns. Run `python optimizer.py -v` to see performance on past data.
-
 **Q: What's a good win rate?**
-A: 50-60% is excellent for a simple MA crossover strategy. Even 45% can be profitable if winners are bigger than losers (good risk:reward ratio).
+A: 50-60% is excellent for a simple MA crossover strategy. With all improvements enabled, expect 60-70%.
+
+---
 
 ### Operational Questions
+
+**Q: How do I know if the bot is working?**
+A:
+```powershell
+$BotDir = "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading"
+
+# Check status (Admin mode)
+& "$BotDir\botctl.ps1" status
+
+# Watch logs live
+Get-Content "$BotDir\bot.log" -Wait -Tail 50
+
+# Check portfolio
+Get-Content "$BotDir\portfolio.json"
+
+# Check Alpaca dashboard
+# https://app.alpaca.markets/paper/dashboard/overview
+```
 
 **Q: The bot stopped running - why?**
 A: Several possibilities:
@@ -1571,116 +1336,7 @@ A: Several possibilities:
 4. API key issue (check `.env`)
 5. Crash (check `bot.log` for errors)
 
-**Q: How do I know if the bot is working?**
-A:
-```powershell
-# Check status (Admin mode)
-.\botctl.ps1 status
-
-# Watch logs live
-Get-Content bot.log -Wait -Tail 50
-
-# Check portfolio
-type portfolio.json
-
-# Check Alpaca dashboard
-# https://app.alpaca.markets/paper/dashboard/overview
-```
-
-**Q: Can I run multiple bots with different strategies?**
-A: Yes, but they'll share the same Alpaca account. Create separate project folders with different `.env` files pointing to different Alpaca accounts.
-
-**Q: The bot bought/sold when I didn't expect it - why?**
-A: Check `bot.log` for the exact reason. Common causes:
-- MA crossover triggered (strategy signal)
-- Take profit hit (target reached)
-- Stop loss hit (loss limit reached)
-- Rebalancing (better opportunity found)
-- Low confidence (signal too weak)
-
-### Safety & Risk Questions
-
-**Q: Can I lose more than I invest?**
-A: **No**. Stop losses prevent catastrophic losses. Max loss per trade is ~1% (configurable). Daily loss limit exits bot if account drops 5% in one day.
-
-**Q: What happens if my PC crashes or loses power?**
-A: 
-- **Admin mode**: Task auto-restarts on boot
-- **Simple mode**: Bot stops, positions remain open with TP/SL orders active
-- **Positions**: Alpaca holds your positions, they don't disappear
-
-**Q: What happens over the weekend?**
-A: Stock prices **freeze** when market closes. No price changes occur Sat/Sun. Bot sleeps and resumes Monday 9:30 AM. Your positions are safe (trading is suspended).
-
-**Q: What's "gap risk"?**
-A: Market can open at a different price than it closed (due to news). Example: Friday close $100, Monday open $95. Stop loss orders trigger immediately at open to protect you.
-
-**Q: Should I use live trading?**
-A: **Not recommended for beginners**. Paper trade for at least 30 days first. Live trading requires:
-- Understanding of risks
-- Emergency fund (don't trade money you need)
-- Emotional discipline (don't panic on losses)
-- `CONFIRM_GO_LIVE=YES` in `.env`
-
----
-
-## 🎯 Common Workflows
-
-### Workflow 1: Multi-Stock Portfolio (Easiest!)
-```powershell
-# From project dir
-1. python optimizer.py -v                    # Tests 8 stocks, finds best params
-2. python runner.py -t 0.083 -m 3750         # Bot auto-picks 15 best! (default)
-
-# From anywhere
-$BotDir = "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading"
-1. python "$BotDir\optimizer.py" -v
-2. python "$BotDir\runner.py" -t 0.083 -m 3750
-```
-
-### Workflow 2: Single Stock Trading
-```powershell
-# From project dir
-1. python optimizer.py -s SYMBOL -v          # Find best params for this stock
-2. python test_signals.py -s SYMBOL -t INTERVAL  # Verify signals
-3. python runner.py -t INTERVAL -s SYMBOL -m CAPITAL --max-stocks 1  # Trade it
-
-# From anywhere
-$BotDir = "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading"
-1. python "$BotDir\optimizer.py" -s SYMBOL -v
-2. python "$BotDir\test_signals.py" -s SYMBOL -t INTERVAL
-3. python "$BotDir\runner.py" -t INTERVAL -s SYMBOL -m CAPITAL --max-stocks 1
-```
-
-### Workflow 3: Advanced Portfolio Setup
-```powershell
-# From project dir
-1. python scan_best_stocks.py --interval 0.25 --cap 100 --top 15 --verbose
-2. python validate_setup.py -t 0.25 -m 1500 --max-stocks 15
-3. python runner.py -t 0.25 -m 1500 --max-stocks 15
-
-# From anywhere
-1. python "$BotDir\scan_best_stocks.py" --interval 0.25 --cap 100 --top 15 --verbose
-2. python "$BotDir\validate_setup.py" -t 0.25 -m 1500 --max-stocks 15
-3. python "$BotDir\runner.py" -t 0.25 -m 1500 --max-stocks 15
-```
-
-### Workflow 4: Run Forever
-```powershell
-# From project dir
-1. Test: python runner.py -t 0.25 -s AAPL -m 100
-2. Works? Start as Admin: .\botctl.ps1 start python -u runner.py -t 0.25 -s AAPL -m 100
-3. Control: .\botctl.ps1 status / restart / stop-forever
-
-# From anywhere
-$BotDir = "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading"
-$BotPath = "$BotDir\botctl.ps1"
-1. Test: python "$BotDir\runner.py" -t 0.25 -s AAPL -m 100
-2. Works? Start as Admin: & $BotPath start python -u runner.py -t 0.25 -s AAPL -m 100
-3. Control: & $BotPath status / restart / stop-forever
-```
-
----
+In Admin mode, the bot auto-restarts on crash. Check `.\botctl.ps1 status` to see what happened.
 
 ---
 
@@ -1715,30 +1371,15 @@ python "$BotDir\runner.py" -t 0.25 -m 1500 --max-stocks 15
 ```
 Let the bot manage everything, monitor weekly performance.
 
-**Week 4+: Optimization & Fine-Tuning**
-- **Train ML model**: `python "$BotDir\train_ml_model.py"` (now that you have data)
-- Adjust intervals based on market conditions
-- Test different stock universes
-- Tweak TP/SL and filter thresholds based on results
+**Week 4+: Production Deployment**
+```powershell
+# Switch to Admin mode for full automation
+.\botctl.ps1 start python -u runner.py -t 0.25 -m 1500
+```
+- Train ML model: `python "$BotDir\train_ml_model.py"`
 - Monitor win rate improvements from advanced features
+- Adjust intervals based on market conditions
 - Consider live trading (if consistent profits for 30+ days)
-
-### Measuring Improvement
-
-Track your metrics weekly:
-
-| Metric | Week 1 | Week 2 | Week 3 | Week 4 |
-|--------|--------|--------|--------|--------|
-| Win Rate | ? | ? | ? | ? |
-| Avg Daily P&L | ? | ? | ? | ? |
-| Max Drawdown | ? | ? | ? | ? |
-| Trades/Day | ? | ? | ? | ? |
-
-**Expected with all improvements:**
-- Win rate: 60-70% (vs 50% baseline)
-- Better P&L consistency
-- Lower max drawdown (-10% vs -20%)
-- More selective trades (fewer but better)
 
 ### Risk Management Tips
 
@@ -1747,48 +1388,8 @@ Track your metrics weekly:
 3. **Live trading: Start with $100-500 max**
 4. **Only increase capital after 3+ months of profits**
 5. **Set account-wide stop loss** (if you lose 20%, stop and re-evaluate)
-6. **Diversify**: Don't put all capital in one strategy**
+6. **Diversify: Don't put all capital in one strategy**
 7. **Keep emergency fund separate** (6 months expenses minimum)
-
-### Performance Tracking
-
-**Daily:**
-- Check `bot.log` for errors
-- Review `portfolio.json` for positions
-
-**Weekly:**
-- Calculate total P&L from `pnl_ledger.json`
-- Compare vs SPY (S&P 500) benchmark
-- Identify best/worst performers
-
-**Monthly:**
-- Review win rate (should be 45-60%)
-- Check if returns match optimizer predictions
-- Adjust strategy if market conditions changed
-- Re-run optimizer to find new optimal parameters
-
-### Common Mistakes to Avoid
-
-❌ **Don't**: Run live trading without 30+ days paper trading
-✅ **Do**: Master paper trading first
-
-❌ **Don't**: Override safety limits (TP/SL/daily loss)
-✅ **Do**: Trust the risk management system
-
-❌ **Don't**: Panic sell during losses
-✅ **Do**: Let stop losses handle exits automatically
-
-❌ **Don't**: Increase position sizes after losses
-✅ **Do**: Reduce sizes after drawdowns
-
-❌ **Don't**: Trade in highly volatile markets (earnings, news)
-✅ **Do**: Use volatility filter (already enabled)
-
-❌ **Don't**: Manually interfere with bot trades
-✅ **Do**: Let the bot execute its strategy
-
-❌ **Don't**: Expect 100% win rate
-✅ **Do**: Accept 50-60% is excellent
 
 ---
 
@@ -1803,29 +1404,11 @@ Track your metrics weekly:
 **Risk Management:**
 - [Position Sizing](https://www.investopedia.com/terms/p/positionsizing.asp)
 - [Stop Loss Orders](https://www.investopedia.com/terms/s/stop-lossorder.asp)
-- [Take Profit Orders](https://www.investopedia.com/terms/t/take-profitorder.asp)
+- [Kelly Criterion](https://www.investopedia.com/articles/trading/04/091504.asp)
 
 **Alpaca Trading:**
 - [Alpaca Docs](https://alpaca.markets/docs/)
 - [Paper Trading Guide](https://alpaca.markets/docs/trading/paper-trading/)
-- [API Authentication](https://alpaca.markets/docs/api-references/trading-api/authentication/)
-
-### Market Data Providers
-
-**yfinance (Primary, Free)**
-- Unlimited requests
-- 5-minute delay
-- Best for backtesting & paper trading
-
-**Alpaca (Fallback, Free)**
-- Real-time for paper trading
-- Rate limits apply
-- Best for live trading
-
-**Polygon (Optional)**
-- Real-time data
-- Free tier: 5 requests/minute
-- Best for high-frequency needs
 
 ---
 
@@ -1843,13 +1426,6 @@ This software is provided for **educational and research purposes only**.
 - **Paper trade first**: Always test thoroughly before live trading
 - **Consult professionals**: Seek advice from licensed financial advisors
 
-**By using this software, you acknowledge:**
-1. You understand trading risks
-2. You will not hold the authors liable for losses
-3. You will comply with all applicable laws and regulations
-4. You are 18+ years old and legally able to trade
-5. You have read and understand this disclaimer
-
 **Trading involves substantial risk of loss and is not suitable for every investor.**
 
 ---
@@ -1862,14 +1438,17 @@ This software is provided for **educational and research purposes only**.
 - ✅ Transparent (open source, no black boxes)
 - ✅ Safe (multiple safety layers)
 - ✅ Flexible (single or multi-stock)
-- ✅ Automated (runs 24/7 unattended)
+- ✅ Automated (runs 24/7 unattended in Admin mode)
+- ✅ Testable (works fine without Admin for quick tests)
 
 **Key Strengths:**
 - **Smart capital allocation** - More $ to winners
 - **Automatic rebalancing** - Adapts to market
 - **Fractional shares** - Trade with any budget
 - **Free data** - yfinance = unlimited backtesting
-- **Windows automation** - Wake PC before market
+- **Windows automation** - Wake PC before market (Admin mode)
+- **Clean deployment** - stop-forever removes all generated files
+- **Run from anywhere** - Full path support for all commands
 
 **Limitations:**
 - **Long-only strategy** - No shorting (can't profit from downtrends)
@@ -1889,32 +1468,30 @@ This software is provided for **educational and research purposes only**.
 
 ---
 
-**Everything is unified and production-ready!**
-
-- ✅ ONE runner.py handles all modes
-- ✅ ONE optimizer.py finds best parameters
-- ✅ Smart allocation maximizes returns
-- ✅ Comprehensive README with everything explained
-- ✅ Safety features prevent disasters
-- ✅ Windows automation for hands-off trading
-- ✅ Free data sources (unlimited backtesting)
-- ✅ Fractional shares (start with $10)
-
-**Ready to start?**
+**Everything is production-ready!**
 
 ```powershell
+# Quick Start (Admin Mode)
+$BotDir = "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading"
+
 # 1. Setup
+cd $BotDir
 pip install -r requirements.txt
 notepad .env  # Add your Alpaca keys
 
-# 2. Find best stocks
+# 2. Find best parameters
 python optimizer.py -v
 
-# 3. Start trading (paper)
-python runner.py -t 0.25 -m 1500
+# 3. Start bot (Admin mode - full automation)
+.\botctl.ps1 start python -u runner.py -t 0.25 -m 1500
 
 # 4. Monitor
+.\botctl.ps1 status
 Get-Content bot.log -Wait -Tail 50
+
+# 5. Control
+.\botctl.ps1 restart       # Restart anytime
+.\botctl.ps1 stop-forever  # Stop + clean everything
 ```
 
 **Happy Trading! 📈🤖**

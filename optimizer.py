@@ -293,11 +293,14 @@ def main() -> int:
     else:
         print(f"✅ STRATEGY IS PROFITABLE")
         print(f"{'='*70}")
-        print(f"\nRun bot:")
-        print(f"  # Single stock")
-        print(f"  python runner.py -t {optimal_interval/3600:.4f} -s {symbol} -m {optimal_cap:.0f}")
-        print(f"\n  # Or as part of multi-stock portfolio")
-        print(f"  python runner.py -t {optimal_interval/3600:.4f} -m 1500 --max-stocks 15")
+        print(f"\nRun bot (as Administrator from anywhere):")
+        print(f"  $BotDir = 'C:\\Users\\YourName\\...\\Paper-Trading'")
+        print(f"\n  # Single stock (Admin mode - full automation)")
+        print(f"  & \"$BotDir\\botctl.ps1\" start python -u runner.py -t {optimal_interval/3600:.4f} -s {symbol} -m {optimal_cap:.0f} --max-stocks 1")
+        print(f"\n  # Multi-stock portfolio (Admin mode - bot picks best 15)")
+        print(f"  & \"$BotDir\\botctl.ps1\" start python -u runner.py -t {optimal_interval/3600:.4f} -m {15 * optimal_cap:.0f}")
+        print(f"\n  # Quick test (Simple mode - no automation)")
+        print(f"  python \"$BotDir\\runner.py\" -t {optimal_interval/3600:.4f} -s {symbol} -m {optimal_cap:.0f} --max-stocks 1")
         
         # NEW: Compounding projections
         print(f"\n{'='*70}")

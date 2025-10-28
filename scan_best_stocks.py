@@ -91,8 +91,11 @@ def main():
         print(f"\n🏆 BEST STOCK: {best['symbol']}")
         print(f"   Expected return: ${best['expected_daily']:.2f}/day")
         print(f"   Win rate: {best['win_rate']*100:.1f}%")
-        print(f"\n   Run with:")
-        print(f"   python runner.py -t {args.interval} -s {best['symbol']} -m {args.cap}")
+        print(f"\n   Run with (as Administrator from anywhere):")
+        print(f"   $BotDir = 'C:\\Users\\YourName\\...\\Paper-Trading'")
+        print(f"   & \"$BotDir\\botctl.ps1\" start python -u runner.py -t {args.interval} -s {best['symbol']} -m {args.cap} --max-stocks 1")
+        print(f"\n   Or quick test (no admin):")
+        print(f"   python \"$BotDir\\runner.py\" -t {args.interval} -s {best['symbol']} -m {args.cap} --max-stocks 1")
     else:
         print(f"\n⚠️  All stocks show negative returns.")
         print(f"   Suggestions:")

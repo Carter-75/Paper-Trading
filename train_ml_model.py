@@ -71,14 +71,28 @@ def main():
     success = predictor.train(training_data, test_size=0.3)
     
     if success:
-        print("\n[OK] Model training complete!")
-        print(f"Model saved to {predictor.model_path}")
-        print("\nTo use the model:")
-        print("1. Set ENABLE_ML_PREDICTION=1 in .env (already enabled by default)")
-        print("2. Run your bot normally - it will use ML predictions")
+        print("\n" + "="*70)
+        print("✅ ML MODEL TRAINING COMPLETE!")
+        print("="*70)
+        print(f"Model saved to: {predictor.model_path}")
+        print("\nNext steps:")
+        print("  1. ML is ENABLED by default (ENABLE_ML_PREDICTION=1 in .env)")
+        print("  2. Run bot from anywhere as Administrator:")
+        print("     $BotDir = 'C:\\Users\\YourName\\...\\Paper-Trading'")
+        print("     & \"$BotDir\\botctl.ps1\" start python -u runner.py -t 0.25 -m 1500")
+        print("\nThe bot will automatically use ML predictions to:")
+        print("  • Confirm trading signals (ML agrees = higher confidence)")
+        print("  • Override bad signals (ML disagrees = convert to HOLD)")
+        print("  • Filter trades (requires 60% ML confidence)")
+        print("="*70)
         return 0
     else:
-        print("\n[ERROR] Model training failed")
+        print("\n" + "="*70)
+        print("❌ MODEL TRAINING FAILED")
+        print("="*70)
+        print("To disable ML and run anyway, add to .env:")
+        print("  ENABLE_ML_PREDICTION=0")
+        print("="*70)
         return 1
 
 
