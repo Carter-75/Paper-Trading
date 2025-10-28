@@ -201,7 +201,7 @@ Data Files (auto-created):
   bot.log                - Trading activity log (auto-truncated to 250 lines)
   portfolio.json         - Current positions (symbol, qty, entry, value, P&L)
   pnl_ledger.json        - Trade history with realized gains/losses
-  top_stocks_cache.json  - Top 100 stocks by market cap (refreshed weekly)
+  top_stocks_cache.json  - Top 100 stocks by market cap (refreshed daily)
   .env                   - API keys & secrets (you create this)
 ```
 
@@ -1235,7 +1235,7 @@ A: Paper trading: $0 (virtual money)
    Recommended: $500-1500 for multi-stock portfolio
 
 **Q: What stocks can I trade?**
-A: Any stock on US exchanges (NYSE, NASDAQ). Default universe: **Top 100 stocks by market cap** (automatically updated weekly), including major tech (AAPL, MSFT, GOOGL, NVDA), financials (JPM, BAC), consumer (WMT, COST), healthcare (UNH, JNJ), and ETFs (SPY, QQQ, IWM, DIA) for diversification.
+A: Any stock on US exchanges (NYSE, NASDAQ). Default universe: **Top 100 stocks by market cap** (automatically updated daily), including major tech (AAPL, MSFT, GOOGL, NVDA), financials (JPM, BAC), consumer (WMT, COST), healthcare (UNH, JNJ), and ETFs (SPY, QQQ, IWM, DIA) for diversification.
 
 **Q: Can I trade crypto or forex?**
 A: No, this bot is designed for US stocks only. Alpaca doesn't support crypto/forex for paper trading.
@@ -1243,13 +1243,22 @@ A: No, this bot is designed for US stocks only. Alpaca doesn't support crypto/fo
 **Q: How does the "top 100 stocks" selection work?**
 A: The bot automatically fetches the top 100 US stocks by market capitalization from the S&P 500:
 - **First run**: Downloads list from Wikipedia (takes ~1 minute), caches locally
-- **Subsequent runs**: Uses cached list (instant)
-- **Auto-refresh**: Cache expires after 7 days, automatically updates
+- **Same-day runs**: Uses cached list (instant - no delay)
+- **Daily refresh**: Automatically updates at the start of each new trading day
+- **Smart caching**: Refreshes if >24 hours old OR if it's a new trading day
 - **Fallback**: If download fails, uses predefined list of 100 major stocks
 - **Manual refresh**: Delete `top_stocks_cache.json` to force immediate refresh
 - **Disable dynamic fetch**: Use `--no-dynamic` flag in scan_best_stocks.py
 
-This ensures you're always trading the most liquid, actively-traded stocks in the market.
+**Example:**
+```
+Monday 9:30 AM:  Fetches fresh top 100 → Caches
+Monday 11:00 AM: Uses cache (same day, instant)
+Monday 3:00 PM:  Uses cache (same day, instant)
+Tuesday 9:30 AM: New day detected → Refreshes → New cache
+```
+
+This ensures you're trading the most current top performers based on latest market conditions.
 
 ### Technical Questions
 

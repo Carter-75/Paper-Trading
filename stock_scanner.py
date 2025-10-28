@@ -17,9 +17,9 @@ from runner import (
 )
 
 
-# Cache file for top stocks (refreshed every 7 days)
+# Cache file for top stocks (refreshed daily at market open)
 CACHE_FILE = "top_stocks_cache.json"
-CACHE_DURATION_DAYS = 7
+CACHE_DURATION_HOURS = 24  # Refresh every 24 hours (or once per trading day)
 
 # Fallback list if dynamic fetch fails
 FALLBACK_STOCK_UNIVERSE = [
@@ -52,29 +52,56 @@ DEFAULT_TOP_100_STOCKS = [
 ]
 
 
-def fetch_top_stocks_dynamic(limit: int = 100) -> List[str]:
+def is_market_open_today() -> bool:
+    """Check if market opened today (used to trigger daily refresh)."""
+    try:
+        from datetime import datetime
+        import pytz
+        now = datetime.now(pytz.timezone('US/Eastern'))
+        # Market opens at 9:30 AM ET
+        return now.hour >= 9 and now.weekday() < 5  # Weekday and after 9 AM
+    except:
+        return True  # Assume yes if check fails
+
+
+def fetch_top_stocks_dynamic(limit: int = 100, force_refresh: bool = False) -> List[str]:
     """
     Fetch top stocks dynamically from market data.
     Uses caching to avoid excessive API calls.
     
     Args:
         limit: Number of top stocks to return (default: 100)
+        force_refresh: Force refresh even if cache is valid (default: False)
     
     Returns:
         List of stock symbols
     """
-    # Check cache first
-    if os.path.exists(CACHE_FILE):
+    # Check cache first (unless force refresh)
+    if not force_refresh and os.path.exists(CACHE_FILE):
         try:
             with open(CACHE_FILE, 'r') as f:
                 cache = json.load(f)
                 cache_time = cache.get('timestamp', 0)
-                cache_age_days = (time.time() - cache_time) / (24 * 3600)
+                cache_age_hours = (time.time() - cache_time) / 3600
                 
-                if cache_age_days < CACHE_DURATION_DAYS:
+                # Check if cache is from a previous trading day
+                from datetime import datetime
+                import pytz
+                cache_datetime = datetime.fromtimestamp(cache_time, pytz.timezone('US/Eastern'))
+                now_datetime = datetime.now(pytz.timezone('US/Eastern'))
+                is_same_day = cache_datetime.date() == now_datetime.date()
+                
+                # Use cache if: less than 24h old AND same trading day
+                if cache_age_hours < CACHE_DURATION_HOURS and is_same_day:
                     symbols = cache.get('symbols', [])
                     if len(symbols) >= limit:
+                        print(f"✓ Using cached top {len(symbols[:limit])} stocks (age: {cache_age_hours:.1f}h)")
                         return symbols[:limit]
+                else:
+                    if not is_same_day:
+                        print(f"New trading day detected - refreshing stock list...")
+                    else:
+                        print(f"Cache expired ({cache_age_hours:.1f}h old) - refreshing stock list...")
         except Exception:
             pass
     
@@ -238,13 +265,14 @@ def scan_stocks(symbols: List[str], interval_seconds: int,
     return results[:max_results]
 
 
-def get_stock_universe(user_symbols: Optional[List[str]] = None, use_top_100: bool = True) -> List[str]:
+def get_stock_universe(user_symbols: Optional[List[str]] = None, use_top_100: bool = True, force_refresh: bool = False) -> List[str]:
     """
     Get list of stocks to scan.
     
     Args:
         user_symbols: User-provided list of symbols, or None for automatic selection
         use_top_100: If True, uses top 100 stocks by market cap (default: True)
+        force_refresh: Force refresh of top 100 list (default: False)
     
     Returns:
         List of stock symbols to scan
@@ -253,8 +281,8 @@ def get_stock_universe(user_symbols: Optional[List[str]] = None, use_top_100: bo
         # Use user-provided symbols
         return [s.upper() for s in user_symbols]
     elif use_top_100:
-        # Fetch top 100 stocks dynamically (with caching)
-        return fetch_top_stocks_dynamic(limit=100)
+        # Fetch top 100 stocks dynamically (with daily caching)
+        return fetch_top_stocks_dynamic(limit=100, force_refresh=force_refresh)
     else:
         # Use fallback list (for testing or if dynamic fetch is disabled)
         return FALLBACK_STOCK_UNIVERSE.copy()
