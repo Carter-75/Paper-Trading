@@ -298,6 +298,33 @@ def main() -> int:
         print(f"  python runner.py -t {optimal_interval/3600:.4f} -s {symbol} -m {optimal_cap:.0f}")
         print(f"\n  # Or as part of multi-stock portfolio")
         print(f"  python runner.py -t {optimal_interval/3600:.4f} -m 1500 --max-stocks 15")
+        
+        # NEW: Compounding projections
+        print(f"\n{'='*70}")
+        print(f"COMPOUNDING PROJECTIONS (THEORETICAL)")
+        print(f"{'='*70}")
+        
+        daily_return_pct = (optimal_return / optimal_cap) * 100
+        
+        print(f"Starting capital: ${optimal_cap:.2f}")
+        print(f"Daily return: ${optimal_return:.2f} ({daily_return_pct:.3f}%/day)")
+        print(f"\nProjected balance after:")
+        
+        for months in [1, 3, 6, 12, 24, 60]:
+            trading_days = months * 20
+            final = optimal_cap * ((1 + daily_return_pct/100) ** trading_days)
+            gain = final - optimal_cap
+            gain_pct = (gain / optimal_cap) * 100
+            print(f"  {months:2d} months ({trading_days:3d} days): ${final:>12,.2f}  (+{gain_pct:>6.1f}%)")
+        
+        print(f"\n⚠️  WARNING: These are THEORETICAL backtested projections.")
+        print(f"⚠️  Real trading performance will be 20-50% LOWER due to:")
+        print(f"     • Slippage (0.05-0.2% per trade)")
+        print(f"     • Partial fills and rejected orders")
+        print(f"     • Market regime changes")
+        print(f"     • Losing streaks and drawdowns")
+        print(f"     • Competition and market efficiency")
+        print(f"\n💡 Realistic expectation: 5-20% per YEAR, not per day")
     
     print(f"\n{'='*70}")
     print(f"NOTE: This optimizer tested comprehensively:")

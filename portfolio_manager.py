@@ -46,12 +46,18 @@ class PortfolioManager:
     def update_position(self, symbol: str, qty: float, avg_entry: float, 
                        market_value: float, unrealized_pl: float):
         """Update or add a position."""
+        # Preserve first_opened if position already exists
+        first_opened = self.positions.get(symbol, {}).get("first_opened")
+        if first_opened is None:
+            first_opened = datetime.now(pytz.UTC).isoformat()
+        
         self.positions[symbol] = {
             "qty": qty,
             "avg_entry": avg_entry,
             "market_value": market_value,
             "unrealized_pl": unrealized_pl,
-            "last_update": datetime.now(pytz.UTC).isoformat()
+            "last_update": datetime.now(pytz.UTC).isoformat(),
+            "first_opened": first_opened  # Track when position was first opened
         }
         self.save()
     

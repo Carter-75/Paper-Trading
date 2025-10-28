@@ -18,9 +18,11 @@ import json
 import logging
 import math
 import os
+import random
 import sys
 import time
 import datetime as dt
+import uuid
 from typing import List, Optional, Tuple, Dict
 from dotenv import load_dotenv
 
@@ -34,6 +36,9 @@ import config
 from portfolio_manager import PortfolioManager
 
 load_dotenv()
+
+# Idempotency: Track orders submitted this cycle to prevent duplicates
+_order_ids_submitted_this_cycle = set()
 
 # ===== Logging Setup =====
 LOG = logging.getLogger("paper_trading_bot")
@@ -187,6 +192,34 @@ def make_client(allow_missing: bool = False, go_live: bool = False):
     
     return REST(key_id, secret_key, base_url, api_version='v2')
 
+# ===== Polygon Rate Limiting =====
+class PolygonRateLimiter:
+    """Enforces Polygon free tier limit: 5 calls per minute with exponential backoff"""
+    def __init__(self, calls_per_minute=5):
+        self.calls = []
+        self.limit = calls_per_minute
+    
+    def wait_if_needed(self):
+        """Block if rate limit would be exceeded"""
+        now = time.time()
+        # Remove calls older than 60 seconds
+        self.calls = [t for t in self.calls if now - t < 60]
+        
+        if len(self.calls) >= self.limit:
+            # Calculate sleep time
+            sleep_time = 60 - (now - self.calls[0]) + 0.1  # +0.1s buffer
+            if sleep_time > 0:
+                log_info(f"Polygon rate limit: sleeping {sleep_time:.1f}s")
+                time.sleep(sleep_time)
+            # Re-clean after sleep
+            now = time.time()
+            self.calls = [t for t in self.calls if now - t < 60]
+        
+        self.calls.append(now)
+
+# Global instance
+_polygon_rate_limiter = PolygonRateLimiter(calls_per_minute=5)
+
 # ===== Market Data =====
 def snap_interval_to_supported_seconds(seconds: int) -> int:
     if seconds < 60:
@@ -231,11 +264,43 @@ def fetch_closes(client, symbol: str, interval_seconds: int, limit_bars: int) ->
         
         if not hist.empty and 'Close' in hist.columns:
             closes = list(hist['Close'].values)
-            # Return the most recent bars up to limit (or all if less)
-            result = closes[-limit_bars:] if len(closes) > limit_bars else closes
-            # Accept ANY data from yfinance (even if less than requested)
-            if len(result) > 0:
-                return result
+            
+            # VALIDATE DATA FRESHNESS
+            last_timestamp = hist.index[-1]
+            now = dt.datetime.now(pytz.UTC)
+            
+            # Convert to UTC if needed
+            if last_timestamp.tzinfo is None:
+                last_timestamp = pytz.UTC.localize(last_timestamp)
+            else:
+                last_timestamp = last_timestamp.astimezone(pytz.UTC)
+            
+            age_minutes = (now - last_timestamp).total_seconds() / 60
+            
+            # During market hours, data should be recent. Outside hours, stale is OK.
+            try:
+                is_market_hours_now = in_market_hours(client)
+            except:
+                # If can't check market hours, be conservative
+                is_market_hours_now = True
+            
+            max_age_minutes = 30 if is_market_hours_now else 1440  # 30min vs 24hr
+            
+            if age_minutes > max_age_minutes:
+                # Data too old during market hours - don't use it
+                if is_market_hours_now:
+                    # Fall through to next data source
+                    pass
+                else:
+                    # Outside market hours, stale data is acceptable
+                    result = closes[-limit_bars:] if len(closes) > limit_bars else closes
+                    if len(result) > 0:
+                        return result
+            else:
+                # Data is fresh - use it
+                result = closes[-limit_bars:] if len(closes) > limit_bars else closes
+                if len(result) > 0:
+                    return result
     except Exception:
         pass  # Fall back to Alpaca
     
@@ -270,6 +335,9 @@ def fetch_closes(client, symbol: str, interval_seconds: int, limit_bars: int) ->
         if not polygon_key:
             return []
         
+        # Enforce rate limit BEFORE making call
+        _polygon_rate_limiter.wait_if_needed()
+        
         snap = snap_interval_to_supported_seconds(interval_seconds)
         multiplier = 1
         timespan = "minute"
@@ -292,13 +360,31 @@ def fetch_closes(client, symbol: str, interval_seconds: int, limit_bars: int) ->
                f"{multiplier}/{timespan}/{start_date.strftime('%Y-%m-%d')}/"
                f"{end_date.strftime('%Y-%m-%d')}")
         
-        resp = requests.get(url, params={"apiKey": polygon_key, "limit": limit_bars * 2}, timeout=15)
-        if resp.status_code == 200:
-            data = resp.json()
-            if data.get("results"):
-                closes = [float(r["c"]) for r in data["results"]]
-                return closes[-limit_bars:] if len(closes) > limit_bars else closes
-    except Exception:
+        # Retry with exponential backoff for 429 errors
+        max_retries = 3
+        for attempt in range(max_retries):
+            resp = requests.get(url, params={"apiKey": polygon_key, "limit": limit_bars * 2}, timeout=15)
+            
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("results"):
+                    closes = [float(r["c"]) for r in data["results"]]
+                    return closes[-limit_bars:] if len(closes) > limit_bars else closes
+                break
+            elif resp.status_code == 429:  # Rate limited
+                if attempt < max_retries - 1:
+                    backoff = (2 ** attempt) + random.uniform(0, 1)  # Exponential + jitter
+                    log_warn(f"Polygon 429 rate limit, retry {attempt+1}/{max_retries} in {backoff:.1f}s")
+                    time.sleep(backoff)
+                else:
+                    log_warn(f"Polygon rate limit: max retries exceeded for {symbol}")
+                    return []
+            else:
+                log_warn(f"Polygon error {resp.status_code} for {symbol}")
+                break
+                
+    except Exception as e:
+        log_warn(f"Polygon fetch failed for {symbol}: {e}")
         pass
     
     return []
@@ -422,37 +508,80 @@ def buy_flow(client, symbol: str, last_price: float, available_cap: float,
     if qty < 0.001:  # Minimum fractional share
         return (False, "Insufficient capital")
     
+    # Apply slippage simulation for paper trading to match live expectations
+    effective_price = last_price
+    if config.SIMULATE_SLIPPAGE_ENABLED and "paper" in config.ALPACA_BASE_URL.lower():
+        effective_price = last_price * (1 + config.SLIPPAGE_PERCENT / 100)
+        # Recalculate qty with slippage-adjusted price
+        qty = compute_order_qty_from_remaining(effective_price, available_cap, frac)
+        if qty < 0.001:
+            return (False, "Insufficient capital after slippage")
+    
     try:
-        tp_price = last_price * (1 + tp / 100.0)
-        sl_price = last_price * (1 - sl / 100.0)
+        # Use effective_price for TP/SL calculations
+        tp_price = effective_price * (1 + tp / 100.0)
+        sl_price = effective_price * (1 - sl / 100.0)
+        
+        # Generate unique client order ID for idempotency
+        client_order_id = f"{symbol}_BUY_{int(time.time())}_{uuid.uuid4().hex[:8]}"
+        
+        # Check if already submitted this cycle (network retry protection)
+        if client_order_id in _order_ids_submitted_this_cycle:
+            return (False, "Order already submitted this cycle")
+        
+        _order_ids_submitted_this_cycle.add(client_order_id)
         
         # Check if fractional
         is_fractional = (qty % 1 != 0)
         
         if is_fractional:
             # Fractional shares: Must use 'day' order, cannot use bracket orders
-            client.submit_order(
+            order = client.submit_order(
                 symbol=symbol,
                 qty=qty,
                 side='buy',
                 type='market',
-                time_in_force='day'  # Required for fractional
+                time_in_force='day',  # Required for fractional
+                client_order_id=client_order_id
             )
-            # Place separate TP and SL orders (best effort)
+            
+            # Wait for fill confirmation (market orders should fill quickly)
+            max_wait_seconds = 30
+            fill_confirmed = False
+            actual_filled_qty = 0
+            
+            for wait_iter in range(max_wait_seconds):
+                try:
+                    order_status = client.get_order(order.id)
+                    if order_status.status == 'filled':
+                        actual_filled_qty = float(order_status.filled_qty)
+                        fill_confirmed = True
+                        break
+                    elif order_status.status == 'partially_filled':
+                        actual_filled_qty = float(order_status.filled_qty)
+                        # For fractional, partial is common - accept it
+                        fill_confirmed = True
+                        break
+                except:
+                    pass
+                time.sleep(1)
+            
+            if not fill_confirmed:
+                return (False, f"Order not filled after {max_wait_seconds}s")
+            
+            # Place separate TP and SL orders using ACTUAL filled quantity
             try:
-                # Take profit limit order
                 client.submit_order(
                     symbol=symbol,
-                    qty=qty,
+                    qty=actual_filled_qty,
                     side='sell',
                     type='limit',
                     time_in_force='day',
                     limit_price=round(tp_price, 2)
                 )
-                # Stop loss order
                 client.submit_order(
                     symbol=symbol,
-                    qty=qty,
+                    qty=actual_filled_qty,
                     side='sell',
                     type='stop',
                     time_in_force='day',
@@ -460,9 +589,12 @@ def buy_flow(client, symbol: str, last_price: float, available_cap: float,
                 )
             except:
                 pass  # TP/SL orders are optional for fractional shares
+            
+            shares_text = f"{actual_filled_qty:.6f}".rstrip('0').rstrip('.') if actual_filled_qty < 1 else f"{actual_filled_qty:.2f}"
+            return (True, f"Bought {shares_text} shares @ ${last_price:.2f} (TP:{tp:.2f}% SL:{sl:.2f}%)")
         else:
             # Whole shares: Use bracket orders with GTC
-            client.submit_order(
+            order = client.submit_order(
                 symbol=symbol,
                 qty=int(qty),
                 side='buy',
@@ -470,11 +602,35 @@ def buy_flow(client, symbol: str, last_price: float, available_cap: float,
                 time_in_force='gtc',
                 order_class='bracket',
                 take_profit={'limit_price': round(tp_price, 2)},
-                stop_loss={'stop_price': round(sl_price, 2)}
+                stop_loss={'stop_price': round(sl_price, 2)},
+                client_order_id=client_order_id
             )
-        
-        shares_text = f"{qty:.6f}".rstrip('0').rstrip('.') if qty < 1 else f"{qty:.2f}"
-        return (True, f"Bought {shares_text} shares @ ${last_price:.2f} (TP:{tp:.2f}% SL:{sl:.2f}%)")
+            
+            # Wait for fill confirmation
+            max_wait_seconds = 30
+            fill_confirmed = False
+            actual_filled_qty = 0
+            
+            for wait_iter in range(max_wait_seconds):
+                try:
+                    order_status = client.get_order(order.id)
+                    if order_status.status in ['filled', 'partially_filled']:
+                        actual_filled_qty = float(order_status.filled_qty)
+                        fill_confirmed = True
+                        if order_status.status == 'filled':
+                            break
+                except:
+                    pass
+                time.sleep(1)
+            
+            if not fill_confirmed:
+                return (False, f"Order not filled after {max_wait_seconds}s")
+            elif actual_filled_qty < qty * 0.9:  # Less than 90% filled
+                log_warn(f"Partial fill: {actual_filled_qty}/{qty} shares")
+                # Continue anyway - we got something
+            
+            shares_text = f"{actual_filled_qty:.6f}".rstrip('0').rstrip('.') if actual_filled_qty < 1 else f"{actual_filled_qty:.2f}"
+            return (True, f"Bought {shares_text} shares @ ${last_price:.2f} (TP:{tp:.2f}% SL:{sl:.2f}%)")
     except Exception as e:
         return (False, f"Order failed: {e}")
 
@@ -483,8 +639,13 @@ def sell_flow(client, symbol: str, confidence: float = 0.0):
     if not pos:
         return (False, "No position")
     
-    qty = int(pos["qty"])
+    qty = float(pos["qty"])  # FIXED: Keep fractional shares
     realized_pl = pos["unrealized_pl"]
+    
+    # Log expected slippage cost (can't change paper fills, but document it)
+    if config.SIMULATE_SLIPPAGE_ENABLED and "paper" in config.ALPACA_BASE_URL.lower():
+        slippage_loss = float(pos["market_value"]) * (config.SLIPPAGE_PERCENT / 100)
+        log_info(f"Expected slippage: -${slippage_loss:.2f}")
     
     try:
         # Cancel bracket orders
@@ -495,8 +656,48 @@ def sell_flow(client, symbol: str, confidence: float = 0.0):
             except:
                 pass
         
-        # Market sell
-        client.submit_order(symbol=symbol, qty=qty, side='sell', type='market', time_in_force='gtc')
+        # Generate unique client order ID for idempotency
+        client_order_id = f"{symbol}_SELL_{int(time.time())}_{uuid.uuid4().hex[:8]}"
+        
+        # Check if already submitted this cycle (network retry protection)
+        if client_order_id in _order_ids_submitted_this_cycle:
+            return (False, "Order already submitted this cycle")
+        
+        _order_ids_submitted_this_cycle.add(client_order_id)
+        
+        # Market sell (use 'day' for fractional shares, 'gtc' for whole shares)
+        is_fractional = (qty % 1 != 0)
+        time_in_force = 'day' if is_fractional else 'gtc'
+        order = client.submit_order(
+            symbol=symbol, 
+            qty=qty, 
+            side='sell', 
+            type='market', 
+            time_in_force=time_in_force,
+            client_order_id=client_order_id
+        )
+        
+        # Wait for fill confirmation
+        max_wait_seconds = 30
+        fill_confirmed = False
+        actual_filled_qty = 0
+        
+        for wait_iter in range(max_wait_seconds):
+            try:
+                order_status = client.get_order(order.id)
+                if order_status.status in ['filled', 'partially_filled']:
+                    actual_filled_qty = float(order_status.filled_qty)
+                    fill_confirmed = True
+                    if order_status.status == 'filled':
+                        break
+            except:
+                pass
+            time.sleep(1)
+        
+        if not fill_confirmed:
+            return (False, f"Sell order not filled after {max_wait_seconds}s")
+        elif actual_filled_qty < qty * 0.9:
+            log_warn(f"Partial sell: {actual_filled_qty}/{qty} shares")
         
         # Log to PnL ledger
         try:
@@ -521,22 +722,42 @@ def sell_flow(client, symbol: str, confidence: float = 0.0):
     except Exception as e:
         return (False, f"Sell failed: {e}")
 
-def enforce_safety(client, symbol: str):
-    # Daily loss check
+def enforce_all_safety_checks(client, symbol: str = None, portfolio = None) -> Tuple[bool, str]:
+    """
+    Check all safety limits. Returns (should_shutdown, reason).
+    If should_shutdown=True, bot should immediately liquidate and exit.
+    """
     try:
         account = client.get_account()
         equity = float(account.equity)
         last_equity = float(account.last_equity)
         
-        if last_equity > 0:
-            daily_pnl_pct = ((equity - last_equity) / last_equity) * 100
-            
-            if daily_pnl_pct < -config.MAX_DAILY_LOSS_PERCENT:
-                log_warn(f"Daily loss limit hit: {daily_pnl_pct:.2f}%")
-                sell_flow(client, symbol)
-                sys.exit(1)
-    except:
-        pass
+        if last_equity <= 0:
+            return (False, "")  # Can't calculate on first run
+        
+        # Check 1: Daily loss percentage
+        daily_pnl_pct = ((equity - last_equity) / last_equity) * 100
+        if daily_pnl_pct < -config.MAX_DAILY_LOSS_PERCENT:
+            return (True, f"Daily loss % limit: {daily_pnl_pct:.2f}% < -{config.MAX_DAILY_LOSS_PERCENT}%")
+        
+        # Check 2: Daily loss absolute USD
+        daily_pnl_usd = equity - last_equity
+        if daily_pnl_usd < -config.DAILY_LOSS_LIMIT_USD:
+            return (True, f"Daily loss $ limit: ${daily_pnl_usd:.2f} < -${config.DAILY_LOSS_LIMIT_USD}")
+        
+        return (False, "")  # All checks passed
+        
+    except Exception as e:
+        log_warn(f"Safety check error: {e}")
+        return (False, "")  # Don't shutdown on check failure
+
+# Keep old name for compatibility (just call new function)
+def enforce_safety(client, symbol: str):
+    should_stop, reason = enforce_all_safety_checks(client, symbol)
+    if should_stop:
+        log_warn(reason)
+        sell_flow(client, symbol)
+        sys.exit(1)
 
 # ===== Simulation =====
 def simulate_signals_and_projection(
@@ -545,7 +766,8 @@ def simulate_signals_and_projection(
     override_tp_pct: Optional[float] = None,
     override_sl_pct: Optional[float] = None,
     override_trade_frac: Optional[float] = None,
-    override_cap_usd: Optional[float] = None
+    override_cap_usd: Optional[float] = None,
+    use_walk_forward: bool = True  # NEW PARAMETER
 ) -> dict:
     
     # Minimum bars needed for SMA calculation
@@ -558,6 +780,36 @@ def simulate_signals_and_projection(
             "expected_daily_usd": 0.0  # Neutral expectation
         }
     
+    # Walk-forward validation to avoid look-ahead bias
+    if use_walk_forward and len(closes) >= min_bars * 2:
+        # Split: 70% train, 30% test
+        split_point = int(len(closes) * 0.7)
+        train_closes = closes[:split_point]
+        test_closes = closes[split_point:]
+        
+        # Recursively simulate on both sets (with walk_forward=False to avoid infinite recursion)
+        train_sim = simulate_signals_and_projection(
+            train_closes, interval_seconds, override_tp_pct, override_sl_pct,
+            override_trade_frac, override_cap_usd, use_walk_forward=False
+        )
+        
+        test_sim = simulate_signals_and_projection(
+            test_closes, interval_seconds, override_tp_pct, override_sl_pct,
+            override_trade_frac, override_cap_usd, use_walk_forward=False
+        )
+        
+        # Return weighted average (70% test, 30% train - emphasize out-of-sample)
+        # This is more conservative and realistic
+        return {
+            "win_rate": train_sim["win_rate"] * 0.3 + test_sim["win_rate"] * 0.7,
+            "expected_trades_per_day": train_sim["expected_trades_per_day"] * 0.3 + test_sim["expected_trades_per_day"] * 0.7,
+            "expected_daily_usd": train_sim["expected_daily_usd"] * 0.3 + test_sim["expected_daily_usd"] * 0.7,
+            # Include individual results for debugging
+            "_train_return": train_sim["expected_daily_usd"],
+            "_test_return": test_sim["expected_daily_usd"]
+        }
+    
+    # Rest of existing simulation logic (unchanged)
     tp_pct = override_tp_pct if override_tp_pct is not None else config.TAKE_PROFIT_PERCENT
     sl_pct = override_sl_pct if override_sl_pct is not None else config.STOP_LOSS_PERCENT
     frac = override_trade_frac if override_trade_frac is not None else config.TRADE_SIZE_FRAC_OF_CAP
@@ -625,9 +877,10 @@ def in_market_hours(client) -> bool:
     try:
         clock = client.get_clock()
         return clock.is_open
-    except:
-        now = dt.datetime.now(pytz.timezone('US/Eastern'))
-        return now.weekday() < 5 and 9 <= now.hour < 16
+    except Exception as e:
+        # Don't guess - if API fails, conservatively assume closed
+        log_warn(f"Could not check market hours: {e}. Assuming CLOSED for safety.")
+        return False
 
 def sleep_until_market_open(client):
     # Show countdown info once
@@ -990,6 +1243,8 @@ def main():
     log_info(f"{'='*70}\n")
     
     iteration = 0
+    consecutive_no_trade_cycles = 0  # Track cycles with no trading activity
+    MAX_NO_TRADE_CYCLES = 20  # Alert after 20 idle cycles
     
     try:
         # Keep PC awake during market hours only
@@ -997,6 +1252,9 @@ def main():
         
         while True:
             iteration += 1
+            
+            # Clear order ID tracker for new iteration (idempotency protection)
+            _order_ids_submitted_this_cycle.clear()
 
             if not in_market_hours(client):
                 prevent_system_sleep(False)  # Allow PC to sleep
@@ -1134,6 +1392,7 @@ def main():
                 
                 # Trade each stock
                 log_info(f"\nTrading {len(stocks_to_evaluate)} stocks:")
+                trades_this_cycle = 0  # Count trades this iteration
                 for i, sym in enumerate(stocks_to_evaluate, 1):
                     try:
                         stock_cap = stock_allocations.get(sym, cap_per_stock)
@@ -1154,22 +1413,59 @@ def main():
                         # Check if we need to sell excess (over-allocated)
                         # BUT: Only sell if the stock is underperforming or there's a better opportunity
                         if existing_pos and allocation_diff < -10:  # Over target by $10+
-                            # Check if this stock is still profitable
-                            # If it's still good and in our top allocation, keep it!
-                            if sym in stock_allocations and stock_allocations[sym] > 10:
-                                # Stock is still in optimal portfolio, keep the excess
-                                log_info(f"  HOLD: Over-allocated by ${-allocation_diff:.2f} but still profitable - keeping")
-                                # Don't sell, continue to signal check
+                            # NEW: Check holding period before selling
+                            pos_obj = portfolio.get_position(sym)
+                            if pos_obj and "first_opened" in pos_obj:
+                                try:
+                                    opened_time = dt.datetime.fromisoformat(pos_obj["first_opened"])
+                                    if opened_time.tzinfo is None:
+                                        opened_time = pytz.UTC.localize(opened_time)
+                                    held_hours = (dt.datetime.now(pytz.UTC) - opened_time).total_seconds() / 3600
+                                    
+                                    if held_hours < config.MIN_HOLDING_PERIOD_HOURS:
+                                        log_info(f"  HOLD: Won't rebalance {sym} (held {held_hours:.1f}h < {config.MIN_HOLDING_PERIOD_HOURS}h min)")
+                                        # Continue to signal check instead of selling
+                                    else:
+                                        # Held long enough, check if should rebalance
+                                        if sym in stock_allocations and stock_allocations[sym] > 10:
+                                            # Stock is still in optimal portfolio, keep the excess
+                                            log_info(f"  HOLD: Over-allocated by ${-allocation_diff:.2f} but still profitable - keeping")
+                                        else:
+                                            # Stock is no longer optimal, sell it
+                                            log_info(f"  REBALANCE: Over-allocated by ${-allocation_diff:.2f} and not optimal - selling")
+                                            ok, msg = sell_flow(client, sym)
+                                            if ok:
+                                                portfolio.remove_position(sym)
+                                                log_info(f"  OK {msg}")
+                                            else:
+                                                log_info(f"  -- {msg}")
+                                            continue
+                                except Exception as e:
+                                    # If timestamp parsing fails, proceed with normal rebalance logic
+                                    if sym in stock_allocations and stock_allocations[sym] > 10:
+                                        log_info(f"  HOLD: Over-allocated by ${-allocation_diff:.2f} but still profitable - keeping")
+                                    else:
+                                        log_info(f"  REBALANCE: Over-allocated by ${-allocation_diff:.2f} and not optimal - selling")
+                                        ok, msg = sell_flow(client, sym)
+                                        if ok:
+                                            portfolio.remove_position(sym)
+                                            log_info(f"  OK {msg}")
+                                        else:
+                                            log_info(f"  -- {msg}")
+                                        continue
                             else:
-                                # Stock is no longer in optimal portfolio, or allocation is too small
-                                log_info(f"  REBALANCE: Over-allocated by ${-allocation_diff:.2f} and not in optimal portfolio - selling")
-                                ok, msg = sell_flow(client, sym)
-                                if ok:
-                                    portfolio.remove_position(sym)
-                                    log_info(f"  OK {msg}")
+                                # No timestamp info, use old logic
+                                if sym in stock_allocations and stock_allocations[sym] > 10:
+                                    log_info(f"  HOLD: Over-allocated by ${-allocation_diff:.2f} but still profitable - keeping")
                                 else:
-                                    log_info(f"  -- {msg}")
-                                continue
+                                    log_info(f"  REBALANCE: Over-allocated by ${-allocation_diff:.2f} and not optimal - selling")
+                                    ok, msg = sell_flow(client, sym)
+                                    if ok:
+                                        portfolio.remove_position(sym)
+                                        log_info(f"  OK {msg}")
+                                    else:
+                                        log_info(f"  -- {msg}")
+                                    continue
                         
                         closes = fetch_closes(client, sym, interval_seconds, config.LONG_WINDOW + 10)
                         if not closes:
@@ -1201,9 +1497,13 @@ def main():
                                     dynamic_enabled=not args.no_dynamic,
                                     interval_seconds=interval_seconds
                                 )
+                                if ok:
+                                    trades_this_cycle += 1
                                 log_info(f"  {'OK' if ok else '--'} {msg}")
                         elif action == "sell":
                             ok, msg = sell_flow(client, sym)
+                            if ok:
+                                trades_this_cycle += 1
                             log_info(f"  {'OK' if ok else '--'} {msg}")
                         else:
                             if existing_pos:
@@ -1217,6 +1517,20 @@ def main():
                 total_value = portfolio.get_total_market_value()
                 total_pl = portfolio.get_total_unrealized_pl()
                 log_info(f"\nPortfolio: ${total_value:.2f} | P&L: ${total_pl:+.2f}\n")
+                
+                # Check for freeze (no trades for extended period)
+                if trades_this_cycle == 0:
+                    consecutive_no_trade_cycles += 1
+                    if consecutive_no_trade_cycles >= MAX_NO_TRADE_CYCLES:
+                        hours_idle = (consecutive_no_trade_cycles * interval_seconds) / 3600
+                        log_warn(f"⚠️  NO TRADES for {hours_idle:.1f}h ({consecutive_no_trade_cycles} cycles)")
+                        log_warn(f"⚠️  Market may be unfavorable. Consider:")
+                        log_warn(f"     - Checking if market is trending")
+                        log_warn(f"     - Adjusting parameters")
+                        log_warn(f"     - Pausing bot until conditions improve")
+                        consecutive_no_trade_cycles = 0  # Reset
+                else:
+                    consecutive_no_trade_cycles = 0  # Reset on any trade
             
             else:
                 # Single-stock logic

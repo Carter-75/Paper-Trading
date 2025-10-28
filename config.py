@@ -60,6 +60,7 @@ SELL_PARTIAL_ENABLED: bool = os.getenv("SELL_PARTIAL_ENABLED", "0") in ("1", "tr
 MAX_DRAWDOWN_PERCENT: float = float(os.getenv("MAX_DRAWDOWN_PERCENT", "10.0") or 0.0)
 MAX_POSITION_AGE_HOURS: float = float(os.getenv("MAX_POSITION_AGE_HOURS", "72.0") or 0.0)
 DAILY_LOSS_LIMIT_USD: float = float(os.getenv("DAILY_LOSS_LIMIT_USD", "100.0") or 0.0)
+MAX_DAILY_LOSS_PERCENT: float = float(os.getenv("MAX_DAILY_LOSS_PERCENT", "5.0"))
 
 # Runtime clamp bounds for auto-tuning
 MIN_TAKE_PROFIT_PERCENT: float = float(os.getenv("MIN_TAKE_PROFIT_PERCENT", "0.25"))
@@ -83,6 +84,10 @@ PNL_LEDGER_PATH: str = os.getenv("PNL_LEDGER_PATH", "pnl_ledger.json")
 ALLOW_MISSING_KEYS_FOR_DEBUG: bool = os.getenv("ALLOW_MISSING_KEYS_FOR_DEBUG", "0") in ("1", "true", "True")
 ENABLE_MARKET_HOURS_ONLY: bool = os.getenv("ENABLE_MARKET_HOURS_ONLY", "1") in ("1", "true", "True")
 
+# Paper trading slippage simulation (to match live expectations)
+SIMULATE_SLIPPAGE_ENABLED: bool = os.getenv("SIMULATE_SLIPPAGE_ENABLED", "1") in ("1", "true", "True")
+SLIPPAGE_PERCENT: float = float(os.getenv("SLIPPAGE_PERCENT", "0.05"))  # 5 basis points
+
 # Risk overlay (more aggressive sizing/targets when expected return justifies it)
 RISKY_MODE_ENABLED: bool = os.getenv("RISKY_MODE_ENABLED", "1") in ("1", "true", "True")  # Enabled by default for max profit
 RISKY_EXPECTED_DAILY_USD_MIN: float = float(os.getenv("RISKY_EXPECTED_DAILY_USD_MIN", "0.05") or 0.0)  # Lower threshold
@@ -101,6 +106,13 @@ STRONG_CONFIDENCE_BYPASS_ENABLED: bool = os.getenv("STRONG_CONFIDENCE_BYPASS_ENA
 # Startup safety: exit if expected return is negative
 EXIT_ON_NEGATIVE_PROJECTION: bool = os.getenv("EXIT_ON_NEGATIVE_PROJECTION", "0") in ("1", "true", "True")  # Don't exit, just skip unprofitable stocks
 
+# Rebalancing constraints
+MIN_HOLDING_PERIOD_HOURS: float = float(os.getenv("MIN_HOLDING_PERIOD_HOURS", "2.0"))
+REBALANCE_THRESHOLD_PERCENT: float = float(os.getenv("REBALANCE_THRESHOLD_PERCENT", "15.0"))
+
+# Stock filtering
+MIN_AVG_VOLUME: int = int(os.getenv("MIN_AVG_VOLUME", "1000000"))  # 1M shares/day minimum
+
 # -------------------
 # Helpers
 # -------------------
@@ -115,3 +127,74 @@ def validate_config(allow_missing_api_keys: bool = False) -> Optional[str]:
 
 def wants_live_mode(cli_flag_go_live: bool = False) -> bool:
     return bool(cli_flag_go_live and CONFIRM_GO_LIVE == "YES")
+
+def validate_risk_config() -> Optional[str]:
+    """
+    Validate that risk multipliers don't create impossible configurations.
+    Returns error message if invalid, None if OK.
+    """
+    errors = []
+    
+    # Check if risky mode can exceed max position size
+    if RISKY_MODE_ENABLED:
+        max_possible_frac = TRADE_SIZE_FRAC_OF_CAP * RISKY_SIZE_MULT
+        if max_possible_frac > MAX_TRADE_SIZE_FRAC:
+            errors.append(
+                f"RISKY_MODE: {TRADE_SIZE_FRAC_OF_CAP} * {RISKY_SIZE_MULT} = {max_possible_frac:.2f} "
+                f"exceeds MAX_TRADE_SIZE_FRAC ({MAX_TRADE_SIZE_FRAC})"
+            )
+        
+        if max_possible_frac > 1.0:
+            errors.append(
+                f"RISKY_MODE: Position size can exceed 100% of capital ({max_possible_frac:.1%})"
+            )
+    
+    # Check TP/SL bounds
+    if TAKE_PROFIT_PERCENT < MIN_TAKE_PROFIT_PERCENT:
+        errors.append(f"TAKE_PROFIT_PERCENT ({TAKE_PROFIT_PERCENT}) < MIN ({MIN_TAKE_PROFIT_PERCENT})")
+    
+    if STOP_LOSS_PERCENT < MIN_STOP_LOSS_PERCENT:
+        errors.append(f"STOP_LOSS_PERCENT ({STOP_LOSS_PERCENT}) < MIN ({MIN_STOP_LOSS_PERCENT})")
+    
+    # Check for redundant settings
+    if PROFITABILITY_MIN_EXPECTED_USD > 0 and EXIT_ON_NEGATIVE_PROJECTION:
+        errors.append(
+            "Both PROFITABILITY_MIN_EXPECTED_USD and EXIT_ON_NEGATIVE_PROJECTION enabled (redundant)"
+        )
+    
+    if errors:
+        return "Configuration validation failed:\n  - " + "\n  - ".join(errors)
+    return None
+
+# Auto-validate on import (warn only, don't crash)
+_validation_error = validate_risk_config()
+if _validation_error and not ALLOW_MISSING_KEYS_FOR_DEBUG:
+    import sys
+    print(f"\n⚠️  WARNING: {_validation_error}\n", file=sys.stderr)
+
+# Preset configurations
+def apply_conservative_preset():
+    """Apply safe defaults for new users"""
+    global TRADE_SIZE_FRAC_OF_CAP, RISKY_MODE_ENABLED, TAKE_PROFIT_PERCENT, STOP_LOSS_PERCENT
+    TRADE_SIZE_FRAC_OF_CAP = 0.30  # 30% per position
+    RISKY_MODE_ENABLED = False
+    TAKE_PROFIT_PERCENT = 2.0
+    STOP_LOSS_PERCENT = 1.0
+    print("✅ Applied CONSERVATIVE preset (recommended for beginners)")
+
+def apply_aggressive_preset():
+    """Apply maximum profit settings (high risk!)"""
+    global TRADE_SIZE_FRAC_OF_CAP, RISKY_MODE_ENABLED, TAKE_PROFIT_PERCENT, STOP_LOSS_PERCENT
+    TRADE_SIZE_FRAC_OF_CAP = 0.75
+    RISKY_MODE_ENABLED = True
+    TAKE_PROFIT_PERCENT = 3.0
+    STOP_LOSS_PERCENT = 1.5
+    print("⚠️  Applied AGGRESSIVE preset (high risk, experienced users only)")
+
+# Auto-apply based on environment variable
+PRESET_MODE = os.getenv("PRESET_MODE", "").upper()
+if PRESET_MODE == "CONSERVATIVE":
+    apply_conservative_preset()
+elif PRESET_MODE == "AGGRESSIVE":
+    apply_aggressive_preset()
+

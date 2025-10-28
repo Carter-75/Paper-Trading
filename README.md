@@ -1,5 +1,35 @@
 # Paper Trading Bot - Intelligent Multi-Stock Trading System
 
+⚠️ **CRITICAL RISK DISCLOSURE** ⚠️
+
+**READ THIS BEFORE USING THE BOT**
+
+- **This software is for EDUCATIONAL and PAPER TRADING purposes**
+- **Trading involves substantial risk of loss**
+- **Past performance does NOT guarantee future results**
+- **Paper trading uses instant fills and perfect liquidity that DO NOT exist in live markets**
+- **Expect 20-50% performance degradation when moving from paper to live trading**
+- **Never trade with money you cannot afford to lose completely**
+- **This software is provided AS-IS with NO warranties or guarantees**
+- **Authors are NOT responsible for any trading losses**
+
+**Realistic Return Expectations:**
+- S&P 500 historical average: ~10% per YEAR
+- Professional hedge funds: 15-25% per YEAR in good years
+- High-frequency trading bots: Often lose money or break even after costs
+- **This bot's backtests are NOT predictive of live performance**
+- **Realistic target: 5-20% annual return at best, with significant risk**
+- **Most retail algo traders lose money - approach with extreme caution**
+
+**Minimum Requirements Before Live Trading:**
+1. Paper trade for 3-6 months minimum
+2. Understand all risks and have emergency stop procedures
+3. Start with absolute minimum capital ($100-500 max)
+4. Monitor closely for first month
+5. Expect losses and have stop-loss discipline
+
+---
+
 **Automated stock trading with smart capital allocation and portfolio rebalancing**
 
 ## 🎯 What This Bot Does

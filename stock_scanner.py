@@ -173,6 +173,19 @@ def score_stock(symbol: str, interval_seconds: int, cap_per_stock: float, bars: 
     Returns dict with score and metrics, or None if failed.
     """
     try:
+        # Add volume filter to avoid illiquid stocks
+        import yfinance as yf
+        ticker_obj = yf.Ticker(symbol)
+        try:
+            info = ticker_obj.info
+            avg_volume = info.get('averageVolume', 0)
+            if avg_volume < config.MIN_AVG_VOLUME:
+                if verbose:
+                    print(f"  {symbol}: Low volume ({avg_volume:,} < {config.MIN_AVG_VOLUME:,})")
+                return None
+        except:
+            pass  # If volume check fails, continue anyway
+        
         client = make_client(allow_missing=False, go_live=False)
         closes = fetch_closes(client, symbol, interval_seconds, bars)
         
