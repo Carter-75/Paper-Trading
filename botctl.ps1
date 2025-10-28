@@ -15,6 +15,8 @@ $AutoFiles = @(
     (Join-Path $WorkDir 'bot.log'),
     (Join-Path $WorkDir 'portfolio.json'),
     (Join-Path $WorkDir 'pnl_ledger.json'),
+    (Join-Path $WorkDir 'top_stocks_cache.json'),
+    (Join-Path $WorkDir 'ml_model.pkl'),
     (Join-Path $WorkDir 'start_bot.ps1'),
     (Join-Path $WorkDir 'last_start_cmd.txt')
 )

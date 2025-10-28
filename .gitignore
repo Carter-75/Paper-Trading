@@ -5,12 +5,13 @@ __pycache__/
 env/
 venv/
 .DS_Store
-*.log
 
-# Bot runtime files
+# Bot runtime files (auto-generated, deleted on stop-forever)
+*.log
 last_start_cmd.txt
 portfolio.json
 pnl_ledger.json
 top_stocks_cache.json
 start_bot.ps1
+ml_model.pkl
 
