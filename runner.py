@@ -73,16 +73,34 @@ SCHEDULED_TASK_MODE = os.getenv("SCHEDULED_TASK_MODE", "0") in ("1", "true", "Tr
 if not os.path.exists(FILE_LOG_PATH):
     open(FILE_LOG_PATH, "a").close()
 
+def strip_emojis(text: str) -> str:
+    """Remove emoji characters that cause encoding issues in log files."""
+    # Common emojis used in the bot
+    emoji_map = {
+        '✅': '[ON]',
+        '❌': '[OFF]',
+        '⚠️': '[WARN]',
+        '⏸️': '[PAUSED]',
+        '🎯': '[TARGET]',
+        '📊': '[STATS]',
+    }
+    result = text
+    for emoji, replacement in emoji_map.items():
+        result = result.replace(emoji, replacement)
+    return result
+
 def append_to_log_line(line: str):
     if DISABLE_FILE_LOG:
         return
+    # Strip emojis to prevent encoding issues in log file
+    clean_line = strip_emojis(line)
     attempts = 3
     delay = 0.2
     for i in range(attempts):
         try:
             enforce_log_max_lines(250)
             with open(FILE_LOG_PATH, "a", encoding="utf-8") as fh:
-                fh.write(line + "\n")
+                fh.write(clean_line + "\n")
             return
         except PermissionError:
             if i < attempts - 1:

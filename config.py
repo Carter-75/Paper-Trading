@@ -197,12 +197,6 @@ def validate_risk_config() -> Optional[str]:
     if STOP_LOSS_PERCENT < MIN_STOP_LOSS_PERCENT:
         errors.append(f"STOP_LOSS_PERCENT ({STOP_LOSS_PERCENT}) < MIN ({MIN_STOP_LOSS_PERCENT})")
     
-    # Check for redundant settings
-    if PROFITABILITY_MIN_EXPECTED_USD > 0 and EXIT_ON_NEGATIVE_PROJECTION:
-        errors.append(
-            "Both PROFITABILITY_MIN_EXPECTED_USD and EXIT_ON_NEGATIVE_PROJECTION enabled (redundant)"
-        )
-    
     if errors:
         return "Configuration validation failed:\n  - " + "\n  - ".join(errors)
     return None
@@ -214,7 +208,9 @@ if _validation_error and not ALLOW_MISSING_KEYS_FOR_DEBUG:
     import io
     # Use UTF-8 encoding to support emoji characters on Windows
     utf8_stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace', line_buffering=True)
-    print(f"\n⚠️  WARNING: {_validation_error}\n", file=utf8_stderr)
+    # Use text format for log files to avoid encoding issues
+    warning_msg = f"\n[WARN] WARNING: {_validation_error}\n"
+    print(warning_msg, file=utf8_stderr)
     utf8_stderr.flush()
 
 # Preset configurations
