@@ -105,22 +105,28 @@ This bot now implements **9 major improvements** for 20-40% better performance:
 
 ## 🚀 Quick Start
 
-**From project directory:**
+**Run as Administrator from anywhere using full paths:**
+
 ```powershell
-# 1. Install (includes ML libraries)
+# Set your project path (change this to your actual path)
+$BotDir = "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading"
+
+# 1. Install dependencies (includes ML libraries)
+cd $BotDir
 pip install -r requirements.txt
 
 # 2. Setup .env (see Environment Variables below)
+notepad "$BotDir\.env"
 
 # 3. Train ML model (optional but recommended - takes 5-10 min)
-python train_ml_model.py
+python "$BotDir\train_ml_model.py"
 
 # 4. Find best interval & capital (optimizer tests multiple stocks)
-python optimizer.py -v
+python "$BotDir\optimizer.py" -v
 
 # 5. Run bot with suggested interval & capital
 #    Bot will auto-select best 15 stocks and trade them!
-python runner.py -t 0.25 -m 1500
+python "$BotDir\runner.py" -t 0.25 -m 1500
 
 # That's it! Press Ctrl+C to stop.
 ```
@@ -134,21 +140,6 @@ Kelly sizing: 68% of $100 = $68 (win_rate=62%)
 Correlation check: avg=0.42 (diversification OK)
 ML confirms BUY (conf=75%)
 Limit order @ $150.20 (market: $150.35)
-```
-
-**From anywhere (use full paths):**
-```powershell
-# Set your project path
-$BotDir = "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading"
-
-# Install
-cd $BotDir; pip install -r requirements.txt
-
-# Find best parameters (tests multiple stocks)
-python "$BotDir\optimizer.py" -v
-
-# Run bot (auto-selects best 15 stocks - default)
-python "$BotDir\runner.py" -t 0.25 -m 1500
 ```
 
 ---
@@ -422,10 +413,10 @@ Bot works perfectly fine without ML using just the strategy filters!
 
 ## 💻 Usage
 
-**💡 All commands work from anywhere! Just use full paths:**
+**⚡ Run as Administrator with full paths (works from anywhere):**
+
 ```powershell
 $BotDir = "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading"
-python "$BotDir\runner.py" -t 0.25 -m 1500
 ```
 
 **Default Behavior:** Bot auto-selects best 15 stocks
@@ -434,33 +425,24 @@ python "$BotDir\runner.py" -t 0.25 -m 1500
 
 **Auto-Select All (Bot Picks Best Stocks):**
 ```powershell
-# From project dir (--max-stocks defaults to 15)
-python runner.py -t 0.25 -m 1500
+# Default: 15 stocks auto-selected
+python "$BotDir\runner.py" -t 0.25 -m 1500
 
 # Or explicitly set max stocks
-python runner.py -t 0.25 -m 1500 --max-stocks 10
-
-# From anywhere
-python "$BotDir\runner.py" -t 0.25 -m 1500
+python "$BotDir\runner.py" -t 0.25 -m 1500 --max-stocks 10
 ```
 Bot scans universe, picks best stocks (default: 15), trades & rebalances.
 
 **Force Specific + Auto-Fill:**
 ```powershell
-# From project dir
-python runner.py -t 0.25 -m 1500 --stocks TSLA AAPL --max-stocks 10
-
-# From anywhere
+# Keep TSLA/AAPL, auto-select 8 more
 python "$BotDir\runner.py" -t 0.25 -m 1500 --stocks TSLA AAPL --max-stocks 10
 ```
 Keeps TSLA/AAPL always, auto-selects 8 more.
 
 **Manual Only:**
 ```powershell
-# From project dir
-python runner.py -t 0.25 -m 300 --stocks AAPL MSFT GOOGL --max-stocks 3
-
-# From anywhere
+# Only trade your 3 picks
 python "$BotDir\runner.py" -t 0.25 -m 300 --stocks AAPL MSFT GOOGL --max-stocks 3
 ```
 Only trades your 3 picks.
@@ -1706,31 +1688,35 @@ $BotPath = "$BotDir\botctl.ps1"
 
 ### Start Small, Scale Up
 
+```powershell
+$BotDir = "C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading"
+```
+
 **Week 1: Paper Trading Basics**
 ```powershell
 # Start with single stock to learn
-python optimizer.py -s AAPL -v
-python runner.py -t 0.25 -s AAPL -m 100 --max-stocks 1
+python "$BotDir\optimizer.py" -s AAPL -v
+python "$BotDir\runner.py" -t 0.25 -s AAPL -m 100 --max-stocks 1
 ```
 Learn how signals work, watch the logs, understand TP/SL.
 
 **Week 2: Multi-Stock Portfolio**
 ```powershell
 # Expand to 5 stocks
-python optimizer.py -v
-python runner.py -t 0.25 -m 500 --max-stocks 5
+python "$BotDir\optimizer.py" -v
+python "$BotDir\runner.py" -t 0.25 -m 500 --max-stocks 5
 ```
 See rebalancing in action, compare performance across stocks.
 
 **Week 3: Full Portfolio**
 ```powershell
 # Scale to 15 stocks with smart allocation
-python runner.py -t 0.25 -m 1500 --max-stocks 15
+python "$BotDir\runner.py" -t 0.25 -m 1500 --max-stocks 15
 ```
 Let the bot manage everything, monitor weekly performance.
 
 **Week 4+: Optimization & Fine-Tuning**
-- **Train ML model**: `python train_ml_model.py` (now that you have data)
+- **Train ML model**: `python "$BotDir\train_ml_model.py"` (now that you have data)
 - Adjust intervals based on market conditions
 - Test different stock universes
 - Tweak TP/SL and filter thresholds based on results
