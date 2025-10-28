@@ -1298,8 +1298,13 @@ def is_safe_trading_time(client) -> Tuple[bool, str]:
             return (False, "Market closed")
         
         now = clock.timestamp
-        market_open = clock.next_open if clock.next_open > now else now
         market_close = clock.next_close
+        
+        # Calculate today's market open time
+        # Market is open for 6.5 hours (9:30 AM to 4:00 PM)
+        import datetime as dt
+        market_hours = dt.timedelta(hours=6, minutes=30)
+        market_open = market_close - market_hours
         
         # Calculate minutes since open and until close
         minutes_since_open = (now - market_open).total_seconds() / 60
