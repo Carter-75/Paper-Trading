@@ -62,6 +62,33 @@ MAX_POSITION_AGE_HOURS: float = float(os.getenv("MAX_POSITION_AGE_HOURS", "72.0"
 DAILY_LOSS_LIMIT_USD: float = float(os.getenv("DAILY_LOSS_LIMIT_USD", "100.0") or 0.0)
 MAX_DAILY_LOSS_PERCENT: float = float(os.getenv("MAX_DAILY_LOSS_PERCENT", "5.0"))
 
+# Drawdown Protection
+MAX_PORTFOLIO_DRAWDOWN_PERCENT: float = float(os.getenv("MAX_PORTFOLIO_DRAWDOWN_PERCENT", "15.0"))
+ENABLE_DRAWDOWN_PROTECTION: bool = os.getenv("ENABLE_DRAWDOWN_PROTECTION", "1") in ("1", "true", "True")
+
+# Kelly Criterion Position Sizing
+ENABLE_KELLY_SIZING: bool = os.getenv("ENABLE_KELLY_SIZING", "1") in ("1", "true", "True")
+KELLY_USE_HALF: bool = os.getenv("KELLY_USE_HALF", "1") in ("1", "true", "True")  # More conservative
+
+# Correlation-Based Diversification
+ENABLE_CORRELATION_CHECK: bool = os.getenv("ENABLE_CORRELATION_CHECK", "1") in ("1", "true", "True")
+MAX_CORRELATION_THRESHOLD: float = float(os.getenv("MAX_CORRELATION_THRESHOLD", "0.7"))  # 0.7 = high correlation
+
+# Limit Order Settings
+USE_LIMIT_ORDERS: bool = os.getenv("USE_LIMIT_ORDERS", "1") in ("1", "true", "True")
+LIMIT_ORDER_OFFSET_PERCENT: float = float(os.getenv("LIMIT_ORDER_OFFSET_PERCENT", "0.1"))  # 0.1% better than market
+LIMIT_ORDER_TIMEOUT_SECONDS: int = int(os.getenv("LIMIT_ORDER_TIMEOUT_SECONDS", "300"))  # 5 minutes
+
+# Safe Trading Hours
+ENABLE_SAFE_HOURS: bool = os.getenv("ENABLE_SAFE_HOURS", "1") in ("1", "true", "True")
+AVOID_FIRST_MINUTES: int = int(os.getenv("AVOID_FIRST_MINUTES", "15"))  # Don't trade first 15 min
+AVOID_LAST_MINUTES: int = int(os.getenv("AVOID_LAST_MINUTES", "15"))  # Don't trade last 15 min
+
+# Machine Learning
+ENABLE_ML_PREDICTION: bool = os.getenv("ENABLE_ML_PREDICTION", "1") in ("1", "true", "True")  # ON by default
+ML_CONFIDENCE_THRESHOLD: float = float(os.getenv("ML_CONFIDENCE_THRESHOLD", "0.6"))  # 60% confidence needed
+ML_MODEL_PATH: str = os.getenv("ML_MODEL_PATH", "ml_model.pkl")
+
 # Runtime clamp bounds for auto-tuning
 MIN_TAKE_PROFIT_PERCENT: float = float(os.getenv("MIN_TAKE_PROFIT_PERCENT", "0.25"))
 MAX_TAKE_PROFIT_PERCENT: float = float(os.getenv("MAX_TAKE_PROFIT_PERCENT", "10.0"))
@@ -105,6 +132,20 @@ STRONG_CONFIDENCE_THRESHOLD: float = float(os.getenv("STRONG_CONFIDENCE_THRESHOL
 STRONG_CONFIDENCE_BYPASS_ENABLED: bool = os.getenv("STRONG_CONFIDENCE_BYPASS_ENABLED", "1") in ("1", "true", "True")
 # Startup safety: exit if expected return is negative
 EXIT_ON_NEGATIVE_PROJECTION: bool = os.getenv("EXIT_ON_NEGATIVE_PROJECTION", "0") in ("1", "true", "True")  # Don't exit, just skip unprofitable stocks
+
+# RSI Settings
+RSI_PERIOD: int = int(os.getenv("RSI_PERIOD", "14"))
+RSI_OVERBOUGHT: float = float(os.getenv("RSI_OVERBOUGHT", "70.0"))  # Don't buy above this
+RSI_OVERSOLD: float = float(os.getenv("RSI_OVERSOLD", "30.0"))  # Don't sell below this
+RSI_ENABLED: bool = os.getenv("RSI_ENABLED", "1") in ("1", "true", "True")
+
+# Multi-Timeframe Settings
+MULTI_TIMEFRAME_ENABLED: bool = os.getenv("MULTI_TIMEFRAME_ENABLED", "1") in ("1", "true", "True")
+MULTI_TIMEFRAME_MIN_AGREEMENT: int = int(os.getenv("MULTI_TIMEFRAME_MIN_AGREEMENT", "2"))  # How many TFs must agree
+
+# Volume Confirmation
+VOLUME_CONFIRMATION_ENABLED: bool = os.getenv("VOLUME_CONFIRMATION_ENABLED", "1") in ("1", "true", "True")
+VOLUME_CONFIRMATION_THRESHOLD: float = float(os.getenv("VOLUME_CONFIRMATION_THRESHOLD", "1.2"))  # 20% above average
 
 # Rebalancing constraints
 MIN_HOLDING_PERIOD_HOURS: float = float(os.getenv("MIN_HOLDING_PERIOD_HOURS", "2.0"))

@@ -35,10 +35,21 @@ from alpaca_trade_api.rest import TimeFrame, TimeFrameUnit
 import config
 from portfolio_manager import PortfolioManager
 
+# Add ML imports
+try:
+    from ml_predictor import get_ml_predictor
+    ML_AVAILABLE = True
+except:
+    ML_AVAILABLE = False
+
 load_dotenv()
 
 # Idempotency: Track orders submitted this cycle to prevent duplicates
 _order_ids_submitted_this_cycle = set()
+
+# Drawdown tracking
+_portfolio_peak_value = 0.0
+_drawdown_protection_triggered = False
 
 # ===== Logging Setup =====
 LOG = logging.getLogger("paper_trading_bot")
@@ -407,6 +418,43 @@ def decide_action(closes: List[float], short_w: int, long_w: int) -> str:
         return "sell"
     return "hold"
 
+def decide_action_multi_timeframe(client, symbol: str, base_interval: int, 
+                                  short_w: int, long_w: int) -> Tuple[str, Dict]:
+    """
+    Check multiple timeframes for signal confirmation.
+    Returns (action, details_dict)
+    
+    Strategy: Only trade if 2+ timeframes agree on direction
+    Timeframes: 1x, 3x, 5x base interval
+    """
+    timeframes = {
+        'short': base_interval,
+        'medium': base_interval * 3,
+        'long': base_interval * 5
+    }
+    
+    signals = {}
+    
+    for tf_name, tf_seconds in timeframes.items():
+        closes = fetch_closes(client, symbol, tf_seconds, long_w + 10)
+        if closes:
+            action = decide_action(closes, short_w, long_w)
+            signals[tf_name] = action
+        else:
+            signals[tf_name] = "hold"  # No data = no trade
+    
+    # Count votes
+    buy_votes = sum(1 for s in signals.values() if s == "buy")
+    sell_votes = sum(1 for s in signals.values() if s == "sell")
+    
+    # Require 2+ timeframes to agree
+    if buy_votes >= 2:
+        return ("buy", signals)
+    elif sell_votes >= 2:
+        return ("sell", signals)
+    else:
+        return ("hold", signals)
+
 def compute_confidence(closes: List[float]) -> float:
     if len(closes) < config.LONG_WINDOW:
         return 0.0
@@ -431,6 +479,71 @@ def pct_stddev(closes: List[float]) -> float:
     variance = sum((x - mean) ** 2 for x in closes) / len(closes)
     stddev = math.sqrt(variance)
     return stddev / mean if mean != 0 else 0.0
+
+def compute_rsi(closes: List[float], period: int = 14) -> float:
+    """
+    Calculate Relative Strength Index (RSI) to identify overbought/oversold conditions.
+    Returns value between 0-100.
+    - RSI > 70 = Overbought (don't buy)
+    - RSI < 30 = Oversold (don't sell)
+    - RSI 40-60 = Neutral
+    """
+    if len(closes) < period + 1:
+        return 50.0  # Neutral if insufficient data
+    
+    gains = []
+    losses = []
+    
+    # Calculate price changes
+    for i in range(1, len(closes)):
+        change = closes[i] - closes[i-1]
+        if change > 0:
+            gains.append(change)
+            losses.append(0)
+        else:
+            gains.append(0)
+            losses.append(abs(change))
+    
+    # Calculate average gains and losses
+    avg_gain = sum(gains[-period:]) / period
+    avg_loss = sum(losses[-period:]) / period
+    
+    # Handle edge case
+    if avg_loss == 0:
+        return 100.0 if avg_gain > 0 else 50.0
+    
+    # Calculate RS and RSI
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    
+    return rsi
+
+def check_volume_confirmation(volumes: List[float], lookback: int = 20) -> Tuple[bool, float]:
+    """
+    Check if recent volume confirms the move.
+    Returns (is_strong, volume_ratio)
+    
+    - volume_ratio > 1.5 = Strong move (good for buying)
+    - volume_ratio < 0.8 = Weak move (caution)
+    """
+    if len(volumes) < lookback + 5:
+        return (True, 1.0)  # Not enough data, assume OK
+    
+    # Recent volume (last 5 bars)
+    recent_volume = sum(volumes[-5:]) / 5
+    
+    # Average volume (lookback period)
+    avg_volume = sum(volumes[-lookback:-5]) / (lookback - 5)
+    
+    if avg_volume == 0:
+        return (True, 1.0)
+    
+    volume_ratio = recent_volume / avg_volume
+    
+    # Strong if 50% above average
+    is_strong = volume_ratio > 1.5
+    
+    return (is_strong, volume_ratio)
 
 # ===== Position Management =====
 def get_position(client, symbol: str):
@@ -470,6 +583,111 @@ def compute_order_qty_from_remaining(current_price: float, remaining_cap: float,
     # Round to 6 decimal places (standard for fractional shares)
     return round(qty, 6)
 
+def kelly_position_size(win_rate: float, avg_win_pct: float, avg_loss_pct: float, 
+                       available_capital: float, base_fraction: float) -> Tuple[float, float]:
+    """
+    Calculate optimal position size using Kelly Criterion.
+    Returns (kelly_fraction, recommended_capital)
+    
+    Kelly Formula: f = (p*b - q) / b
+    where p = win rate, b = win/loss ratio, q = 1-p
+    
+    We use Half-Kelly for safety (50% of Kelly recommendation)
+    """
+    
+    # Safety checks
+    if win_rate <= 0.5 or avg_loss_pct <= 0 or avg_win_pct <= 0:
+        # Not profitable or insufficient data - use minimum
+        return (base_fraction * 0.5, available_capital * base_fraction * 0.5)
+    
+    # Calculate win/loss ratio
+    b = avg_win_pct / avg_loss_pct
+    q = 1 - win_rate
+    
+    # Kelly formula
+    kelly_fraction = (win_rate * b - q) / b
+    
+    # Apply safety constraints
+    # 1. Use Half-Kelly (more conservative)
+    safe_kelly = kelly_fraction * 0.5
+    
+    # 2. Clamp to reasonable range
+    safe_kelly = max(config.MIN_TRADE_SIZE_FRAC, min(config.MAX_TRADE_SIZE_FRAC * 0.7, safe_kelly))
+    
+    # 3. Don't go below base fraction (stay conservative)
+    final_fraction = max(base_fraction * 0.8, safe_kelly)
+    
+    recommended_capital = available_capital * final_fraction
+    
+    return (final_fraction, recommended_capital)
+
+def calculate_correlation(closes1: List[float], closes2: List[float]) -> float:
+    """
+    Calculate Pearson correlation between two price series.
+    Returns value between -1 and 1.
+    - 1.0 = Perfect positive correlation (move together)
+    - 0.0 = No correlation
+    - -1.0 = Perfect negative correlation (move opposite)
+    """
+    if len(closes1) != len(closes2) or len(closes1) < 20:
+        return 0.5  # Unknown, assume moderate
+    
+    # Calculate returns
+    returns1 = [(closes1[i] - closes1[i-1]) / closes1[i-1] 
+                for i in range(1, min(len(closes1), 50))]
+    returns2 = [(closes2[i] - closes2[i-1]) / closes2[i-1] 
+                for i in range(1, min(len(closes2), 50))]
+    
+    n = min(len(returns1), len(returns2))
+    returns1 = returns1[:n]
+    returns2 = returns2[:n]
+    
+    # Calculate means
+    mean1 = sum(returns1) / n
+    mean2 = sum(returns2) / n
+    
+    # Calculate correlation
+    numerator = sum((returns1[i] - mean1) * (returns2[i] - mean2) for i in range(n))
+    
+    sum_sq1 = sum((r - mean1) ** 2 for r in returns1)
+    sum_sq2 = sum((r - mean2) ** 2 for r in returns2)
+    
+    denominator = (sum_sq1 * sum_sq2) ** 0.5
+    
+    if denominator == 0:
+        return 0.5
+    
+    correlation = numerator / denominator
+    return max(-1.0, min(1.0, correlation))  # Clamp to [-1, 1]
+
+
+def check_portfolio_correlation(client, new_symbol: str, held_symbols: List[str], 
+                                interval_seconds: int) -> Tuple[bool, Dict[str, float]]:
+    """
+    Check if new symbol is too correlated with existing holdings.
+    Returns (is_acceptable, correlation_dict)
+    """
+    if len(held_symbols) == 0:
+        return (True, {})
+    
+    new_closes = fetch_closes(client, new_symbol, interval_seconds, 100)
+    if len(new_closes) < 20:
+        return (True, {})  # Not enough data, allow
+    
+    correlations = {}
+    
+    for held in held_symbols:
+        held_closes = fetch_closes(client, held, interval_seconds, 100)
+        if len(held_closes) >= 20:
+            corr = calculate_correlation(new_closes, held_closes)
+            correlations[held] = corr
+            
+            # Reject if too highly correlated
+            if corr > config.MAX_CORRELATION_THRESHOLD:
+                return (False, correlations)
+    
+    return (True, correlations)
+
 def buy_flow(client, symbol: str, last_price: float, available_cap: float,
              confidence: float, base_frac: float, base_tp: float, base_sl: float,
              dynamic_enabled: bool = True, interval_seconds: int = None):
@@ -498,13 +716,60 @@ def buy_flow(client, symbol: str, last_price: float, available_cap: float,
             if vol_pct > config.VOLATILITY_PCT_THRESHOLD:
                 return (False, f"High volatility: {vol_pct*100:.1f}%")
     
+    # RSI check - don't buy if overbought
+    if config.RSI_ENABLED and interval_seconds:
+        closes_rsi = fetch_closes(client, symbol, interval_seconds, config.RSI_PERIOD + 20)
+        if closes_rsi and len(closes_rsi) >= config.RSI_PERIOD + 1:
+            rsi = compute_rsi(closes_rsi, config.RSI_PERIOD)
+            if rsi > config.RSI_OVERBOUGHT:
+                return (False, f"Overbought: RSI={rsi:.1f} > {config.RSI_OVERBOUGHT}")
+            log_info(f"  RSI: {rsi:.1f} (neutral/bullish)")
+    
+    # Volume confirmation - ensure strong buying interest
+    if config.VOLUME_CONFIRMATION_ENABLED and interval_seconds:
+        closes_vol, volumes_vol = fetch_closes_with_volume(client, symbol, interval_seconds, config.LONG_WINDOW + 50)
+        if volumes_vol:
+            is_strong, vol_ratio = check_volume_confirmation(volumes_vol)
+            if vol_ratio < config.VOLUME_CONFIRMATION_THRESHOLD:
+                return (False, f"Weak volume: {vol_ratio:.2f}x avg (need {config.VOLUME_CONFIRMATION_THRESHOLD}x)")
+            log_info(f"  Volume: {vol_ratio:.2f}x avg ({'strong' if is_strong else 'moderate'})")
+    
     # Calculate params
     if dynamic_enabled:
         tp, sl, frac = adjust_runtime_params(confidence, base_tp, base_sl, base_frac)
     else:
         tp, sl, frac = base_tp, base_sl, base_frac
     
-    qty = compute_order_qty_from_remaining(last_price, available_cap, frac)
+    # Calculate position size (Kelly or static)
+    if config.ENABLE_KELLY_SIZING and interval_seconds:
+        # Run quick simulation to get win rate
+        closes_sim = fetch_closes(client, symbol, interval_seconds, config.LONG_WINDOW + 100)
+        if len(closes_sim) > config.LONG_WINDOW + 10:
+            sim_quick = simulate_signals_and_projection(
+                closes_sim, interval_seconds, 
+                override_cap_usd=available_cap,
+                use_walk_forward=False  # Fast, no walk-forward
+            )
+            win_rate_kelly = sim_quick.get("win_rate", 0.5)
+            
+            # Use Kelly sizing
+            kelly_frac, kelly_cap = kelly_position_size(
+                win_rate_kelly,
+                tp,  # avg win %
+                sl,  # avg loss %
+                available_cap,
+                frac
+            )
+            
+            log_info(f"  Kelly sizing: {kelly_frac:.2%} of ${available_cap:.2f} = ${kelly_cap:.2f} (win_rate={win_rate_kelly:.1%})")
+            qty = compute_order_qty_from_remaining(last_price, kelly_cap, 1.0)
+        else:
+            # Not enough data for Kelly, use static
+            qty = compute_order_qty_from_remaining(last_price, available_cap, frac)
+    else:
+        # Static position sizing
+        qty = compute_order_qty_from_remaining(last_price, available_cap, frac)
+    
     if qty < 0.001:  # Minimum fractional share
         return (False, "Insufficient capital")
     
@@ -536,17 +801,37 @@ def buy_flow(client, symbol: str, last_price: float, available_cap: float,
         
         if is_fractional:
             # Fractional shares: Must use 'day' order, cannot use bracket orders
-            order = client.submit_order(
-                symbol=symbol,
-                qty=qty,
-                side='buy',
-                type='market',
-                time_in_force='day',  # Required for fractional
-                client_order_id=client_order_id
-            )
+            # Determine order type
+            if config.USE_LIMIT_ORDERS:
+                # Limit order - place slightly below market for better price
+                limit_price = effective_price * (1 - config.LIMIT_ORDER_OFFSET_PERCENT / 100)
+                order = client.submit_order(
+                    symbol=symbol,
+                    qty=qty,
+                    side='buy',
+                    type='limit',
+                    time_in_force='day',
+                    limit_price=round(limit_price, 2),
+                    client_order_id=client_order_id
+                )
+                log_info(f"  Limit order @ ${limit_price:.2f} (market: ${effective_price:.2f})")
+            else:
+                # Market order (original behavior)
+                order = client.submit_order(
+                    symbol=symbol,
+                    qty=qty,
+                    side='buy',
+                    type='market',
+                    time_in_force='day',  # Required for fractional
+                    client_order_id=client_order_id
+                )
             
-            # Wait for fill confirmation (market orders should fill quickly)
-            max_wait_seconds = 30
+            # Wait for fill confirmation
+            if config.USE_LIMIT_ORDERS:
+                max_wait_seconds = config.LIMIT_ORDER_TIMEOUT_SECONDS
+                log_info(f"  Waiting up to {max_wait_seconds}s for limit order fill...")
+            else:
+                max_wait_seconds = 30  # Market orders fill quickly
             fill_confirmed = False
             actual_filled_qty = 0
             
@@ -567,7 +852,38 @@ def buy_flow(client, symbol: str, last_price: float, available_cap: float,
                 time.sleep(1)
             
             if not fill_confirmed:
-                return (False, f"Order not filled after {max_wait_seconds}s")
+                if config.USE_LIMIT_ORDERS:
+                    # Limit order didn't fill - cancel and try market order as fallback
+                    try:
+                        client.cancel_order(order.id)
+                        log_warn(f"Limit order timeout - switching to market order")
+                        
+                        # Submit market order instead
+                        order = client.submit_order(
+                            symbol=symbol,
+                            qty=qty,
+                            side='buy',
+                            type='market',
+                            time_in_force='day',
+                            client_order_id=client_order_id + "_MKT"
+                        )
+                        
+                        # Wait for market fill (should be fast)
+                        for wait_iter in range(30):
+                            try:
+                                order_status = client.get_order(order.id)
+                                if order_status.status == 'filled':
+                                    actual_filled_qty = float(order_status.filled_qty)
+                                    fill_confirmed = True
+                                    break
+                            except:
+                                pass
+                            time.sleep(1)
+                    except Exception as e:
+                        log_warn(f"Fallback market order failed: {e}")
+                
+                if not fill_confirmed:
+                    return (False, f"Order not filled after {max_wait_seconds}s")
             
             # Place separate TP and SL orders using ACTUAL filled quantity
             try:
@@ -759,6 +1075,38 @@ def enforce_safety(client, symbol: str):
         sell_flow(client, symbol)
         sys.exit(1)
 
+def check_drawdown_protection(current_value: float) -> Tuple[bool, str]:
+    """
+    Check if portfolio has dropped too much from peak.
+    Returns (should_continue_trading, message)
+    """
+    global _portfolio_peak_value, _drawdown_protection_triggered
+    
+    if not config.ENABLE_DRAWDOWN_PROTECTION:
+        return (True, "")
+    
+    # Update peak
+    if current_value > _portfolio_peak_value:
+        _portfolio_peak_value = current_value
+        _drawdown_protection_triggered = False  # Reset if recovered
+    
+    # Calculate drawdown
+    if _portfolio_peak_value > 0:
+        drawdown_pct = ((current_value - _portfolio_peak_value) / _portfolio_peak_value) * 100
+        
+        if drawdown_pct < -config.MAX_PORTFOLIO_DRAWDOWN_PERCENT:
+            if not _drawdown_protection_triggered:
+                _drawdown_protection_triggered = True
+                msg = (f"🛑 DRAWDOWN PROTECTION TRIGGERED\n"
+                      f"   Portfolio down {abs(drawdown_pct):.1f}% from peak (${_portfolio_peak_value:.2f})\n"
+                      f"   Current value: ${current_value:.2f}\n"
+                      f"   Max allowed: {config.MAX_PORTFOLIO_DRAWDOWN_PERCENT}%\n"
+                      f"   Trading STOPPED until recovery or manual override")
+                log_warn(msg)
+            return (False, f"Drawdown protection active: {abs(drawdown_pct):.1f}% > {config.MAX_PORTFOLIO_DRAWDOWN_PERCENT}%")
+    
+    return (True, "")
+
 # ===== Simulation =====
 def simulate_signals_and_projection(
     closes: List[float],
@@ -881,6 +1229,43 @@ def in_market_hours(client) -> bool:
         # Don't guess - if API fails, conservatively assume closed
         log_warn(f"Could not check market hours: {e}. Assuming CLOSED for safety.")
         return False
+
+def is_safe_trading_time(client) -> Tuple[bool, str]:
+    """
+    Check if current time is safe for trading.
+    Avoids market open/close volatility.
+    Returns (is_safe, reason)
+    """
+    if not config.ENABLE_SAFE_HOURS:
+        return (True, "")
+    
+    try:
+        clock = client.get_clock()
+        
+        if not clock.is_open:
+            return (False, "Market closed")
+        
+        now = clock.timestamp
+        market_open = clock.next_open if clock.next_open > now else now
+        market_close = clock.next_close
+        
+        # Calculate minutes since open and until close
+        minutes_since_open = (now - market_open).total_seconds() / 60
+        minutes_until_close = (market_close - now).total_seconds() / 60
+        
+        # Check if too close to open
+        if minutes_since_open < config.AVOID_FIRST_MINUTES:
+            return (False, f"Too close to market open ({minutes_since_open:.0f}m < {config.AVOID_FIRST_MINUTES}m)")
+        
+        # Check if too close to close
+        if minutes_until_close < config.AVOID_LAST_MINUTES:
+            return (False, f"Too close to market close ({minutes_until_close:.0f}m < {config.AVOID_LAST_MINUTES}m)")
+        
+        return (True, "")
+        
+    except Exception as e:
+        log_warn(f"Safe hours check failed: {e}")
+        return (False, "Unable to verify trading hours")
 
 def sleep_until_market_open(client):
     # Show countdown info once
@@ -1263,6 +1648,13 @@ def main():
             
             # Market is open - keep PC awake
             prevent_system_sleep(True)
+            
+            # Check if it's a safe time to trade
+            is_safe, safe_reason = is_safe_trading_time(client)
+            if not is_safe:
+                log_info(f"Safe hours check: {safe_reason} - waiting...")
+                time.sleep(60)  # Wait 1 minute and recheck
+                continue
 
             log_info(f"=== Iteration {iteration} ===")
             
@@ -1277,7 +1669,17 @@ def main():
                 # Safety check: If account value drops below max_cap, something is very wrong
                 try:
                     account = client.get_account()
+                    equity = float(account.equity)
                     account_value = float(account.portfolio_value)
+                    
+                    # Check drawdown protection
+                    can_trade, dd_msg = check_drawdown_protection(equity)
+                    if not can_trade:
+                        log_warn(dd_msg)
+                        log_warn("Skipping this iteration due to drawdown protection")
+                        time.sleep(interval_seconds)
+                        continue  # Skip trading this cycle
+                    
                     if account_value < args.max_cap * 0.5:  # Lost more than 50%
                         log_error(f"Account value ${account_value:.2f} dropped below 50% of max cap!")
                         log_error("Emergency shutdown - liquidating all positions")
@@ -1472,13 +1874,68 @@ def main():
                             log_info(f"  No data")
                             continue
                         
-                        action = decide_action(closes, config.SHORT_WINDOW, config.LONG_WINDOW)
+                        # Use multi-timeframe if enabled, else single timeframe
+                        if config.MULTI_TIMEFRAME_ENABLED:
+                            action, tf_signals = decide_action_multi_timeframe(
+                                client, sym, interval_seconds, 
+                                config.SHORT_WINDOW, config.LONG_WINDOW
+                            )
+                            # Log timeframe breakdown
+                            tf_str = " | ".join([f"{k}:{v}" for k, v in tf_signals.items()])
+                            log_info(f"  Timeframes: {tf_str}")
+                        else:
+                            action = decide_action(closes, config.SHORT_WINDOW, config.LONG_WINDOW)
+                        
                         confidence = compute_confidence(closes)
                         last_price = closes[-1]
                         
                         log_info(f"  ${last_price:.2f} | {action.upper()} | conf={confidence:.4f}")
                         
+                        # ML enhancement (if enabled and available)
+                        if config.ENABLE_ML_PREDICTION and ML_AVAILABLE:
+                            try:
+                                ml = get_ml_predictor()
+                                if ml.is_trained:
+                                    closes_ml, volumes_ml = fetch_closes_with_volume(
+                                        client, sym, interval_seconds, 100
+                                    )
+                                    rsi_ml = compute_rsi(closes_ml) if config.RSI_ENABLED else None
+                                    
+                                    ml_pred, ml_conf = ml.predict(closes_ml, volumes_ml, rsi_ml)
+                                    
+                                    # ML agrees with signal
+                                    if action == "buy" and ml_pred == 1 and ml_conf > config.ML_CONFIDENCE_THRESHOLD:
+                                        log_info(f"  ML confirms BUY (conf={ml_conf:.2%})")
+                                    elif action == "sell" and ml_pred == 0 and ml_conf > config.ML_CONFIDENCE_THRESHOLD:
+                                        log_info(f"  ML confirms SELL (conf={ml_conf:.2%})")
+                                    elif action == "buy" and ml_pred == 0 and ml_conf > config.ML_CONFIDENCE_THRESHOLD:
+                                        log_info(f"  ML DISAGREES - predicts DOWN (conf={ml_conf:.2%})")
+                                        action = "hold"  # Override signal
+                                    elif action == "sell" and ml_pred == 1 and ml_conf > config.ML_CONFIDENCE_THRESHOLD:
+                                        log_info(f"  ML DISAGREES - predicts UP (conf={ml_conf:.2%})")
+                                        action = "hold"  # Override signal
+                            except Exception as e:
+                                log_warn(f"ML prediction failed: {e}")
+                        
                         enforce_safety(client, sym)
+                        
+                        # Check correlation before buying new position
+                        if action == "buy" and not existing_pos:
+                            if config.ENABLE_CORRELATION_CHECK:
+                                held_symbols_check = [s for s in held_symbols if s != sym]  # Exclude current
+                                is_acceptable, correlations = check_portfolio_correlation(
+                                    client, sym, held_symbols_check, interval_seconds
+                                )
+                                
+                                if not is_acceptable:
+                                    max_corr_sym = max(correlations, key=correlations.get)
+                                    max_corr_val = correlations[max_corr_sym]
+                                    log_info(f"  -- Skipped: Too correlated with {max_corr_sym} (corr={max_corr_val:.2f})")
+                                    continue  # Skip this stock
+                                
+                                if correlations:
+                                    avg_corr = sum(correlations.values()) / len(correlations)
+                                    log_info(f"  Correlation check: avg={avg_corr:.2f} (diversification OK)")
                         
                         if action == "buy":
                             if existing_pos:
@@ -1501,6 +1958,15 @@ def main():
                                     trades_this_cycle += 1
                                 log_info(f"  {'OK' if ok else '--'} {msg}")
                         elif action == "sell":
+                            # RSI check - don't sell if oversold (might bounce)
+                            if config.RSI_ENABLED:
+                                closes_check = fetch_closes(client, sym, interval_seconds, config.RSI_PERIOD + 20)
+                                if closes_check and len(closes_check) >= config.RSI_PERIOD + 1:
+                                    rsi = compute_rsi(closes_check, config.RSI_PERIOD)
+                                    if rsi < config.RSI_OVERSOLD:
+                                        log_info(f"  -- Oversold: RSI={rsi:.1f} < {config.RSI_OVERSOLD} (holding)")
+                                        continue  # Skip sell, might bounce
+                            
                             ok, msg = sell_flow(client, sym)
                             if ok:
                                 trades_this_cycle += 1
@@ -1541,11 +2007,48 @@ def main():
                     time.sleep(interval_seconds)
                     continue
 
-                action = decide_action(closes, config.SHORT_WINDOW, config.LONG_WINDOW)
+                # Use multi-timeframe if enabled, else single timeframe
+                if config.MULTI_TIMEFRAME_ENABLED:
+                    action, tf_signals = decide_action_multi_timeframe(
+                        client, symbol, interval_seconds, 
+                        config.SHORT_WINDOW, config.LONG_WINDOW
+                    )
+                    # Log timeframe breakdown
+                    tf_str = " | ".join([f"{k}:{v}" for k, v in tf_signals.items()])
+                    log_info(f"Timeframes: {tf_str}")
+                else:
+                    action = decide_action(closes, config.SHORT_WINDOW, config.LONG_WINDOW)
+                
                 confidence = compute_confidence(closes)
                 last_price = closes[-1]
 
                 log_info(f"${last_price:.2f} | {action.upper()} | conf={confidence:.4f}")
+                
+                # ML enhancement (if enabled and available)
+                if config.ENABLE_ML_PREDICTION and ML_AVAILABLE:
+                    try:
+                        ml = get_ml_predictor()
+                        if ml.is_trained:
+                            closes_ml, volumes_ml = fetch_closes_with_volume(
+                                client, symbol, interval_seconds, 100
+                            )
+                            rsi_ml = compute_rsi(closes_ml) if config.RSI_ENABLED else None
+                            
+                            ml_pred, ml_conf = ml.predict(closes_ml, volumes_ml, rsi_ml)
+                            
+                            # ML agrees with signal
+                            if action == "buy" and ml_pred == 1 and ml_conf > config.ML_CONFIDENCE_THRESHOLD:
+                                log_info(f"ML confirms BUY (conf={ml_conf:.2%})")
+                            elif action == "sell" and ml_pred == 0 and ml_conf > config.ML_CONFIDENCE_THRESHOLD:
+                                log_info(f"ML confirms SELL (conf={ml_conf:.2%})")
+                            elif action == "buy" and ml_pred == 0 and ml_conf > config.ML_CONFIDENCE_THRESHOLD:
+                                log_info(f"ML DISAGREES - predicts DOWN (conf={ml_conf:.2%})")
+                                action = "hold"  # Override signal
+                            elif action == "sell" and ml_pred == 1 and ml_conf > config.ML_CONFIDENCE_THRESHOLD:
+                                log_info(f"ML DISAGREES - predicts UP (conf={ml_conf:.2%})")
+                                action = "hold"  # Override signal
+                    except Exception as e:
+                        log_warn(f"ML prediction failed: {e}")
 
                 enforce_safety(client, symbol)
 
@@ -1561,6 +2064,16 @@ def main():
                     )
                     log_info(f"{'OK' if ok else '--'} {msg}")
                 elif action == "sell":
+                    # RSI check - don't sell if oversold (might bounce)
+                    if config.RSI_ENABLED:
+                        closes_check = fetch_closes(client, symbol, interval_seconds, config.RSI_PERIOD + 20)
+                        if closes_check and len(closes_check) >= config.RSI_PERIOD + 1:
+                            rsi = compute_rsi(closes_check, config.RSI_PERIOD)
+                            if rsi < config.RSI_OVERSOLD:
+                                log_info(f"-- Oversold: RSI={rsi:.1f} < {config.RSI_OVERSOLD} (holding)")
+                                time.sleep(interval_seconds)
+                                continue  # Skip sell, might bounce
+                    
                     ok, msg = sell_flow(client, symbol)
                     log_info(f"{'OK' if ok else '--'} {msg}\n")
             
