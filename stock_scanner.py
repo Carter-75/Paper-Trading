@@ -181,7 +181,7 @@ def score_stock(symbol: str, interval_seconds: int, cap_per_stock: float, bars: 
             avg_volume = info.get('averageVolume', 0)
             if avg_volume < config.MIN_AVG_VOLUME:
                 if verbose:
-                    print(f"  {symbol}: Low volume ({avg_volume:,} < {config.MIN_AVG_VOLUME:,})")
+                    print(f" skipped (low volume: {avg_volume:,})")
                 return None
         except:
             pass  # If volume check fails, continue anyway
@@ -269,7 +269,7 @@ def scan_stocks(symbols: List[str], interval_seconds: int,
                 print(f" ${exp_daily:7.2f}/day (score: {score_data['score']:7.2f})")
         else:
             if verbose:
-                print(" FAILED")
+                print(" [skipped]")
     
     # Sort by score (highest first)
     results.sort(key=lambda x: x["score"], reverse=True)

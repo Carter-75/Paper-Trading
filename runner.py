@@ -1681,20 +1681,20 @@ def main():
     # Log feature status (all 9 improvements)
     log_info(f"\n  Strategy Improvements (9 features enabled by default):")
     log_info(f"    Phase 1 - Advanced Filters:")
-    log_info(f"      • RSI Filter: {'✅ ON' if config.RSI_ENABLED else '❌ OFF'} (blocks overbought/oversold)")
-    log_info(f"      • Multi-Timeframe: {'✅ ON' if config.MULTI_TIMEFRAME_ENABLED else '❌ OFF'} (3 timeframes must agree)")
-    log_info(f"      • Volume Confirmation: {'✅ ON' if config.VOLUME_CONFIRMATION_ENABLED else '❌ OFF'} (requires 1.2x avg volume)")
+    log_info(f"      - RSI Filter: {'[ON]' if config.RSI_ENABLED else '[OFF]'} (blocks overbought/oversold)")
+    log_info(f"      - Multi-Timeframe: {'[ON]' if config.MULTI_TIMEFRAME_ENABLED else '[OFF]'} (3 timeframes must agree)")
+    log_info(f"      - Volume Confirmation: {'[ON]' if config.VOLUME_CONFIRMATION_ENABLED else '[OFF]'} (requires 1.2x avg volume)")
     log_info(f"    Phase 2 - Risk Management:")
-    log_info(f"      • Drawdown Protection: {'✅ ON' if config.ENABLE_DRAWDOWN_PROTECTION else '❌ OFF'} (stops at {config.MAX_PORTFOLIO_DRAWDOWN_PERCENT}% loss)")
-    log_info(f"      • Kelly Criterion: {'✅ ON' if config.ENABLE_KELLY_SIZING else '❌ OFF'} (optimal position sizing)")
-    log_info(f"      • Correlation Check: {'✅ ON' if config.ENABLE_CORRELATION_CHECK else '❌ OFF'} (diversification)")
+    log_info(f"      - Drawdown Protection: {'[ON]' if config.ENABLE_DRAWDOWN_PROTECTION else '[OFF]'} (stops at {config.MAX_PORTFOLIO_DRAWDOWN_PERCENT}% loss)")
+    log_info(f"      - Kelly Criterion: {'[ON]' if config.ENABLE_KELLY_SIZING else '[OFF]'} (optimal position sizing)")
+    log_info(f"      - Correlation Check: {'[ON]' if config.ENABLE_CORRELATION_CHECK else '[OFF]'} (diversification)")
     log_info(f"    Phase 3 - Better Execution:")
-    log_info(f"      • Limit Orders: {'✅ ON' if config.USE_LIMIT_ORDERS else '❌ OFF'} ({config.LIMIT_ORDER_OFFSET_PERCENT}% better than market)")
-    log_info(f"      • Safe Trading Hours: {'✅ ON' if config.ENABLE_SAFE_HOURS else '❌ OFF'} (avoids first/last {config.AVOID_FIRST_MINUTES}min)")
+    log_info(f"      - Limit Orders: {'[ON]' if config.USE_LIMIT_ORDERS else '[OFF]'} ({config.LIMIT_ORDER_OFFSET_PERCENT}% better than market)")
+    log_info(f"      - Safe Trading Hours: {'[ON]' if config.ENABLE_SAFE_HOURS else '[OFF]'} (avoids first/last {config.AVOID_FIRST_MINUTES}min)")
     log_info(f"    Phase 4 - Machine Learning:")
     ml = get_ml_predictor()
-    ml_status = "✅ ON & TRAINED" if (config.ENABLE_ML_PREDICTION and ml.is_trained) else ("⚠️  ON (no model)" if config.ENABLE_ML_PREDICTION else "❌ OFF")
-    log_info(f"      • Random Forest: {ml_status} (confirms/overrides signals)")
+    ml_status = "[ON & TRAINED]" if (config.ENABLE_ML_PREDICTION and ml.is_trained) else ("[ON - NO MODEL]" if config.ENABLE_ML_PREDICTION else "[OFF]")
+    log_info(f"      - Random Forest: {ml_status} (confirms/overrides signals)")
     
     if is_multi_stock:
         # Sync with broker
@@ -2083,8 +2083,8 @@ def main():
                     consecutive_no_trade_cycles += 1
                     if consecutive_no_trade_cycles >= MAX_NO_TRADE_CYCLES:
                         hours_idle = (consecutive_no_trade_cycles * interval_seconds) / 3600
-                        log_warn(f"⚠️  NO TRADES for {hours_idle:.1f}h ({consecutive_no_trade_cycles} cycles)")
-                        log_warn(f"⚠️  Market may be unfavorable. Consider:")
+                        log_warn(f"[WARN] NO TRADES for {hours_idle:.1f}h ({consecutive_no_trade_cycles} cycles)")
+                        log_warn(f"[WARN] Market may be unfavorable. Consider:")
                         log_warn(f"     - Checking if market is trending")
                         log_warn(f"     - Adjusting parameters")
                         log_warn(f"     - Pausing bot until conditions improve")
