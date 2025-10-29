@@ -940,6 +940,24 @@ Get-ScheduledTask -TaskName "PaperTradingBot"
 .\botctl.ps1 status
 ```
 
+**Problem: Bot exits immediately after PC restart with "getaddrinfo failed"**
+
+This happens when the bot starts before the network is ready. The bot now automatically waits up to 60 seconds for network connectivity on boot.
+
+```powershell
+# Install/update dependencies (includes psutil for boot detection)
+pip install -r requirements.txt
+
+# Restart the PC and check the log
+Get-Content bot.log -Wait -Tail 50
+
+# You should see:
+# "System appears to have just booted. Waiting for network connectivity..."
+# "✅ Network connection established (after Xs)"
+```
+
+If network takes longer than 60 seconds, the bot will log a warning and proceed anyway (falling back to old behavior).
+
 **Problem: Bot not waking PC at 9:25 AM**
 
 ```powershell

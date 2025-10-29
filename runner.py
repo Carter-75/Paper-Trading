@@ -1290,8 +1290,60 @@ def simulate_signals_and_projection(
         "expected_daily_usd": expected_daily_usd
     }
 
+# ===== Network Connectivity =====
+def wait_for_network_on_boot(client, max_wait_seconds: int = 60):
+    """
+    Wait for network connectivity on system boot.
+    Only applies when in SCHEDULED_TASK_MODE.
+    If network doesn't come up within max_wait_seconds, exits with error code
+    so the PowerShell wrapper restarts the bot (creating an infinite retry loop).
+    """
+    if not SCHEDULED_TASK_MODE:
+        return  # Not on boot, skip waiting
+    
+    # Check if we just booted (within last 5 minutes)
+    try:
+        import psutil
+        boot_time = dt.datetime.fromtimestamp(psutil.boot_time())
+        now = dt.datetime.now()
+        time_since_boot = (now - boot_time).total_seconds()
+        
+        # If system booted more than 5 minutes ago, skip waiting
+        if time_since_boot > 300:
+            return
+    except:
+        # If can't check boot time, be safe and wait
+        pass
+    
+    log_info("System appears to have just booted. Waiting for network connectivity...")
+    
+    for attempt in range(max_wait_seconds):
+        try:
+            # Try a simple API call to check connectivity
+            clock = client.get_clock()
+            log_info(f"✅ Network connection established (after {attempt + 1}s)")
+            return
+        except Exception as e:
+            if attempt == 0:
+                log_info("Network not ready yet, waiting up to 60 seconds...")
+            elif attempt % 10 == 0:
+                log_info(f"Still waiting for network... ({attempt}s elapsed)")
+            time.sleep(1)
+    
+    # Network never came up - exit with error so PowerShell wrapper restarts us
+    log_error(f"Network connection failed after {max_wait_seconds}s. Exiting to retry...")
+    log_info("Bot will automatically restart in 10 seconds (managed by PowerShell wrapper)")
+    sys.exit(2)
+
 # ===== Market Hours =====
-def in_market_hours(client) -> bool:
+def in_market_hours(client, is_first_check: bool = False) -> bool:
+    """
+    Check if market is currently open.
+    If is_first_check=True, will wait for network on boot before checking.
+    """
+    if is_first_check:
+        wait_for_network_on_boot(client)
+    
     try:
         clock = client.get_clock()
         return clock.is_open
@@ -1696,6 +1748,9 @@ def main():
     ml_status = "[ON & TRAINED]" if (config.ENABLE_ML_PREDICTION and ml.is_trained) else ("[ON - NO MODEL]" if config.ENABLE_ML_PREDICTION else "[OFF]")
     log_info(f"      - Random Forest: {ml_status} (confirms/overrides signals)")
     
+    # Wait for network on boot before attempting initial sync
+    wait_for_network_on_boot(client)
+    
     if is_multi_stock:
         # Sync with broker
         try:
@@ -1735,7 +1790,9 @@ def main():
             # Clear order ID tracker for new iteration (idempotency protection)
             _order_ids_submitted_this_cycle.clear()
 
-            if not in_market_hours(client):
+            # On first iteration, wait for network if we just booted
+            is_first_check = (iteration == 1)
+            if not in_market_hours(client, is_first_check=is_first_check):
                 prevent_system_sleep(False)  # Allow PC to sleep
                 sleep_until_market_open(client)
                 continue
