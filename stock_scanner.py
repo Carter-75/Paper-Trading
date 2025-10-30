@@ -109,10 +109,17 @@ def fetch_top_stocks_dynamic(limit: int = 100, force_refresh: bool = False) -> L
     try:
         import yfinance as yf
         import pandas as pd
+        import requests
+        from io import StringIO
         
-        # Get S&P 500 components
+        # Get S&P 500 components (with headers to avoid 403)
         sp500_url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
-        tables = pd.read_html(sp500_url)
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        response = requests.get(sp500_url, headers=headers, timeout=10)
+        response.raise_for_status()
+        tables = pd.read_html(StringIO(response.text))
         sp500_table = tables[0]
         symbols = sp500_table['Symbol'].tolist()
         

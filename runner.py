@@ -1290,6 +1290,9 @@ def simulate_signals_and_projection(
         "expected_daily_usd": expected_daily_usd
     }
 
+# Track if we've already done network wait (prevent duplicate waits)
+_network_wait_done = False
+
 # ===== Network Connectivity =====
 def wait_for_network_on_boot(client, max_wait_seconds: int = 60):
     """
@@ -1297,8 +1300,15 @@ def wait_for_network_on_boot(client, max_wait_seconds: int = 60):
     Only applies when in SCHEDULED_TASK_MODE.
     If network doesn't come up within max_wait_seconds, exits with error code
     so the PowerShell wrapper restarts the bot (creating an infinite retry loop).
+    Only runs once per process lifetime.
     """
+    global _network_wait_done
+    
+    if _network_wait_done:
+        return  # Already done, skip
+    
     if not SCHEDULED_TASK_MODE:
+        _network_wait_done = True
         return  # Not on boot, skip waiting
     
     # Check if we just booted (within last 5 minutes)
@@ -1310,6 +1320,7 @@ def wait_for_network_on_boot(client, max_wait_seconds: int = 60):
         
         # If system booted more than 5 minutes ago, skip waiting
         if time_since_boot > 300:
+            _network_wait_done = True
             return
     except:
         # If can't check boot time, be safe and wait
@@ -1321,7 +1332,8 @@ def wait_for_network_on_boot(client, max_wait_seconds: int = 60):
         try:
             # Try a simple API call to check connectivity
             clock = client.get_clock()
-            log_info(f"✅ Network connection established (after {attempt + 1}s)")
+            log_info(f"Network connection established (after {attempt + 1}s)")
+            _network_wait_done = True
             return
         except Exception as e:
             if attempt == 0:
