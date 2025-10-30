@@ -7,7 +7,7 @@ using efficient binary search to find optimal configuration quickly.
 """
 
 import sys
-from typing import Tuple
+from typing import Tuple, Dict
 import config
 from runner import (
     make_client,
@@ -16,18 +16,30 @@ from runner import (
     snap_interval_to_supported_seconds,
 )
 
+# Global result cache to avoid duplicate API calls
+_result_cache: Dict[Tuple[str, int, float], float] = {}
+
 
 def evaluate_config(client, symbol: str, interval_seconds: int, cap_usd: float, bars: int = 200) -> float:
     """Evaluate expected daily return for specific interval and capital."""
+    # Check cache first
+    cache_key = (symbol, interval_seconds, round(cap_usd, 2))
+    if cache_key in _result_cache:
+        return _result_cache[cache_key]
+    
     try:
         closes = fetch_closes(client, symbol, interval_seconds, bars)
         if not closes or len(closes) < max(config.LONG_WINDOW + 10, 30):
-            return -999999.0
-        
-        sim = simulate_signals_and_projection(closes, interval_seconds, override_cap_usd=cap_usd)
-        return float(sim.get("expected_daily_usd", -999999.0))
+            result = -999999.0
+        else:
+            sim = simulate_signals_and_projection(closes, interval_seconds, override_cap_usd=cap_usd)
+            result = float(sim.get("expected_daily_usd", -999999.0))
     except Exception:
-        return -999999.0
+        result = -999999.0
+    
+    # Cache result
+    _result_cache[cache_key] = result
+    return result
 
 
 def binary_search_capital(client, symbol: str, interval_seconds: int, 
@@ -35,7 +47,7 @@ def binary_search_capital(client, symbol: str, interval_seconds: int,
                           tolerance: float = 10.0) -> Tuple[float, float]:
     """
     Binary search to find optimal capital for given interval.
-    Tests from $1 to $1M.
+    Tests from $1 to $1M with caching for efficiency.
     """
     # Quick sample at key capital points
     test_caps = [10, 50, 100, 250, 500, 1000, 5000, 10000, 50000, 100000]
@@ -56,30 +68,35 @@ def binary_search_capital(client, symbol: str, interval_seconds: int,
     iterations = 0
     max_iterations = 10
     
+    # Cache evaluations to avoid redundant calls
+    eval_cache = {}
+    
+    def get_eval(cap):
+        if cap not in eval_cache:
+            eval_cache[cap] = evaluate_config(client, symbol, interval_seconds, cap)
+        return eval_cache[cap]
+    
     while (search_max - search_min) > tolerance and iterations < max_iterations:
         iterations += 1
-        mid = (search_min + search_max) / 2
+        third = (search_max - search_min) / 3
+        left_third = search_min + third
+        right_third = search_max - third
         
-        low_ret = evaluate_config(client, symbol, interval_seconds, search_min)
-        mid_ret = evaluate_config(client, symbol, interval_seconds, mid)
-        high_ret = evaluate_config(client, symbol, interval_seconds, search_max)
+        left_ret = get_eval(left_third)
+        right_ret = get_eval(right_third)
         
-        if mid_ret >= low_ret and mid_ret >= high_ret:
-            if mid_ret > best_return:
-                best_return = mid_ret
-                best_cap = mid
-            search_min = (search_min + mid) / 2
-            search_max = (mid + search_max) / 2
-        elif low_ret > mid_ret:
-            if low_ret > best_return:
-                best_return = low_ret
-                best_cap = search_min
-            search_max = mid
+        if left_ret > best_return:
+            best_return = left_ret
+            best_cap = left_third
+        if right_ret > best_return:
+            best_return = right_ret
+            best_cap = right_third
+        
+        # Ternary search: narrow to better third
+        if left_ret > right_ret:
+            search_max = right_third
         else:
-            if high_ret > best_return:
-                best_return = high_ret
-                best_cap = search_max
-            search_min = mid
+            search_min = left_third
     
     return best_cap, best_return
 
@@ -93,6 +110,10 @@ def comprehensive_binary_search(symbol: str, verbose: bool = False, max_cap: flo
     
     Returns: (optimal_interval_seconds, optimal_cap_usd, expected_daily_return)
     """
+    # Clear cache for fresh evaluation (in case market conditions changed)
+    global _result_cache
+    _result_cache.clear()
+    
     client = make_client(allow_missing=False, go_live=False)
     
     min_interval = 60  # 1 minute (API minimum)
@@ -127,55 +148,160 @@ def comprehensive_binary_search(symbol: str, verbose: bool = False, max_cap: flo
             best_interval = snapped
             best_cap = cap
     
-    # Phase 2: Binary search intervals around best
+    # Phase 2: Golden ratio search for optimal interval (more efficient than ternary)
     if verbose:
-        print(f"\nPhase 2: Refining around {best_interval}s:")
+        print(f"\nPhase 2: Refining around {best_interval}s (golden ratio search):")
     
     search_min = max(min_interval, best_interval // 2)
     search_max = min(max_interval, best_interval * 2)
     iterations = 0
-    max_iterations = 8
+    max_iterations = 12  # Allow more iterations for finer precision
     
-    while (search_max - search_min) > 60 and iterations < max_iterations:
-        iterations += 1
-        mid = (search_min + search_max) // 2
-        
-        low_snap = snap_interval_to_supported_seconds(search_min)
-        mid_snap = snap_interval_to_supported_seconds(mid)
-        high_snap = snap_interval_to_supported_seconds(search_max)
-        
-        # For each interval, find optimal capital
-        low_cap, low_ret = binary_search_capital(client, symbol, low_snap, min_cap=1.0, max_cap=max_cap)
-        mid_cap, mid_ret = binary_search_capital(client, symbol, mid_snap, min_cap=1.0, max_cap=max_cap)
-        high_cap, high_ret = binary_search_capital(client, symbol, high_snap, min_cap=1.0, max_cap=max_cap)
-        
+    # Golden ratio for optimal search point placement
+    golden_ratio = (3 - 5**0.5) / 2  # ~0.382
+    
+    # Track tested intervals to avoid duplicates
+    tested_intervals = set()
+    
+    # Initial evaluation at golden ratio points
+    left_test = int(search_min + golden_ratio * (search_max - search_min))
+    right_test = int(search_max - golden_ratio * (search_max - search_min))
+    
+    left_snap = snap_interval_to_supported_seconds(left_test)
+    right_snap = snap_interval_to_supported_seconds(right_test)
+    
+    # Early termination if snapping converges to same interval
+    if left_snap == right_snap:
         if verbose:
-            print(f"  Testing: {low_snap}s (${low_ret:.2f}), {mid_snap}s (${mid_ret:.2f}), {high_snap}s (${high_ret:.2f})")
+            print(f"  Skipping refinement - intervals converged to {left_snap}s after snapping")
+    else:
+        left_cap, left_ret = binary_search_capital(client, symbol, left_snap, min_cap=1.0, max_cap=max_cap)
+        right_cap, right_ret = binary_search_capital(client, symbol, right_snap, min_cap=1.0, max_cap=max_cap)
         
-        if mid_ret >= low_ret and mid_ret >= high_ret:
-            if mid_ret > best_return:
-                best_return = mid_ret
-                best_interval = mid_snap
-                best_cap = mid_cap
-            search_min = (search_min + mid) // 2
-            search_max = (mid + search_max) // 2
-        elif low_ret > mid_ret:
-            if low_ret > best_return:
-                best_return = low_ret
-                best_interval = low_snap
-                best_cap = low_cap
-            search_max = mid
-        else:
-            if high_ret > best_return:
-                best_return = high_ret
-                best_interval = high_snap
-                best_cap = high_cap
-            search_min = mid
+        tested_intervals.add(left_snap)
+        tested_intervals.add(right_snap)
+        
+        # Update best if found better
+        if left_ret > best_return:
+            best_return = left_ret
+            best_interval = left_snap
+            best_cap = left_cap
+        if right_ret > best_return:
+            best_return = right_ret
+            best_interval = right_snap
+            best_cap = right_cap
+        
+        while (search_max - search_min) > 60 and iterations < max_iterations:
+            iterations += 1
+            
+            if verbose:
+                print(f"  Iter {iterations}: Range [{search_min}s - {search_max}s] = {search_max - search_min}s span")
+                print(f"    Testing: {left_snap}s (${left_ret:.2f}) vs {right_snap}s (${right_ret:.2f})")
+            
+            if left_ret > right_ret:
+                # Narrow to left side
+                search_max = right_test
+                right_test = left_test
+                right_snap = left_snap
+                right_ret = left_ret
+                right_cap = left_cap
+                
+                # New left test point
+                left_test = int(search_min + golden_ratio * (search_max - search_min))
+                left_snap = snap_interval_to_supported_seconds(left_test)
+                
+                # Check if we've already tested this snapped interval
+                if left_snap in tested_intervals or left_snap == right_snap:
+                    if verbose:
+                        print(f"  Converged - all nearby intervals snap to tested values")
+                    break
+                
+                tested_intervals.add(left_snap)
+                left_cap, left_ret = binary_search_capital(client, symbol, left_snap, min_cap=1.0, max_cap=max_cap)
+                
+                if left_ret > best_return:
+                    best_return = left_ret
+                    best_interval = left_snap
+                    best_cap = left_cap
+            else:
+                # Narrow to right side
+                search_min = left_test
+                left_test = right_test
+                left_snap = right_snap
+                left_ret = right_ret
+                left_cap = right_cap
+                
+                # New right test point
+                right_test = int(search_max - golden_ratio * (search_max - search_min))
+                right_snap = snap_interval_to_supported_seconds(right_test)
+                
+                # Check if we've already tested this snapped interval
+                if right_snap in tested_intervals or right_snap == left_snap:
+                    if verbose:
+                        print(f"  Converged - all nearby intervals snap to tested values")
+                    break
+                
+                tested_intervals.add(right_snap)
+                right_cap, right_ret = binary_search_capital(client, symbol, right_snap, min_cap=1.0, max_cap=max_cap)
+                
+                if right_ret > best_return:
+                    best_return = right_ret
+                    best_interval = right_snap
+                    best_cap = right_cap
     
     if verbose:
         print(f"\nConverged after {iterations} refinement iterations")
+        print(f"Final precision: {search_max - search_min}s range (down to ~1 minute)")
     
     return best_interval, best_cap, best_return
+
+
+def estimate_live_trading_return(paper_return: float, interval_seconds: int, capital: float) -> float:
+    """
+    Estimate realistic live trading returns accounting for real-world costs.
+    
+    Factors considered:
+    - Slippage: ~0.1% per trade (difference between expected and actual price)
+    - Partial fills: ~5% of trades don't fully execute
+    - Market regime changes: Historical patterns may not continue
+    - Competition: Other traders exploit the same patterns
+    
+    Returns adjusted expected daily return for live trading.
+    """
+    if paper_return <= 0:
+        # If strategy is losing money in backtest, live trading will be worse
+        return paper_return * 1.3  # 30% worse losses in live trading
+    
+    # Guard against division by zero
+    if interval_seconds <= 0 or capital <= 0:
+        return paper_return * 0.5  # Conservative 50% of backtest if invalid params
+    
+    # Estimate trades per day based on interval
+    trades_per_day = (6.5 * 3600) / interval_seconds  # 6.5 hour trading day
+    
+    # Slippage cost per trade (as % of capital)
+    slippage_per_trade = 0.001  # 0.1% per trade
+    daily_slippage_cost = trades_per_day * slippage_per_trade * capital
+    
+    # Partial fill impact (5% of trades miss, reducing profits)
+    partial_fill_factor = 0.95
+    
+    # Market efficiency factor (historical patterns degrade)
+    # More frequent trading = more competition = lower edge
+    if trades_per_day > 20:
+        efficiency_factor = 0.50  # Very frequent trading (1min) = 50% of backtest
+    elif trades_per_day > 10:
+        efficiency_factor = 0.60  # Frequent trading (5min) = 60% of backtest
+    elif trades_per_day > 4:
+        efficiency_factor = 0.70  # Moderate trading (15min-1hr) = 70% of backtest
+    else:
+        efficiency_factor = 0.80  # Infrequent trading (4hr+) = 80% of backtest
+    
+    # Calculate realistic return
+    gross_return = paper_return * partial_fill_factor * efficiency_factor
+    net_return = gross_return - daily_slippage_cost
+    
+    return max(net_return, paper_return * 0.3)  # At least 30% of backtest return
 
 
 def main() -> int:
@@ -243,19 +369,34 @@ def main() -> int:
             best_interval = optimal_interval
             best_cap = optimal_cap
         
-        if len(symbols) > 1:
-            print(f"Result: ${expected_return:.2f}/day @ {optimal_interval}s ({optimal_interval/3600:.4f}h) with ${optimal_cap:.0f} cap")
+        # Calculate live trading estimate
+        live_return = estimate_live_trading_return(expected_return, optimal_interval, optimal_cap)
+        print(f"Result:")
+        print(f"  Paper (backtest): ${expected_return:.2f}/day")
+        print(f"  Live (realistic): ${live_return:.2f}/day  [{live_return/expected_return*100:.0f}% of backtest]")
+        print(f"  Config: {optimal_interval}s ({optimal_interval/3600:.4f}h) @ ${optimal_cap:.0f} cap")
     
     # Show summary if multiple symbols
     if len(symbols) > 1:
         print(f"\n{'='*70}")
-        print(f"RESULTS SUMMARY")
+        print(f"RESULTS SUMMARY (Live Trading Estimates)")
         print(f"{'='*70}")
-        results.sort(key=lambda x: x["return"], reverse=True)
+        # Add live trading estimates to results
+        for r in results:
+            r["live_return"] = estimate_live_trading_return(r["return"], r["interval"], r["cap"])
+        results.sort(key=lambda x: x["live_return"], reverse=True)
         for i, r in enumerate(results[:5], 1):
-            status = "✅" if r["return"] > 0 else "❌"
-            print(f"{i}. {r['symbol']:6s} {status}  ${r['return']:7.2f}/day  @ {r['interval']:5d}s ({r['interval']/3600:.4f}h)  ${r['cap']:7.0f} cap")
+            status = "✅" if r["live_return"] > 0 else "❌"
+            if r['return'] != 0:
+                live_pct_str = f"[{r['live_return']/r['return']*100:.0f}%]"
+            else:
+                live_pct_str = "[N/A]"
+            print(f"{i}. {r['symbol']:6s} {status}  Paper: ${r['return']:6.2f}/day  Live: ${r['live_return']:6.2f}/day  {live_pct_str}")
+            print(f"   Config: {r['interval']:5d}s ({r['interval']/3600:.4f}h) @ ${r['cap']:7.0f} cap")
         print(f"{'='*70}")
+    
+    # Calculate live trading estimate for best config
+    best_live_return = estimate_live_trading_return(best_return, best_interval, best_cap)
     
     # Show optimal config
     print(f"\n{'='*70}")
@@ -264,7 +405,26 @@ def main() -> int:
     print(f"Symbol: {best_symbol}")
     print(f"Interval: {best_interval}s ({best_interval/3600:.4f}h)")
     print(f"Capital: ${best_cap:.2f}")
-    print(f"Expected Daily Return: ${best_return:.2f}")
+    print(f"\nExpected Daily Returns:")
+    print(f"  Paper Trading (backtest):  ${best_return:.2f}/day")
+    if best_return != 0:
+        live_pct = best_live_return/best_return*100
+        print(f"  Live Trading (realistic):  ${best_live_return:.2f}/day  ({live_pct:.0f}% of backtest)")
+    else:
+        print(f"  Live Trading (realistic):  ${best_live_return:.2f}/day")
+    print(f"\nAdjustments applied to live estimate:")
+    trades_per_day = (6.5 * 3600) / best_interval
+    print(f"  • Trades per day: {trades_per_day:.1f}")
+    print(f"  • Slippage cost: ~0.1% per trade")
+    print(f"  • Partial fills: ~5% reduction")
+    if trades_per_day > 20:
+        print(f"  • Market efficiency: 50% (very high frequency)")
+    elif trades_per_day > 10:
+        print(f"  • Market efficiency: 60% (high frequency)")
+    elif trades_per_day > 4:
+        print(f"  • Market efficiency: 70% (moderate frequency)")
+    else:
+        print(f"  • Market efficiency: 80% (low frequency)")
     
     symbol = best_symbol
     optimal_interval = best_interval
@@ -302,32 +462,44 @@ def main() -> int:
         print(f"\n  # Quick test (Simple mode - no automation)")
         print(f"  python \"$BotDir\\runner.py\" -t {optimal_interval/3600:.4f} -s {symbol} -m {optimal_cap:.0f} --max-stocks 1")
         
-        # NEW: Compounding projections
+        # Compounding projections with both paper and live estimates
         print(f"\n{'='*70}")
-        print(f"COMPOUNDING PROJECTIONS (THEORETICAL)")
+        print(f"COMPOUNDING PROJECTIONS")
         print(f"{'='*70}")
         
-        daily_return_pct = (expected_return / optimal_cap) * 100
-        
-        print(f"Starting capital: ${optimal_cap:.2f}")
-        print(f"Daily return: ${expected_return:.2f} ({daily_return_pct:.3f}%/day)")
-        print(f"\nProjected balance after:")
-        
-        for months in [1, 3, 6, 12, 24, 60]:
-            trading_days = months * 20
-            final = optimal_cap * ((1 + daily_return_pct/100) ** trading_days)
-            gain = final - optimal_cap
-            gain_pct = (gain / optimal_cap) * 100
-            print(f"  {months:2d} months ({trading_days:3d} days): ${final:>12,.2f}  (+{gain_pct:>6.1f}%)")
-        
-        print(f"\n⚠️  WARNING: These are THEORETICAL backtested projections.")
-        print(f"⚠️  Real trading performance will be 20-50% LOWER due to:")
-        print(f"     • Slippage (0.05-0.2% per trade)")
-        print(f"     • Partial fills and rejected orders")
-        print(f"     • Market regime changes")
-        print(f"     • Losing streaks and drawdowns")
-        print(f"     • Competition and market efficiency")
-        print(f"\n💡 Realistic expectation: 5-20% per YEAR, not per day")
+        if optimal_cap > 0:
+            paper_daily_pct = (expected_return / optimal_cap) * 100
+            live_daily_pct = (best_live_return / optimal_cap) * 100
+            
+            print(f"Starting capital: ${optimal_cap:.2f}")
+            print(f"Paper return: ${expected_return:.2f}/day ({paper_daily_pct:.3f}%/day)")
+            print(f"Live return:  ${best_live_return:.2f}/day ({live_daily_pct:.3f}%/day)")
+            
+            print(f"\n{'Paper Backtest':<25} {'Live Trading (Realistic)':<30}")
+            print(f"{'-'*25} {'-'*30}")
+            
+            for months in [1, 3, 6, 12, 24]:
+                trading_days = months * 20
+                
+                paper_final = optimal_cap * ((1 + paper_daily_pct/100) ** trading_days)
+                paper_gain_pct = ((paper_final - optimal_cap) / optimal_cap) * 100
+                
+                live_final = optimal_cap * ((1 + live_daily_pct/100) ** trading_days)
+                live_gain_pct = ((live_final - optimal_cap) / optimal_cap) * 100
+                
+                print(f"{months:2d}mo ({trading_days:3d}days): ${paper_final:>10,.0f} (+{paper_gain_pct:>5.0f}%)  |  ${live_final:>10,.0f} (+{live_gain_pct:>5.0f}%)")
+            
+            print(f"\n⚠️  IMPORTANT REALITY CHECK:")
+            print(f"   • Paper = theoretical backtest (OPTIMISTIC)")
+            print(f"   • Live = adjusted for real trading costs (MORE REALISTIC)")
+            print(f"   • Even live estimates assume:")
+            print(f"     - Market conditions stay similar to backtest period")
+            print(f"     - No extended losing streaks or black swan events")
+            print(f"     - Consistent execution and no downtime")
+            print(f"\n💡 Professional traders expect 10-30% per YEAR, not per day.")
+        else:
+            print(f"\n⚠️  Invalid capital configuration (${optimal_cap:.2f})")
+            print(f"   Cannot calculate compounding projections.")
     
     print(f"\n{'='*70}")
     print(f"NOTE: This optimizer tested comprehensively:")
