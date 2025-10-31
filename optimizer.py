@@ -53,8 +53,8 @@ def evaluate_single_stock(symbol: str, max_cap: float, use_robustness: bool, com
         
         # Fetch detailed metrics
         try:
-            temp_client = make_client(allow_missing=False, go_live=False)
-            closes = fetch_closes(temp_client, symbol, optimal_interval, 200)
+            # Use None as client - fetch_closes will use yfinance (no API rate limits!)
+            closes = fetch_closes(None, symbol, optimal_interval, 200)
             detailed_sim = simulate_signals_and_projection(closes, optimal_interval, override_cap_usd=optimal_cap)
             sharpe = detailed_sim.get("sharpe_ratio", 0.0)
             sortino = detailed_sim.get("sortino_ratio", 0.0)
@@ -67,8 +67,8 @@ def evaluate_single_stock(symbol: str, max_cap: float, use_robustness: bool, com
             
             # Get out-of-sample performance if robustness testing was enabled
             if use_robustness:
-                _, _, _, oos_return = evaluate_robustness(temp_client, symbol, optimal_interval, optimal_cap)
-                wf_result = walk_forward_test(temp_client, symbol, optimal_interval, optimal_cap, total_bars=600)
+                _, _, _, oos_return = evaluate_robustness(None, symbol, optimal_interval, optimal_cap)
+                wf_result = walk_forward_test(None, symbol, optimal_interval, optimal_cap, total_bars=600)
                 wf_avg_test = wf_result.get("avg_test_return", 0.0)
                 wf_ratio = wf_result.get("train_test_ratio", 0.0)
             else:
@@ -699,7 +699,8 @@ def comprehensive_binary_search(symbol: str, verbose: bool = False, max_cap: flo
     global _result_cache
     _result_cache.clear()
     
-    client = make_client(allow_missing=False, go_live=False)
+    # Use None as client - optimizer uses yfinance only (avoids Alpaca rate limits!)
+    client = None
     
     min_interval = 60  # 1 minute (API minimum)
     max_interval = int(6.5 * 3600)  # 6.5 hours
@@ -1123,8 +1124,8 @@ def main() -> int:
         
         # Fetch detailed metrics for this config
         try:
-            temp_client = make_client(allow_missing=False, go_live=False)
-            closes = fetch_closes(temp_client, symbol, optimal_interval, 200)
+            # Use None as client - optimizer uses yfinance only (avoids Alpaca rate limits!)
+            closes = fetch_closes(None, symbol, optimal_interval, 200)
             detailed_sim = simulate_signals_and_projection(closes, optimal_interval, override_cap_usd=optimal_cap)
             sharpe = detailed_sim.get("sharpe_ratio", 0.0)
             sortino = detailed_sim.get("sortino_ratio", 0.0)
@@ -1137,9 +1138,9 @@ def main() -> int:
             
             # Get out-of-sample performance if robustness testing was enabled
             if use_robustness:
-                _, _, _, oos_return = evaluate_robustness(temp_client, symbol, optimal_interval, optimal_cap)
+                _, _, _, oos_return = evaluate_robustness(None, symbol, optimal_interval, optimal_cap)
                 # Also run walk-forward test
-                wf_result = walk_forward_test(temp_client, symbol, optimal_interval, optimal_cap, total_bars=600)
+                wf_result = walk_forward_test(None, symbol, optimal_interval, optimal_cap, total_bars=600)
                 wf_avg_test = wf_result.get("avg_test_return", 0.0)
                 wf_ratio = wf_result.get("train_test_ratio", 0.0)
             else:

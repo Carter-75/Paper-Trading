@@ -425,7 +425,8 @@ def fetch_closes(client, symbol: str, interval_seconds: int, limit_bars: int) ->
             
             # During market hours, data should be recent. Outside hours, stale is OK.
             try:
-                is_market_hours_now = in_market_hours(client)
+                # If no client provided (optimizer mode), assume not market hours (yfinance data is acceptable)
+                is_market_hours_now = in_market_hours(client) if client else False
             except:
                 # If can't check market hours, be conservative
                 is_market_hours_now = True
