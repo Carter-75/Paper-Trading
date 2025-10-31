@@ -9,6 +9,12 @@ No artificial limits - let's find what ACTUALLY works consistently!
 import sys
 from typing import Tuple, Dict, List
 import config
+from tqdm import tqdm
+import csv
+import os
+from datetime import datetime
+import multiprocessing
+from functools import partial
 from runner import (
     make_client,
     fetch_closes,
@@ -17,11 +23,186 @@ from runner import (
     monte_carlo_projection,
     calculate_overnight_gap_risk,
     calculate_market_beta,
+    calculate_correlation_matrix,
 )
 from stock_scanner import get_stock_universe
 
 # Global result cache to avoid duplicate API calls
 _result_cache: Dict[Tuple[str, int, float], float] = {}
+
+# Global risk metrics cache (these don't change with capital)
+_risk_cache: Dict[Tuple[str, int], dict] = {}
+
+
+def evaluate_single_stock(symbol: str, max_cap: float, use_robustness: bool, commission_per_trade: float) -> dict:
+    """
+    Worker function for parallel stock evaluation.
+    Returns a dict with optimization results for one stock.
+    """
+    try:
+        # Run optimization for this stock
+        optimal_interval, optimal_cap, expected_return, consistency = comprehensive_binary_search(
+            symbol, verbose=False, max_cap=max_cap, use_robustness=use_robustness
+        )
+        
+        # Fetch detailed metrics
+        try:
+            temp_client = make_client(allow_missing=False, go_live=False)
+            closes = fetch_closes(temp_client, symbol, optimal_interval, 200)
+            detailed_sim = simulate_signals_and_projection(closes, optimal_interval, override_cap_usd=optimal_cap)
+            sharpe = detailed_sim.get("sharpe_ratio", 0.0)
+            sortino = detailed_sim.get("sortino_ratio", 0.0)
+            expectancy = detailed_sim.get("expectancy", 0.0)
+            avg_mae = detailed_sim.get("avg_mae", 0.0)
+            max_dd = detailed_sim.get("max_drawdown_pct", 0.0)
+            recovery = detailed_sim.get("recovery_factor", 0.0)
+            trade_returns = detailed_sim.get("trade_returns", [])
+            trades_per_day = detailed_sim.get("expected_trades_per_day", 1.0)
+            
+            # Get out-of-sample performance if robustness testing was enabled
+            if use_robustness:
+                _, _, _, oos_return = evaluate_robustness(temp_client, symbol, optimal_interval, optimal_cap)
+                wf_result = walk_forward_test(temp_client, symbol, optimal_interval, optimal_cap, total_bars=600)
+                wf_avg_test = wf_result.get("avg_test_return", 0.0)
+                wf_ratio = wf_result.get("train_test_ratio", 0.0)
+            else:
+                oos_return = 0.0
+                wf_avg_test = 0.0
+                wf_ratio = 0.0
+        except:
+            sharpe = sortino = expectancy = avg_mae = max_dd = recovery = 0.0
+            trade_returns = []
+            trades_per_day = 1.0
+            oos_return = 0.0
+            wf_avg_test = 0.0
+            wf_ratio = 0.0
+        
+        # Calculate VaR/CVaR
+        var_95 = cvar_95 = 0.0
+        win_rate = 0.0
+        if trade_returns and len(trade_returns) >= 5:
+            try:
+                mc_result = monte_carlo_projection(
+                    trade_returns=trade_returns,
+                    starting_capital=optimal_cap,
+                    trades_per_day=trades_per_day,
+                    days=30,
+                    num_simulations=1000
+                )
+                var_95 = mc_result.get("var_95", 0.0)
+                cvar_95 = mc_result.get("cvar_95", 0.0)
+                wins = sum(1 for r in trade_returns if r > 0)
+                win_rate = wins / len(trade_returns) if trade_returns else 0.0
+            except:
+                pass
+        
+        # Save to history
+        save_to_history(
+            symbol=symbol,
+            interval=optimal_interval,
+            capital=optimal_cap,
+            daily_return=expected_return,
+            consistency=consistency,
+            sharpe=sharpe,
+            sortino=sortino,
+            win_rate=win_rate,
+            max_drawdown=max_dd,
+            var_95=var_95,
+            cvar_95=cvar_95
+        )
+        
+        return {
+            "symbol": symbol,
+            "interval": optimal_interval,
+            "cap": optimal_cap,
+            "return": expected_return,
+            "consistency": consistency,
+            "sharpe": sharpe,
+            "sortino": sortino,
+            "expectancy": expectancy,
+            "avg_mae": avg_mae,
+            "max_dd": max_dd,
+            "recovery": recovery,
+            "oos_return": oos_return,
+            "wf_avg_test": wf_avg_test,
+            "wf_ratio": wf_ratio,
+            "trade_returns": trade_returns,
+            "trades_per_day": trades_per_day,
+            "var_95": var_95,
+            "cvar_95": cvar_95,
+        }
+    except Exception as e:
+        # Return error result
+        return {
+            "symbol": symbol,
+            "interval": 0,
+            "cap": 0.0,
+            "return": -999999.0,
+            "consistency": 0.0,
+            "sharpe": 0.0,
+            "sortino": 0.0,
+            "expectancy": 0.0,
+            "avg_mae": 0.0,
+            "max_dd": 0.0,
+            "recovery": 0.0,
+            "oos_return": 0.0,
+            "wf_avg_test": 0.0,
+            "wf_ratio": 0.0,
+            "trade_returns": [],
+            "trades_per_day": 0.0,
+            "var_95": 0.0,
+            "cvar_95": 0.0,
+            "error": str(e)
+        }
+
+
+def save_to_history(symbol: str, interval: int, capital: float, daily_return: float, 
+                     consistency: float, sharpe: float, sortino: float, win_rate: float,
+                     max_drawdown: float, var_95: float, cvar_95: float):
+    """
+    Save optimization result to optimization_history.csv for tracking over time.
+    
+    This helps you:
+    - See if strategies degrade over time
+    - Compare different runs
+    - Track which symbols perform best
+    """
+    history_file = "optimization_history.csv"
+    file_exists = os.path.exists(history_file)
+    
+    try:
+        with open(history_file, 'a', newline='') as f:
+            writer = csv.writer(f)
+            
+            # Write header if file is new
+            if not file_exists:
+                writer.writerow([
+                    "Date", "Time", "Symbol", "Interval_Sec", "Interval_Hours",
+                    "Capital", "Daily_Return", "Consistency", "Sharpe", "Sortino",
+                    "Win_Rate", "Max_Drawdown", "VaR_95", "CVaR_95"
+                ])
+            
+            # Write data
+            now = datetime.now()
+            writer.writerow([
+                now.strftime("%Y-%m-%d"),
+                now.strftime("%H:%M:%S"),
+                symbol,
+                interval,
+                f"{interval / 3600:.4f}",
+                f"{capital:.2f}",
+                f"{daily_return:.2f}",
+                f"{consistency:.3f}",
+                f"{sharpe:.3f}",
+                f"{sortino:.3f}",
+                f"{win_rate:.3f}",
+                f"{max_drawdown:.2f}",
+                f"{var_95:.2f}",
+                f"{cvar_95:.2f}"
+            ])
+    except Exception as e:
+        # Don't crash if logging fails
+        pass
 
 
 def evaluate_config(client, symbol: str, interval_seconds: int, cap_usd: float, bars: int = 200) -> float:
@@ -190,20 +371,33 @@ def binary_search_capital(client, symbol: str, interval_seconds: int,
     Uses REAL risk metrics (volatility, win rate, max drawdown) instead of
     arbitrary penalties.
     """
-    # Calculate real risk metrics once for this stock/interval
-    try:
-        closes = fetch_closes(client, symbol, interval_seconds, 200)
-        if not closes or len(closes) < 50:
-            # Not enough data - apply conservative penalty
-            def apply_risk_adjustment(return_usd: float, capital: float) -> float:
-                # Unknown risk = heavy penalty for large positions
-                if capital <= 5000:
-                    return return_usd * 0.8  # 20% penalty
-                else:
-                    return return_usd * max(0.2, 1.0 - (capital / 50000))  # Up to 80% penalty
-        else:
-            # Calculate REAL risk metrics
-            import statistics
+    # Check risk cache first (these metrics don't depend on capital)
+    cache_key = (symbol, interval_seconds)
+    
+    if cache_key in _risk_cache:
+        # Use cached risk metrics
+        risk_metrics = _risk_cache[cache_key]
+    else:
+        # Calculate real risk metrics once for this stock/interval
+        try:
+            closes = fetch_closes(client, symbol, interval_seconds, 200)
+            if not closes or len(closes) < 50:
+                # Not enough data - cache minimal metrics
+                risk_metrics = {
+                    "has_data": False,
+                    "volatility_pct": 0.5,
+                    "max_dd_pct": 0.3,
+                    "win_rate": 0.5,
+                    "profit_factor": 1.0,
+                    "max_consec_losses": 5,
+                    "avg_trade_duration": 10,
+                    "gap_frequency": 0.0,
+                    "avg_gap_size": 0.0,
+                    "market_beta": 1.0
+                }
+            else:
+                # Calculate REAL risk metrics
+                import statistics
             
             # 1. Volatility (price standard deviation)
             mean_price = sum(closes) / len(closes)
@@ -240,10 +434,64 @@ def binary_search_capital(client, symbol: str, interval_seconds: int,
                 gap_frequency = 0.0  # No overnight risk for intraday trades
                 avg_gap_size = 0.0
             
-            # 5. Market Beta (correlation to S&P 500)
-            market_beta = calculate_market_beta(symbol, days=60)
+                # 5. Market Beta (correlation to S&P 500)
+                market_beta = calculate_market_beta(symbol, days=60)
+                
+                # Store all metrics in cache
+                risk_metrics = {
+                    "has_data": True,
+                    "volatility_pct": volatility_pct,
+                    "max_dd_pct": max_dd_pct,
+                    "win_rate": win_rate,
+                    "profit_factor": profit_factor,
+                    "max_consec_losses": max_consec_losses,
+                    "avg_trade_duration": avg_trade_duration,
+                    "gap_frequency": gap_frequency,
+                    "avg_gap_size": avg_gap_size,
+                    "market_beta": market_beta
+                }
             
-            # Calculate risk-adjusted penalty
+            # Cache risk metrics for future use
+            _risk_cache[cache_key] = risk_metrics
+            
+        except Exception:
+            # Fallback minimal metrics if calculation fails
+            risk_metrics = {
+                "has_data": False,
+                "volatility_pct": 0.5,
+                "max_dd_pct": 0.3,
+                "win_rate": 0.5,
+                "profit_factor": 1.0,
+                "max_consec_losses": 5,
+                "avg_trade_duration": 10,
+                "gap_frequency": 0.0,
+                "avg_gap_size": 0.0,
+                "market_beta": 1.0
+            }
+            _risk_cache[cache_key] = risk_metrics
+    
+    # Extract metrics from cache
+    volatility_pct = risk_metrics.get("volatility_pct", 0.5)
+    max_dd_pct = risk_metrics.get("max_dd_pct", 0.3)
+    win_rate = risk_metrics.get("win_rate", 0.5)
+    profit_factor = risk_metrics.get("profit_factor", 1.0)
+    max_consec_losses = risk_metrics.get("max_consec_losses", 5)
+    avg_trade_duration = risk_metrics.get("avg_trade_duration", 10)
+    gap_frequency = risk_metrics.get("gap_frequency", 0.0)
+    avg_gap_size = risk_metrics.get("avg_gap_size", 0.0)
+    market_beta = risk_metrics.get("market_beta", 1.0)
+    
+    # Now use these metrics for risk adjustment
+    if not risk_metrics.get("has_data", False):
+        # Not enough data - apply conservative penalty
+        def apply_risk_adjustment(return_usd: float, capital: float) -> float:
+            # Unknown risk = heavy penalty for large positions
+            if capital <= 5000:
+                return return_usd * 0.8  # 20% penalty
+            else:
+                return return_usd * max(0.2, 1.0 - (capital / 50000))  # Up to 80% penalty
+    else:
+        # Calculate risk-adjusted penalty
             def apply_risk_adjustment(return_usd: float, capital: float) -> float:
                 """
                 Apply penalty based on REAL risk metrics:
@@ -691,10 +939,12 @@ def main() -> int:
                        help="Stock symbol to optimize (optional, will auto-find best if not provided)")
     parser.add_argument("--symbols", nargs="+", type=str, default=None,
                        help="Multiple symbols to test and compare")
-    parser.add_argument("-m", "--max-cap", type=float, default=1000000.0,
-                       help="Maximum capital to test (default: $1,000,000)")
+    parser.add_argument("-m", "--max-cap", type=float, default=None,
+                       help="Maximum capital to test (default: depends on preset)")
     parser.add_argument("--commission", type=float, default=0.0,
                        help="Commission per trade in USD (default: $0 for Alpaca, e.g., $1-5 for other brokers)")
+    parser.add_argument("--preset", type=str, choices=["conservative", "balanced", "aggressive"], default="balanced",
+                       help="Risk preset: conservative ($25k cap), balanced ($250k cap, default), aggressive ($1M cap)")
     parser.add_argument("-v", "--verbose", action="store_true",
                        help="Show detailed progress")
     parser.add_argument("--no-robustness", action="store_true",
@@ -703,8 +953,34 @@ def main() -> int:
                        help="Limit number of stocks to test (default: test all)")
     parser.add_argument("--no-dynamic", action="store_true",
                        help="Don't fetch dynamic stock list (use fallback)")
+    parser.add_argument("--parallel", action="store_true",
+                       help="Enable parallel stock evaluation (8x faster on 8-core CPU)")
+    parser.add_argument("--workers", type=int, default=None,
+                       help="Number of parallel workers (default: CPU count)")
     
     args = parser.parse_args()
+    
+    # Apply preset if max_cap not explicitly set
+    if args.max_cap is None:
+        if args.preset == "conservative":
+            args.max_cap = 25000.0  # $25k cap, safer for beginners
+        elif args.preset == "aggressive":
+            args.max_cap = 1000000.0  # $1M cap, for experienced traders
+        else:  # balanced (default)
+            args.max_cap = 250000.0  # $250k cap, good middle ground
+    
+    # Display preset info
+    preset_name = args.preset.upper()
+    print(f"\n{'='*70}")
+    print(f"PRESET: {preset_name}")
+    print(f"  Max Capital: ${args.max_cap:,.0f}")
+    if args.preset == "conservative":
+        print(f"  Risk Level: LOW - Good for beginners or small accounts")
+    elif args.preset == "aggressive":
+        print(f"  Risk Level: HIGH - For experienced traders with large capital")
+    else:
+        print(f"  Risk Level: MEDIUM - Balanced approach (default)")
+    print(f"{'='*70}")
     
     use_robustness = not args.no_robustness
     commission_per_trade = args.commission
@@ -744,7 +1020,61 @@ def main() -> int:
     
     results = []
     
-    for idx, symbol in enumerate(symbols, 1):
+    # PARALLEL PROCESSING (if enabled and multiple stocks)
+    if args.parallel and len(symbols) > 1:
+        num_workers = args.workers or multiprocessing.cpu_count()
+        print(f"\n🚀 PARALLEL MODE: Using {num_workers} workers")
+        print(f"   Estimated speedup: {num_workers}x faster\n")
+        
+        # Create worker function with fixed parameters
+        worker = partial(evaluate_single_stock, 
+                        max_cap=args.max_cap,
+                        use_robustness=use_robustness,
+                        commission_per_trade=commission_per_trade)
+        
+        # Run in parallel with progress bar
+        with multiprocessing.Pool(processes=num_workers) as pool:
+            results = list(tqdm(
+                pool.imap(worker, symbols),
+                total=len(symbols),
+                desc="Optimizing (Parallel)",
+                unit="stock"
+            ))
+        
+        # Find best result
+        for idx, result in enumerate(results, 1):
+            symbol = result["symbol"]
+            optimal_interval = result["interval"]
+            optimal_cap = result["cap"]
+            expected_return = result["return"]
+            consistency = result["consistency"]
+            trade_returns = result["trade_returns"]
+            trades_per_day = result["trades_per_day"]
+            
+            # Update best if this is better
+            score = expected_return * (0.5 + 0.5 * consistency)
+            best_score = best_return * (0.5 + 0.5 * best_consistency)
+            
+            if score > best_score:
+                best_symbol = symbol
+                best_interval = optimal_interval
+                best_cap = optimal_cap
+                best_return = expected_return
+                best_consistency = consistency
+                best_trade_returns = trade_returns
+                best_trades_per_day = trades_per_day
+        
+        print(f"\n✅ Parallel optimization complete!")
+    
+    # SEQUENTIAL PROCESSING (original behavior)
+    else:
+        # Use tqdm for progress bar with ETA
+        progress_bar = tqdm(enumerate(symbols, 1), total=len(symbols), desc="Optimizing", unit="stock")
+        
+        for idx, symbol in progress_bar:
+        # Update progress bar description
+        progress_bar.set_description(f"Testing {symbol}")
+        
         if len(symbols) > 1:
             print(f"\n{'='*70}")
             print(f"[{idx}/{len(symbols)}] TESTING: {symbol}")
@@ -794,6 +1124,27 @@ def main() -> int:
             wf_avg_test = 0.0
             wf_ratio = 0.0
         
+        # Calculate VaR/CVaR for history logging
+        var_95 = cvar_95 = 0.0
+        win_rate = 0.0
+        if trade_returns and len(trade_returns) >= 5:
+            try:
+                mc_result = monte_carlo_projection(
+                    trade_returns=trade_returns,
+                    starting_capital=optimal_cap,
+                    trades_per_day=trades_per_day,
+                    days=30,
+                    num_simulations=1000
+                )
+                var_95 = mc_result.get("var_95", 0.0)
+                cvar_95 = mc_result.get("cvar_95", 0.0)
+                
+                # Calculate win rate from trade returns
+                wins = sum(1 for r in trade_returns if r > 0)
+                win_rate = wins / len(trade_returns) if trade_returns else 0.0
+            except:
+                pass
+        
         results.append({
             "symbol": symbol,
             "interval": optimal_interval,
@@ -811,7 +1162,24 @@ def main() -> int:
             "wf_ratio": wf_ratio,  # Walk-forward train/test ratio
             "trade_returns": trade_returns,
             "trades_per_day": trades_per_day,
+            "var_95": var_95,
+            "cvar_95": cvar_95,
         })
+        
+        # Save to optimization history CSV
+        save_to_history(
+            symbol=symbol,
+            interval=optimal_interval,
+            capital=optimal_cap,
+            daily_return=expected_return,
+            consistency=consistency,
+            sharpe=sharpe,
+            sortino=sortino,
+            win_rate=win_rate,
+            max_drawdown=max_dd,
+            var_95=var_95,
+            cvar_95=cvar_95
+        )
         
         # Use score (return * consistency) to rank
         score = expected_return * (0.5 + 0.5 * consistency)
@@ -862,6 +1230,30 @@ def main() -> int:
         else:
             print(f"    Recovery Factor: ∞  (no drawdown!)")
         
+        # Calculate and display Kelly Criterion
+        if trade_returns and len(trade_returns) >= 5:
+            try:
+                wins = [r for r in trade_returns if r > 0]
+                losses = [r for r in trade_returns if r < 0]
+                
+                if wins and losses:
+                    calculated_win_rate = len(wins) / len(trade_returns)
+                    avg_win = sum(wins) / len(wins)
+                    avg_loss = abs(sum(losses) / len(losses))
+                    
+                    # Kelly formula: f* = (p*b - q) / b
+                    b = avg_win / avg_loss  # Win/loss ratio
+                    q = 1 - calculated_win_rate
+                    kelly_full = (calculated_win_rate * b - q) / b
+                    kelly_half = kelly_full * 0.5  # Half-Kelly (conservative)
+                    
+                    kelly_pct = kelly_half * 100
+                    
+                    print(f"    Kelly Criterion: {kelly_pct:.1f}%  (optimal position size)")
+                    print(f"      → Bot uses Half-Kelly for safety ({kelly_full*50:.1f}% of full Kelly)")
+            except:
+                pass
+        
         # Show running best after each stock (for early stopping)
         if len(symbols) > 1:
             print(f"\n{'~'*70}")
@@ -903,6 +1295,39 @@ def main() -> int:
             if use_robustness:
                 print(f"   Consistency: {r['consistency']:.2f} ({conf_label})")
         print(f"{'='*70}")
+        
+        # Calculate and display correlation matrix
+        if len(symbols) >= 2:
+            print(f"\n{'='*70}")
+            print(f"PORTFOLIO CORRELATION ANALYSIS")
+            print(f"{'='*70}")
+            print(f"Analyzing {len(symbols)} stocks for diversification...")
+            
+            corr_data = calculate_correlation_matrix(symbols, days=60)
+            avg_corr = corr_data.get("avg_correlation", 0.0)
+            high_corr_pairs = corr_data.get("high_correlation_pairs", [])
+            
+            print(f"\nAverage Portfolio Correlation: {avg_corr:.2f}")
+            
+            if avg_corr < 0.3:
+                print(f"✅ EXCELLENT diversification (low correlation)")
+            elif avg_corr < 0.5:
+                print(f"✅ GOOD diversification")
+            elif avg_corr < 0.7:
+                print(f"⚠️  MODERATE diversification (some correlation)")
+            else:
+                print(f"❌ POOR diversification (high correlation - similar risk)")
+            
+            if high_corr_pairs:
+                print(f"\n⚠️  High Correlation Pairs (>0.7):")
+                for sym1, sym2, corr in high_corr_pairs[:5]:  # Show top 5
+                    print(f"   {sym1} ↔ {sym2}: {corr:.2f} (move together)")
+                print(f"\n💡 Consider replacing one stock from each pair for better diversification")
+            else:
+                print(f"\n✅ No high correlation pairs found (>0.7)")
+                print(f"   Portfolio is well-diversified!")
+            
+            print(f"{'='*70}")
     
     # Calculate live trading estimate for best config
     best_live_return = estimate_live_trading_return(best_return, best_interval, best_cap, commission_per_trade)
@@ -1058,6 +1483,8 @@ def main() -> int:
                 p50 = mc_result["p50"]
                 p95 = mc_result["p95"]
                 mean = mc_result["mean"]
+                var_95 = mc_result["var_95"]
+                cvar_95 = mc_result["cvar_95"]
                 
                 gain_p5 = ((p5 - optimal_cap) / optimal_cap) * 100
                 gain_p50 = ((p50 - optimal_cap) / optimal_cap) * 100
@@ -1073,6 +1500,12 @@ def main() -> int:
                 print(f"  95th percentile (optimistic): ${p95:,.2f}  ({gain_p95:+.1f}%)")
                 print(f"")
                 print(f"95% confidence interval: ${p5:,.2f} to ${p95:,.2f}")
+                print(f"")
+                print(f"RISK METRICS (Institutional Standard):")
+                print(f"  VaR (95% confidence):  ${var_95:,.2f}")
+                print(f"    → 95% chance daily loss won't exceed this amount")
+                print(f"  CVaR (Expected Shortfall): ${cvar_95:,.2f}")
+                print(f"    → Average loss in worst 5% of scenarios")
                 print(f"")
                 print(f"⚠️  This shows the RANGE of possible outcomes, not just average.")
                 print(f"   • 5% of simulations ended worse than ${p5:,.2f}")

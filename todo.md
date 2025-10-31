@@ -1,53 +1,18 @@
-### **💡 IMPORTANT IMPROVEMENTS (Medium-High Impact)**
-
-**16. Correlation Matrix for Multi-Stock**
-- **What**: Show which stocks move together
-- **Why**: Avoid putting all eggs in correlated baskets
-- **Where**: New function in optimizer
-- **Output**: Heatmap of stock correlations
-- **Impact**: Better portfolio diversification
-
-**17. Seasonal/Time-of-Day Effects**
-- **What**: Some stocks trade better at certain times
-- **Why**: Morning has more volume, afternoon is calmer
-- **Where**: Analyze by hour-of-day
-- **Impact**: Optimize trading hours
-
-**18. News/Earnings Calendar Integration**
-- **What**: Avoid trading during earnings announcements
-- **Why**: Massive unpredictable volatility
-- **Where**: Fetch from API, skip those days
-- **Impact**: Avoid 20-50% intraday swings
-
----
-
 ### **⚡ PERFORMANCE IMPROVEMENTS (Speed/Efficiency)**
 
-**19. Parallel Stock Evaluation**
-- **What**: Test multiple stocks simultaneously
-- **Why**: 100 stocks × 60s = 100 minutes sequential
-- **Fix**: Use `multiprocessing.Pool`
-- **Impact**: 8-core CPU = 8x faster (12 minutes)
-
-**20. Smarter Caching**
-- **Current**: Cache by (symbol, interval, capital)
-- **Better**: Also cache risk metrics separately
-- **Why**: Risk metrics don't change with capital
-- **Impact**: 50% fewer API calls
-
-**21. Incremental Data Fetching**
+**21. Incremental Data Fetching** (Not Yet Implemented)
 - **What**: Only fetch NEW bars, not all 600 bars
 - **Why**: Most data doesn't change
 - **Where**: Cache price history, append new
 - **Impact**: 80% less data transfer
 
-**22. GPU Acceleration (Advanced)**
+**22. GPU Acceleration (Advanced)** - SKIP (requires CUDA setup)
 - **What**: Use CUDA for Monte Carlo simulations
 - **Why**: 1000 simulations × 100 stocks = 100k runs
 - **Tool**: CuPy or PyTorch
 - **Impact**: 100x faster on GPU
 
-**23. Database Backend**
+**23. Database Backend** (Not Yet Implemented)
 - **What**: Store historical data in SQLite
 - **Why**: Disk is faster than API calls
 - **Impact**: Instant backtests after first run

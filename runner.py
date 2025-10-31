@@ -550,6 +550,41 @@ def pct_stddev(closes: List[float]) -> float:
     stddev = math.sqrt(variance)
     return stddev / mean if mean != 0 else 0.0
 
+def calculate_atr(closes: List[float], period: int = 14) -> float:
+    """
+    Calculate Average True Range (ATR) - a volatility indicator.
+    
+    ATR measures market volatility by decomposing the entire range of price movement.
+    Used for dynamic stop-loss and take-profit calculation.
+    
+    Args:
+        closes: List of closing prices
+        period: Lookback period (default: 14)
+    
+    Returns:
+        ATR as a percentage of current price
+    """
+    if len(closes) < period + 1:
+        # Not enough data, return 1% default
+        return 0.01
+    
+    # Calculate True Range for each period
+    true_ranges = []
+    for i in range(1, len(closes)):
+        high_low = abs(closes[i] - closes[i-1])  # Simplified: use close-to-close
+        true_ranges.append(high_low)
+    
+    # Average True Range = average of last N true ranges
+    if len(true_ranges) >= period:
+        atr = sum(true_ranges[-period:]) / period
+        # Convert to percentage
+        current_price = closes[-1]
+        atr_pct = atr / current_price if current_price > 0 else 0.01
+        return atr_pct
+    else:
+        return 0.01
+
+
 def volume_weighted_volatility(closes: List[float], volumes: List[float]) -> float:
     """
     Calculate volatility weighted by volume.
@@ -721,6 +756,105 @@ def kelly_position_size(win_rate: float, avg_win_pct: float, avg_loss_pct: float
     
     return (final_fraction, recommended_capital)
 
+def calculate_correlation_matrix(symbols: List[str], days: int = 60) -> dict:
+    """
+    Calculate correlation matrix for a list of stocks.
+    Shows which stocks move together (for portfolio diversification).
+    
+    Args:
+        symbols: List of stock symbols
+        days: Number of days to analyze
+    
+    Returns:
+        dict with:
+            - matrix: Dict of {(symbol1, symbol2): correlation}
+            - avg_correlation: Average correlation across portfolio
+            - high_correlation_pairs: List of pairs with >0.7 correlation
+    """
+    try:
+        import yfinance as yf
+        import datetime
+        
+        if len(symbols) < 2:
+            return {
+                "matrix": {},
+                "avg_correlation": 0.0,
+                "high_correlation_pairs": []
+            }
+        
+        end = datetime.datetime.now()
+        start = end - datetime.timedelta(days=days)
+        
+        # Fetch returns for all symbols
+        returns_dict = {}
+        for symbol in symbols:
+            try:
+                ticker = yf.Ticker(symbol)
+                hist = ticker.history(start=start, end=end, interval='1d')
+                if not hist.empty and len(hist) >= 10:
+                    returns = hist['Close'].pct_change().dropna()
+                    returns_dict[symbol] = returns
+            except:
+                continue
+        
+        if len(returns_dict) < 2:
+            return {
+                "matrix": {},
+                "avg_correlation": 0.0,
+                "high_correlation_pairs": []
+            }
+        
+        # Calculate pairwise correlations
+        matrix = {}
+        correlations = []
+        high_correlation_pairs = []
+        
+        symbols_with_data = list(returns_dict.keys())
+        
+        for i, sym1 in enumerate(symbols_with_data):
+            for j, sym2 in enumerate(symbols_with_data):
+                if i >= j:  # Skip duplicate pairs and self-correlation
+                    continue
+                
+                # Align dates
+                common_dates = returns_dict[sym1].index.intersection(returns_dict[sym2].index)
+                if len(common_dates) < 10:
+                    continue
+                
+                r1 = returns_dict[sym1].loc[common_dates]
+                r2 = returns_dict[sym2].loc[common_dates]
+                
+                # Calculate correlation
+                corr = r1.corr(r2)
+                
+                if not (corr != corr):  # Check for NaN
+                    matrix[(sym1, sym2)] = corr
+                    matrix[(sym2, sym1)] = corr  # Symmetric
+                    correlations.append(abs(corr))
+                    
+                    # Track high correlations (>0.7)
+                    if abs(corr) > 0.7:
+                        high_correlation_pairs.append((sym1, sym2, corr))
+        
+        # Self-correlations
+        for sym in symbols_with_data:
+            matrix[(sym, sym)] = 1.0
+        
+        avg_corr = sum(correlations) / len(correlations) if correlations else 0.0
+        
+        return {
+            "matrix": matrix,
+            "avg_correlation": avg_corr,
+            "high_correlation_pairs": high_correlation_pairs
+        }
+    except:
+        return {
+            "matrix": {},
+            "avg_correlation": 0.0,
+            "high_correlation_pairs": []
+        }
+
+
 def calculate_correlation(closes1: List[float], closes2: List[float]) -> float:
     """
     Calculate Pearson correlation between two price series.
@@ -844,11 +978,43 @@ def buy_flow(client, symbol: str, last_price: float, available_cap: float,
                 return (False, f"Weak volume: {vol_ratio:.2f}x avg (need {config.VOLUME_CONFIRMATION_THRESHOLD}x)")
             log_info(f"  Volume: {vol_ratio:.2f}x avg ({'strong' if is_strong else 'moderate'})")
     
-    # Calculate params
+    # Calculate adaptive TP/SL based on ATR (volatility-adjusted)
+    tp, sl, frac = base_tp, base_sl, base_frac
+    
+    if interval_seconds and closes:
+        try:
+            # Calculate ATR for dynamic stops
+            atr_pct = calculate_atr(closes, period=14)
+            current_vol = pct_stddev(closes[-config.VOLATILITY_WINDOW:])
+            avg_vol = 0.02  # Assume 2% average volatility
+            
+            # Volatility ratio: current_vol / avg_vol
+            vol_ratio = current_vol / avg_vol if avg_vol > 0 else 1.0
+            
+            # ATR-based adaptive stops (Item 59)
+            # SL = base_SL × (2 × ATR)
+            # TP = base_TP × (2 × ATR)
+            atr_multiplier = max(0.5, min(2.0, 2 * atr_pct / 0.02))  # Scale to ~2% baseline
+            
+            # Combine both methods: Use larger of ATR-based or volatility-ratio
+            adaptive_multiplier = max(vol_ratio, atr_multiplier)
+            
+            # Apply adaptive scaling (Item 52)
+            tp = base_tp * adaptive_multiplier
+            sl = base_sl * adaptive_multiplier
+            
+            # Clamp to reasonable limits
+            tp = max(config.MIN_TAKE_PROFIT_PERCENT, min(config.MAX_TAKE_PROFIT_PERCENT, tp))
+            sl = max(config.MIN_STOP_LOSS_PERCENT, min(config.MAX_STOP_LOSS_PERCENT, sl))
+            
+            log_info(f"  Adaptive TP/SL: ATR={atr_pct*100:.2f}%, Vol Ratio={vol_ratio:.2f}x")
+            log_info(f"    → TP: {base_tp:.1f}% → {tp:.1f}%, SL: {base_sl:.1f}% → {sl:.1f}%")
+        except:
+            pass  # Fall back to base values on error
+    
+    # Apply dynamic adjustment based on confidence (if enabled)
     if dynamic_enabled:
-        tp, sl, frac = adjust_runtime_params(confidence, base_tp, base_sl, base_frac)
-    else:
-        tp, sl, frac = base_tp, base_sl, base_frac
+        tp, sl, frac = adjust_runtime_params(confidence, tp, sl, frac)
     
     # Calculate position size (Kelly or static)
     if config.ENABLE_KELLY_SIZING and interval_seconds:
@@ -1678,11 +1844,22 @@ def monte_carlo_projection(
     p50_idx = int(num_simulations * 0.50)
     p95_idx = int(num_simulations * 0.95)
     
+    # Calculate VaR and CVaR
+    # VaR (Value at Risk): 95% confidence that loss won't exceed this
+    var_95 = starting_capital - final_capitals[p5_idx]
+    
+    # CVaR (Conditional VaR): Average loss in worst 5% of cases
+    worst_5_percent = final_capitals[:p5_idx] if p5_idx > 0 else [final_capitals[0]]
+    avg_worst_case = sum(worst_5_percent) / len(worst_5_percent)
+    cvar_95 = starting_capital - avg_worst_case
+    
     return {
         "p5": final_capitals[p5_idx],      # 5% chance worse than this (pessimistic)
         "p50": final_capitals[p50_idx],    # Median outcome
         "p95": final_capitals[p95_idx],    # 5% chance better than this (optimistic)
-        "mean": sum(final_capitals) / len(final_capitals)
+        "mean": sum(final_capitals) / len(final_capitals),
+        "var_95": var_95,                  # VaR at 95% confidence
+        "cvar_95": cvar_95,                # CVaR (Expected Shortfall) at 95%
     }
 
 
