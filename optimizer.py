@@ -15,6 +15,7 @@ import os
 from datetime import datetime
 import multiprocessing
 from functools import partial
+import signal
 from runner import (
     make_client,
     fetch_closes,
@@ -32,6 +33,11 @@ _result_cache: Dict[Tuple[str, int, float], float] = {}
 
 # Global risk metrics cache (these don't change with capital)
 _risk_cache: Dict[Tuple[str, int], dict] = {}
+
+
+def worker_init():
+    """Ignore SIGINT in worker processes - only main process handles Ctrl+C"""
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
 
 
 def evaluate_single_stock(symbol: str, max_cap: float, use_robustness: bool, commission_per_trade: float) -> dict:
@@ -1026,18 +1032,44 @@ def main() -> int:
                         use_robustness=use_robustness,
                         commission_per_trade=commission_per_trade)
         
+        # Set up signal handler for clean Ctrl+C termination
+        pool = None
+        def signal_handler(sig, frame):
+            print(f"\n\n❌ Ctrl+C detected - terminating workers...")
+            if pool is not None:
+                pool.terminate()
+                pool.join()
+            print(f"✅ Cleanup complete")
+            sys.exit(1)
+        
+        original_sigint = signal.signal(signal.SIGINT, signal_handler)
+        
         # Run in parallel with progress bar
         try:
-            with multiprocessing.Pool(processes=num_workers) as pool:
-                results = list(tqdm(
-                    pool.imap(worker, symbols),
-                    total=len(symbols),
-                    desc="Optimizing (Parallel)",
-                    unit="stock"
-                ))
+            pool = multiprocessing.Pool(processes=num_workers, initializer=worker_init)
+            results = list(tqdm(
+                pool.imap(worker, symbols),
+                total=len(symbols),
+                desc="Optimizing (Parallel)",
+                unit="stock"
+            ))
+            pool.close()
+            pool.join()
         except KeyboardInterrupt:
             print(f"\n\n❌ Optimization cancelled by user (Ctrl+C)")
+            if pool is not None:
+                pool.terminate()
+                pool.join()
             return 1
+        except Exception as e:
+            print(f"\n\n❌ Error during parallel optimization: {e}")
+            if pool is not None:
+                pool.terminate()
+                pool.join()
+            return 1
+        finally:
+            # Restore original signal handler
+            signal.signal(signal.SIGINT, original_sigint)
         
         # Find best result
         for idx, result in enumerate(results, 1):
