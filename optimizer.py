@@ -569,7 +569,9 @@ def binary_search_capital(client, symbol: str, interval_seconds: int,
             # Too few (<2): Missing opportunities
             # Too many (>20): Overtrading + high costs
             
-            trades_per_day_actual = sim.get("expected_trades_per_day", 4.0)
+            # Estimate trades/day from interval (conservative estimate: 1 trade per 2 intervals)
+            max_possible_trades_per_day = (6.5 * 3600) / interval_seconds
+            trades_per_day_actual = max_possible_trades_per_day / 2.0  # Conservative estimate
             
             if trades_per_day_actual < 1:
                 # Very few trades - missing opportunities
@@ -1023,7 +1025,7 @@ def main() -> int:
     # PARALLEL PROCESSING (if enabled and multiple stocks)
     if args.parallel and len(symbols) > 1:
         num_workers = args.workers or multiprocessing.cpu_count()
-        print(f"\n🚀 PARALLEL MODE: Using {num_workers} workers")
+        print(f"\n>> PARALLEL MODE: Using {num_workers} workers")
         print(f"   Estimated speedup: {num_workers}x faster\n")
         print(f"   (Press Ctrl+C to cancel)\n")
         
@@ -1036,11 +1038,11 @@ def main() -> int:
         # Set up signal handler for clean Ctrl+C termination
         pool = None
         def signal_handler(sig, frame):
-            print(f"\n\n❌ Ctrl+C detected - terminating workers...")
+            print(f"\n\n[X] Ctrl+C detected - terminating workers...")
             if pool is not None:
                 pool.terminate()
                 pool.join()
-            print(f"✅ Cleanup complete")
+            print(f"[OK] Cleanup complete")
             sys.exit(1)
         
         original_sigint = signal.signal(signal.SIGINT, signal_handler)
@@ -1057,13 +1059,13 @@ def main() -> int:
             pool.close()
             pool.join()
         except KeyboardInterrupt:
-            print(f"\n\n❌ Optimization cancelled by user (Ctrl+C)")
+            print(f"\n\n[X] Optimization cancelled by user (Ctrl+C)")
             if pool is not None:
                 pool.terminate()
                 pool.join()
             return 1
         except Exception as e:
-            print(f"\n\n❌ Error during parallel optimization: {e}")
+            print(f"\n\n[X] Error during parallel optimization: {e}")
             if pool is not None:
                 pool.terminate()
                 pool.join()
@@ -1095,7 +1097,7 @@ def main() -> int:
                 best_trade_returns = trade_returns
                 best_trades_per_day = trades_per_day
         
-        print(f"\n✅ Parallel optimization complete!")
+        print(f"\n[OK] Parallel optimization complete!")
     
     # SEQUENTIAL PROCESSING (original behavior)
     else:
@@ -1245,10 +1247,10 @@ def main() -> int:
         if use_robustness:
             print(f"  Consistency: {consistency:.2f} ({confidence_label} confidence)")
             if oos_return != 0.0:
-                oos_label = "✅" if oos_return > 0 else "⚠️"
+                oos_label = "[OK]" if oos_return > 0 else "[!]"
                 print(f"  Out-of-Sample: ${oos_return:.2f}/day {oos_label}  (unseen data test)")
             if wf_avg_test != 0.0:
-                wf_label = "✅" if wf_ratio >= 0.5 else "⚠️"
+                wf_label = "[OK]" if wf_ratio >= 0.5 else "[!]"
                 print(f"  Walk-Forward: ${wf_avg_test:.2f}/day (ratio: {wf_ratio:.2f}) {wf_label}")
         print(f"  Quality Metrics:")
         print(f"    Sharpe Ratio: {sharpe:.3f}  (risk-adjusted return)")
@@ -1286,7 +1288,7 @@ def main() -> int:
                 pass
         
         # Show running best after each stock (for early stopping)
-        if len(symbols) > 1:
+        if len(symbols) > 1 and best_symbol is not None:
             print(f"\n{'~'*70}")
             print(f"BEST SO FAR (after {idx}/{len(symbols)} stocks):")
             print(f"  Leader: {best_symbol}")
@@ -1309,7 +1311,7 @@ def main() -> int:
             r["score"] = r["return"] * (0.5 + 0.5 * r["consistency"])
         results.sort(key=lambda x: x["score"], reverse=True)
         for i, r in enumerate(results[:10], 1):
-            status = "✅" if r["return"] > 0 else "❌"
+            status = "[OK]" if r["return"] > 0 else "[X]"
             
             # Confidence label
             if r["consistency"] >= 0.8:
@@ -1341,26 +1343,40 @@ def main() -> int:
             print(f"\nAverage Portfolio Correlation: {avg_corr:.2f}")
             
             if avg_corr < 0.3:
-                print(f"✅ EXCELLENT diversification (low correlation)")
+                print(f"[OK] EXCELLENT diversification (low correlation)")
             elif avg_corr < 0.5:
-                print(f"✅ GOOD diversification")
+                print(f"[OK] GOOD diversification")
             elif avg_corr < 0.7:
-                print(f"⚠️  MODERATE diversification (some correlation)")
+                print(f"[!]  MODERATE diversification (some correlation)")
             else:
-                print(f"❌ POOR diversification (high correlation - similar risk)")
+                print(f"[X] POOR diversification (high correlation - similar risk)")
             
             if high_corr_pairs:
-                print(f"\n⚠️  High Correlation Pairs (>0.7):")
+                print(f"\n[!]  High Correlation Pairs (>0.7):")
                 for sym1, sym2, corr in high_corr_pairs[:5]:  # Show top 5
                     print(f"   {sym1} ↔ {sym2}: {corr:.2f} (move together)")
-                print(f"\n💡 Consider replacing one stock from each pair for better diversification")
+                print(f"\n[TIP] Consider replacing one stock from each pair for better diversification")
             else:
-                print(f"\n✅ No high correlation pairs found (>0.7)")
+                print(f"\n[OK] No high correlation pairs found (>0.7)")
                 print(f"   Portfolio is well-diversified!")
             
             print(f"{'='*70}")
     
-    # Calculate live trading estimate for best config
+    # Calculate live trading estimate for best config (if we found a valid stock)
+    if best_symbol is None or best_interval is None:
+        print(f"\n{'='*70}")
+        print(f"[X] NO VALID CONFIGURATIONS FOUND")
+        print(f"{'='*70}")
+        print(f"\n[!]  All {len(symbols)} stocks failed evaluation. Possible causes:")
+        print(f"  1. yfinance couldn't fetch data (network issue or invalid symbols)")
+        print(f"  2. Insufficient historical data (need {max(config.LONG_WINDOW + 10, 30)}+ bars)")
+        print(f"  3. Symbols may be delisted or have trading halts")
+        print(f"\n[TIP] Try:")
+        print(f"  • Check your internet connection")
+        print(f"  • Run with a single known-good symbol: python optimizer.py -s AAPL")
+        print(f"  • Enable verbose mode: python optimizer.py -v")
+        return 1
+    
     best_live_return = estimate_live_trading_return(best_return, best_interval, best_cap, commission_per_trade)
     
     # Show optimal config
@@ -1421,7 +1437,7 @@ def main() -> int:
     
     print(f"\n{'='*70}")
     if expected_return < 0:
-        print(f"⚠️  STRATEGY NOT PROFITABLE")
+        print(f"[!]  STRATEGY NOT PROFITABLE")
         print(f"{'='*70}")
         print(f"\n{symbol} shows negative returns in current market conditions.")
         print(f"\nReasons:")
@@ -1432,14 +1448,14 @@ def main() -> int:
         print(f"  2. Wait for bullish market conditions")
         print(f"  3. Bot will EXIT if run with negative projection")
     elif expected_return < 1.0:
-        print(f"⚠️  LOW PROFITABILITY")
+        print(f"[!]  LOW PROFITABILITY")
         print(f"{'='*70}")
         print(f"\nExpected return is less than $1/day.")
         print(f"Consider:")
         print(f"  • Different symbol with better momentum")
         print(f"  • Waiting for more favorable conditions")
     else:
-        print(f"✅ STRATEGY IS PROFITABLE")
+        print(f"[OK] STRATEGY IS PROFITABLE")
         print(f"{'='*70}")
         print(f"\nRun bot (as Administrator from anywhere):")
         print(f"  $BotDir = 'C:\\Users\\YourName\\...\\Paper-Trading'")
@@ -1485,14 +1501,14 @@ def main() -> int:
                 
                 print(f"{months:2d}mo ({trading_days:3d}days): {paper_str}  |  {live_str}")
             
-            print(f"\n⚠️  IMPORTANT REALITY CHECK:")
+            print(f"\n[!]  IMPORTANT REALITY CHECK:")
             print(f"   • Paper = theoretical backtest (OPTIMISTIC)")
             print(f"   • Live = adjusted for real trading costs (MORE REALISTIC)")
             print(f"   • Even live estimates assume:")
             print(f"     - Market conditions stay similar to backtest period")
             print(f"     - No extended losing streaks or black swan events")
             print(f"     - Consistent execution and no downtime")
-            print(f"\n💡 Professional traders expect 10-30% per YEAR, not per day.")
+            print(f"\n[TIP] Professional traders expect 10-30% per YEAR, not per day.")
             
             # Monte Carlo confidence intervals
             if len(best_trade_returns) >= 2:
@@ -1538,12 +1554,12 @@ def main() -> int:
                 print(f"  CVaR (Expected Shortfall): ${cvar_95:,.2f}")
                 print(f"    → Average loss in worst 5% of scenarios")
                 print(f"")
-                print(f"⚠️  This shows the RANGE of possible outcomes, not just average.")
+                print(f"[!]  This shows the RANGE of possible outcomes, not just average.")
                 print(f"   • 5% of simulations ended worse than ${p5:,.2f}")
                 print(f"   • 5% of simulations ended better than ${p95:,.2f}")
                 print(f"   • Real results will vary - this is based on historical patterns")
         else:
-            print(f"\n⚠️  Invalid capital configuration (${optimal_cap:.2f})")
+            print(f"\n[!]  Invalid capital configuration (${optimal_cap:.2f})")
             print(f"   Cannot calculate compounding projections.")
     
     # Confidence assessment
@@ -1559,16 +1575,16 @@ def main() -> int:
         print(f"Frequency: {trades_per_day:.1f} trades/day")
         
         if best_consistency >= 0.8:
-            print(f"\n✅ HIGH CONFIDENCE - Strategy performs consistently across all test periods")
+            print(f"\n[OK] HIGH CONFIDENCE - Strategy performs consistently across all test periods")
             print(f"   This config is likely to work well in live trading")
         elif best_consistency >= 0.6:
-            print(f"\n⚠️  MEDIUM CONFIDENCE - Some variation across periods")
+            print(f"\n[!]  MEDIUM CONFIDENCE - Some variation across periods")
             print(f"   Use with caution and start with small capital")
         elif best_consistency >= 0.4:
-            print(f"\n⚠️  LOW CONFIDENCE - Significant variation across periods")
+            print(f"\n[!]  LOW CONFIDENCE - Significant variation across periods")
             print(f"   Likely overfit to recent market conditions")
         else:
-            print(f"\n❌ VERY LOW CONFIDENCE - Highly variable across periods")
+            print(f"\n[X] VERY LOW CONFIDENCE - Highly variable across periods")
             print(f"   Strong evidence of overfitting, not recommended")
     
     print(f"\n{'='*70}")
