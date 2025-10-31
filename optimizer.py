@@ -789,13 +789,14 @@ def comprehensive_binary_search(symbol: str, verbose: bool = False, max_cap: flo
             best_consistency = consistency
     
     # Phase 2: Golden ratio search for optimal interval (more efficient than ternary)
+    # SEARCHES DOWN TO THE MINUTE - no snapping!
     if verbose:
-        print(f"\nPhase 2: Refining around {best_interval}s (golden ratio search):")
+        print(f"\nPhase 2: Refining around {best_interval}s (golden ratio search to minute precision):")
     
     search_min = max(min_interval, best_interval // 2)
     search_max = min(max_interval, best_interval * 2)
     iterations = 0
-    max_iterations = 12  # Allow more iterations for finer precision
+    max_iterations = 15  # More iterations for minute-level precision
     
     # Golden ratio for optimal search point placement
     golden_ratio = (3 - 5**0.5) / 2  # ~0.382
@@ -804,16 +805,18 @@ def comprehensive_binary_search(symbol: str, verbose: bool = False, max_cap: flo
     tested_intervals = set()
     
     # Initial evaluation at golden ratio points
+    # Round to nearest MINUTE (60s), not to predefined intervals!
     left_test = int(search_min + golden_ratio * (search_max - search_min))
     right_test = int(search_max - golden_ratio * (search_max - search_min))
     
-    left_snap = snap_interval_to_supported_seconds(left_test)
-    right_snap = snap_interval_to_supported_seconds(right_test)
+    # Round to nearest minute for practical trading
+    left_snap = max(60, (left_test // 60) * 60)
+    right_snap = max(60, (right_test // 60) * 60)
     
-    # Early termination if snapping converges to same interval
+    # Early termination if intervals converge to same minute
     if left_snap == right_snap:
         if verbose:
-            print(f"  Skipping refinement - intervals converged to {left_snap}s after snapping")
+            print(f"  Skipping refinement - intervals converged to {left_snap}s ({left_snap/60:.0f} min)")
     else:
         left_cap, left_ret = binary_search_capital(client, symbol, left_snap, min_cap=1.0, max_cap=max_cap)
         right_cap, right_ret = binary_search_capital(client, symbol, right_snap, min_cap=1.0, max_cap=max_cap)
@@ -848,12 +851,13 @@ def comprehensive_binary_search(symbol: str, verbose: bool = False, max_cap: flo
                 
                 # New left test point
                 left_test = int(search_min + golden_ratio * (search_max - search_min))
-                left_snap = snap_interval_to_supported_seconds(left_test)
+                # Round to nearest minute (60s precision)
+                left_snap = max(60, (left_test // 60) * 60)
                 
-                # Check if we've already tested this snapped interval
+                # Check if we've already tested this interval
                 if left_snap in tested_intervals or left_snap == right_snap:
                     if verbose:
-                        print(f"  Converged - all nearby intervals snap to tested values")
+                        print(f"  Converged to minute precision - stopping refinement")
                     break
                 
                 tested_intervals.add(left_snap)
@@ -873,12 +877,13 @@ def comprehensive_binary_search(symbol: str, verbose: bool = False, max_cap: flo
                 
                 # New right test point
                 right_test = int(search_max - golden_ratio * (search_max - search_min))
-                right_snap = snap_interval_to_supported_seconds(right_test)
+                # Round to nearest minute (60s precision)
+                right_snap = max(60, (right_test // 60) * 60)
                 
-                # Check if we've already tested this snapped interval
+                # Check if we've already tested this interval
                 if right_snap in tested_intervals or right_snap == left_snap:
                     if verbose:
-                        print(f"  Converged - all nearby intervals snap to tested values")
+                        print(f"  Converged to minute precision - stopping refinement")
                     break
                 
                 tested_intervals.add(right_snap)
