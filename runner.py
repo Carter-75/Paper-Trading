@@ -550,6 +550,36 @@ def pct_stddev(closes: List[float]) -> float:
     stddev = math.sqrt(variance)
     return stddev / mean if mean != 0 else 0.0
 
+def volume_weighted_volatility(closes: List[float], volumes: List[float]) -> float:
+    """
+    Calculate volatility weighted by volume.
+    High-volume price moves are more significant than low-volume moves.
+    
+    Returns:
+        Volume-weighted standard deviation as a percentage (0.0-1.0 range)
+    """
+    if len(closes) < 2 or len(volumes) < 2 or len(closes) != len(volumes):
+        return pct_stddev(closes)  # Fallback to regular volatility
+    
+    # Calculate returns (percent change)
+    returns = [(closes[i] - closes[i-1]) / closes[i-1] for i in range(1, len(closes)) if closes[i-1] != 0]
+    volumes_aligned = volumes[1:len(returns)+1]  # Align with returns
+    
+    if len(returns) == 0 or sum(volumes_aligned) == 0:
+        return pct_stddev(closes)  # Fallback if no volume
+    
+    # Volume-weighted mean return
+    total_volume = sum(volumes_aligned)
+    vw_mean = sum(r * v for r, v in zip(returns, volumes_aligned)) / total_volume
+    
+    # Volume-weighted variance
+    vw_variance = sum(((r - vw_mean) ** 2) * v for r, v in zip(returns, volumes_aligned)) / total_volume
+    
+    # Volume-weighted standard deviation (as ratio, not percentage)
+    vw_stddev = vw_variance ** 0.5
+    
+    return vw_stddev
+
 def compute_rsi(closes: List[float], period: int = 14) -> float:
     """
     Calculate Relative Strength Index (RSI) to identify overbought/oversold conditions.
@@ -781,8 +811,18 @@ def buy_flow(client, symbol: str, last_price: float, available_cap: float,
             if expected_daily < config.PROFITABILITY_MIN_EXPECTED_USD:
                 return (False, f"Expected ${expected_daily:.2f}/day < ${config.PROFITABILITY_MIN_EXPECTED_USD}")
             
-            # Volatility check
-            vol_pct = pct_stddev(closes[-config.VOLATILITY_WINDOW:])
+            # Volatility check (volume-weighted for better signal quality)
+            try:
+                closes_vol, volumes_vol = fetch_closes_with_volume(client, symbol, interval_seconds, config.VOLATILITY_WINDOW)
+                if closes_vol and volumes_vol and len(closes_vol) == len(volumes_vol):
+                    vol_pct = volume_weighted_volatility(closes_vol, volumes_vol)
+                    log_info(f"  Volume-weighted volatility: {vol_pct*100:.1f}%")
+                else:
+                    vol_pct = pct_stddev(closes[-config.VOLATILITY_WINDOW:])
+                    log_info(f"  Standard volatility: {vol_pct*100:.1f}%")
+            except:
+                vol_pct = pct_stddev(closes[-config.VOLATILITY_WINDOW:])
+            
             if vol_pct > config.VOLATILITY_PCT_THRESHOLD:
                 return (False, f"High volatility: {vol_pct*100:.1f}%")
     
@@ -1234,7 +1274,20 @@ def simulate_signals_and_projection(
     cap = override_cap_usd if override_cap_usd is not None else config.MAX_CAP_USD
     
     wins = 0
+    losses = 0
     total_signals = 0
+    total_win_pct = 0.0
+    total_loss_pct = 0.0
+    consecutive_losses = 0
+    max_consecutive_losses = 0
+    trade_durations = []
+    trade_returns = []  # Track individual trade returns for Sharpe/Sortino
+    max_adverse_excursions = []  # Track MAE for each trade
+    
+    # Track equity curve for max drawdown calculation
+    equity = cap  # Starting capital
+    equity_curve = [cap]
+    peak_equity = cap
     
     for i in range(config.LONG_WINDOW, len(closes)):
         window = closes[:i+1]
@@ -1247,11 +1300,44 @@ def simulate_signals_and_projection(
             tp_price = price * (1 + tp_pct / 100)
             sl_price = price * (1 - sl_pct / 100)
             
+            # Track worst price against us (MAE)
+            worst_price_against = price
+            
             for j in range(i + 1, len(closes)):
+                # Track MAE (how far price moved against us)
+                if closes[j] < worst_price_against:
+                    worst_price_against = closes[j]
+                
                 if closes[j] >= tp_price:
                     wins += 1
+                    total_win_pct += tp_pct
+                    consecutive_losses = 0
+                    trade_durations.append(j - i)
+                    trade_returns.append(tp_pct / 100)  # Return as decimal
+                    mae = ((price - worst_price_against) / price) * 100  # MAE as percentage
+                    max_adverse_excursions.append(mae)
+                    # Update equity
+                    trade_pnl = (cap * frac) * (tp_pct / 100)
+                    equity += trade_pnl
+                    equity_curve.append(equity)
+                    if equity > peak_equity:
+                        peak_equity = equity
                     break
                 elif closes[j] <= sl_price:
+                    losses += 1
+                    total_loss_pct += sl_pct
+                    consecutive_losses += 1
+                    max_consecutive_losses = max(max_consecutive_losses, consecutive_losses)
+                    trade_durations.append(j - i)
+                    trade_returns.append(-sl_pct / 100)  # Negative return
+                    mae = ((price - worst_price_against) / price) * 100
+                    max_adverse_excursions.append(mae)
+                    # Update equity
+                    trade_pnl = -(cap * frac) * (sl_pct / 100)
+                    equity += trade_pnl
+                    equity_curve.append(equity)
+                    if equity > peak_equity:
+                        peak_equity = equity
                     break
         
         elif action == "sell":
@@ -1261,11 +1347,44 @@ def simulate_signals_and_projection(
             tp_price = price * (1 - tp_pct / 100)
             sl_price = price * (1 + sl_pct / 100)
             
+            # Track worst price against us (MAE for shorts)
+            worst_price_against = price
+            
             for j in range(i + 1, len(closes)):
+                # Track MAE (how far price moved against us - upward for shorts)
+                if closes[j] > worst_price_against:
+                    worst_price_against = closes[j]
+                
                 if closes[j] <= tp_price:
                     wins += 1
+                    total_win_pct += tp_pct
+                    consecutive_losses = 0
+                    trade_durations.append(j - i)
+                    trade_returns.append(tp_pct / 100)  # Return as decimal
+                    mae = ((worst_price_against - price) / price) * 100  # MAE as percentage
+                    max_adverse_excursions.append(mae)
+                    # Update equity
+                    trade_pnl = (cap * frac) * (tp_pct / 100)
+                    equity += trade_pnl
+                    equity_curve.append(equity)
+                    if equity > peak_equity:
+                        peak_equity = equity
                     break
                 elif closes[j] >= sl_price:
+                    losses += 1
+                    total_loss_pct += sl_pct
+                    consecutive_losses += 1
+                    max_consecutive_losses = max(max_consecutive_losses, consecutive_losses)
+                    trade_durations.append(j - i)
+                    trade_returns.append(-sl_pct / 100)  # Negative return
+                    mae = ((worst_price_against - price) / price) * 100
+                    max_adverse_excursions.append(mae)
+                    # Update equity
+                    trade_pnl = -(cap * frac) * (sl_pct / 100)
+                    equity += trade_pnl
+                    equity_curve.append(equity)
+                    if equity > peak_equity:
+                        peak_equity = equity
                     break
     
     win_rate = wins / total_signals if total_signals > 0 else 0.55  # Assume 55% win rate if no history
@@ -1274,10 +1393,72 @@ def simulate_signals_and_projection(
     days_simulated = simulation_bars / bars_per_day
     trades_per_day = total_signals / days_simulated if days_simulated > 0 else 4.0  # Estimate 4 trades/day
     
+    # Calculate advanced risk metrics
+    avg_win_pct = (total_win_pct / wins) if wins > 0 else tp_pct
+    avg_loss_pct = (total_loss_pct / losses) if losses > 0 else sl_pct
+    profit_factor = (total_win_pct / total_loss_pct) if total_loss_pct > 0 else 2.0
+    avg_trade_duration = (sum(trade_durations) / len(trade_durations)) if trade_durations else 5
+    
+    # Calculate Sharpe & Sortino Ratios
+    if len(trade_returns) >= 2:
+        import statistics
+        mean_return = statistics.mean(trade_returns)
+        std_dev = statistics.stdev(trade_returns)
+        
+        # Sharpe Ratio (risk-free rate assumed to be 0 for simplicity)
+        sharpe_ratio = (mean_return / std_dev) if std_dev > 0 else 0.0
+        
+        # Sortino Ratio (only penalize downside volatility)
+        downside_returns = [r for r in trade_returns if r < 0]
+        if len(downside_returns) >= 2:
+            downside_std = statistics.stdev(downside_returns)
+            sortino_ratio = (mean_return / downside_std) if downside_std > 0 else 0.0
+        elif len(downside_returns) == 0:
+            sortino_ratio = float('inf') if mean_return > 0 else 0.0  # No downside = infinite Sortino
+        else:
+            sortino_ratio = sharpe_ratio  # Fallback to Sharpe if not enough downside data
+    else:
+        sharpe_ratio = 0.0
+        sortino_ratio = 0.0
+    
+    # Calculate Expectancy Score
+    expectancy = (avg_win_pct * win_rate) - (avg_loss_pct * (1 - win_rate))
+    
+    # Calculate Maximum Adverse Excursion (MAE) - average of worst moves against us
+    avg_mae = (sum(max_adverse_excursions) / len(max_adverse_excursions)) if max_adverse_excursions else 0.0
+    max_mae = max(max_adverse_excursions) if max_adverse_excursions else 0.0
+    
+    # Calculate Max Drawdown from equity curve
+    max_drawdown_pct = 0.0
+    current_peak = equity_curve[0] if equity_curve else cap
+    for eq in equity_curve:
+        if eq > current_peak:
+            current_peak = eq
+        drawdown = ((current_peak - eq) / current_peak) * 100 if current_peak > 0 else 0.0
+        if drawdown > max_drawdown_pct:
+            max_drawdown_pct = drawdown
+    
+    # Calculate Recovery Factor: Total Return / Max Drawdown
+    total_return_pct = ((equity - cap) / cap) * 100 if cap > 0 else 0.0
+    if max_drawdown_pct > 0:
+        recovery_factor = total_return_pct / max_drawdown_pct
+    else:
+        recovery_factor = float('inf') if total_return_pct > 0 else 0.0  # No drawdown = infinite recovery factor
+    
     # If we have no historical signals, estimate based on typical SMA crossover frequency
     if total_signals == 0:
         win_rate = 0.55
         trades_per_day = 4.0  # Reasonable estimate for 15-min intervals
+        max_consecutive_losses = 3  # Conservative estimate
+        profit_factor = 1.5  # Conservative
+        avg_trade_duration = 5  # bars
+        sharpe_ratio = 0.0
+        sortino_ratio = 0.0
+        expectancy = 0.0
+        avg_mae = 0.0
+        max_mae = 0.0
+        max_drawdown_pct = 0.0
+        recovery_factor = 0.0
     
     expected_return_per_trade = ((tp_pct / 100) * win_rate) - ((sl_pct / 100) * (1 - win_rate))
     usable_cap_per_trade = cap * frac
@@ -1287,8 +1468,223 @@ def simulate_signals_and_projection(
     return {
         "win_rate": win_rate,
         "expected_trades_per_day": trades_per_day,
-        "expected_daily_usd": expected_daily_usd
+        "expected_daily_usd": expected_daily_usd,
+        # Advanced risk metrics
+        "profit_factor": profit_factor,  # Total wins / total losses (>1 = profitable)
+        "max_consecutive_losses": max_consecutive_losses,  # Streak risk
+        "avg_win_pct": avg_win_pct,  # Average win size
+        "avg_loss_pct": avg_loss_pct,  # Average loss size
+        "avg_trade_duration_bars": avg_trade_duration,  # How long capital is tied up
+        "total_trades": total_signals,  # Total number of trades
+        # CRITICAL METRICS (Industry Standard)
+        "sharpe_ratio": sharpe_ratio,  # Risk-adjusted return (higher = better)
+        "sortino_ratio": sortino_ratio,  # Downside risk-adjusted return (higher = better)
+        "expectancy": expectancy,  # Expected % return per trade
+        "avg_mae": avg_mae,  # Average worst price move against us (%)
+        "max_mae": max_mae,  # Worst MAE seen (%)
+        "max_drawdown_pct": max_drawdown_pct,  # Maximum drawdown percentage
+        "recovery_factor": recovery_factor,  # Total return / Max drawdown (higher = better recovery)
+        # RAW DATA (for Monte Carlo)
+        "trade_returns": trade_returns,  # List of individual trade returns (decimals)
     }
+
+def calculate_market_beta(symbol: str, days: int = 60) -> float:
+    """
+    Calculate beta - how much stock moves relative to S&P 500.
+    Beta > 1 = more volatile than market
+    Beta < 1 = less volatile than market
+    Beta ≈ 1 = moves with market
+    
+    Args:
+        symbol: Stock symbol
+        days: Number of days to analyze
+    
+    Returns:
+        Beta value (typically 0.5 to 2.0)
+    """
+    try:
+        import yfinance as yf
+        import datetime
+        
+        end = datetime.datetime.now()
+        start = end - datetime.timedelta(days=days)
+        
+        # Fetch stock and SPY (S&P 500 ETF) data
+        stock = yf.Ticker(symbol)
+        spy = yf.Ticker("SPY")
+        
+        stock_hist = stock.history(start=start, end=end, interval='1d')
+        spy_hist = spy.history(start=start, end=end, interval='1d')
+        
+        if stock_hist.empty or spy_hist.empty or len(stock_hist) < 10 or len(spy_hist) < 10:
+            return 1.0  # Default to market beta
+        
+        # Calculate daily returns
+        stock_returns = stock_hist['Close'].pct_change().dropna()
+        spy_returns = spy_hist['Close'].pct_change().dropna()
+        
+        # Align dates (in case of missing data)
+        common_dates = stock_returns.index.intersection(spy_returns.index)
+        if len(common_dates) < 10:
+            return 1.0
+        
+        stock_returns = stock_returns.loc[common_dates]
+        spy_returns = spy_returns.loc[common_dates]
+        
+        # Calculate beta: Covariance(stock, market) / Variance(market)
+        covariance = stock_returns.cov(spy_returns)
+        market_variance = spy_returns.var()
+        
+        if market_variance == 0:
+            return 1.0
+        
+        beta = covariance / market_variance
+        
+        # Clamp to reasonable range (0.1 to 3.0)
+        return max(0.1, min(3.0, beta))
+    except:
+        return 1.0  # Default to market beta on error
+
+
+def calculate_overnight_gap_risk(symbol: str, client, days: int = 60) -> dict:
+    """
+    Calculate overnight gap risk by analyzing historical price gaps between
+    close and next open.
+    
+    Args:
+        symbol: Stock symbol
+        client: Alpaca client
+        days: Number of days to analyze (default: 60 days ~ 3 months)
+    
+    Returns:
+        dict with:
+            - gap_frequency: % of days with gaps >2%
+            - avg_gap_size: Average gap size in %
+            - max_gap: Largest gap seen
+            - downward_gap_freq: % of gaps that were negative
+    """
+    try:
+        import yfinance as yf
+        import datetime
+        
+        end = datetime.datetime.now()
+        start = end - datetime.timedelta(days=days)
+        
+        ticker = yf.Ticker(symbol)
+        hist = ticker.history(start=start, end=end, interval='1d')
+        
+        if hist.empty or len(hist) < 5:
+            return {
+                "gap_frequency": 0.0,
+                "avg_gap_size": 0.0,
+                "max_gap": 0.0,
+                "downward_gap_freq": 0.0
+            }
+        
+        # Calculate gaps: (Open - Previous Close) / Previous Close
+        gaps = []
+        downward_gaps = 0
+        large_gaps = 0  # >2%
+        
+        for i in range(1, len(hist)):
+            prev_close = hist['Close'].iloc[i-1]
+            curr_open = hist['Open'].iloc[i]
+            
+            if prev_close > 0:
+                gap_pct = ((curr_open - prev_close) / prev_close) * 100
+                gaps.append(abs(gap_pct))
+                
+                if abs(gap_pct) > 2.0:
+                    large_gaps += 1
+                
+                if gap_pct < 0:
+                    downward_gaps += 1
+        
+        if len(gaps) == 0:
+            return {
+                "gap_frequency": 0.0,
+                "avg_gap_size": 0.0,
+                "max_gap": 0.0,
+                "downward_gap_freq": 0.0
+            }
+        
+        return {
+            "gap_frequency": (large_gaps / len(gaps)) * 100,  # % with gaps >2%
+            "avg_gap_size": sum(gaps) / len(gaps),  # Average gap size
+            "max_gap": max(gaps),  # Largest gap
+            "downward_gap_freq": (downward_gaps / len(gaps)) * 100  # % negative gaps
+        }
+    except:
+        return {
+            "gap_frequency": 0.0,
+            "avg_gap_size": 0.0,
+            "max_gap": 0.0,
+            "downward_gap_freq": 0.0
+        }
+
+
+def monte_carlo_projection(
+    trade_returns: list,
+    starting_capital: float,
+    trades_per_day: float,
+    days: int = 30,
+    num_simulations: int = 1000
+) -> dict:
+    """
+    Run Monte Carlo simulations to estimate confidence intervals for returns.
+    
+    Args:
+        trade_returns: List of individual trade returns (as decimals, e.g., 0.03 for 3%)
+        starting_capital: Initial capital in USD
+        trades_per_day: Expected number of trades per day
+        days: Number of days to project forward
+        num_simulations: Number of Monte Carlo runs (default: 1000)
+    
+    Returns:
+        dict with:
+            - p5: 5th percentile (pessimistic)
+            - p50: 50th percentile (median)
+            - p95: 95th percentile (optimistic)
+            - mean: Average across all simulations
+    """
+    if not trade_returns or len(trade_returns) < 2:
+        # Not enough data for Monte Carlo
+        return {
+            "p5": starting_capital,
+            "p50": starting_capital,
+            "p95": starting_capital,
+            "mean": starting_capital
+        }
+    
+    import random
+    
+    total_trades = int(trades_per_day * days)
+    final_capitals = []
+    
+    for _ in range(num_simulations):
+        capital = starting_capital
+        
+        # Randomly sample from historical returns with replacement
+        for _ in range(total_trades):
+            trade_return = random.choice(trade_returns)
+            capital *= (1 + trade_return)
+        
+        final_capitals.append(capital)
+    
+    # Sort to find percentiles
+    final_capitals.sort()
+    
+    p5_idx = int(num_simulations * 0.05)
+    p50_idx = int(num_simulations * 0.50)
+    p95_idx = int(num_simulations * 0.95)
+    
+    return {
+        "p5": final_capitals[p5_idx],      # 5% chance worse than this (pessimistic)
+        "p50": final_capitals[p50_idx],    # Median outcome
+        "p95": final_capitals[p95_idx],    # 5% chance better than this (optimistic)
+        "mean": sum(final_capitals) / len(final_capitals)
+    }
+
 
 # Track if we've already done network wait (prevent duplicate waits)
 _network_wait_done = False

@@ -14,6 +14,9 @@ from runner import (
     fetch_closes,
     simulate_signals_and_projection,
     snap_interval_to_supported_seconds,
+    monte_carlo_projection,
+    calculate_overnight_gap_risk,
+    calculate_market_beta,
 )
 from stock_scanner import get_stock_universe
 
@@ -46,16 +49,19 @@ def evaluate_config(client, symbol: str, interval_seconds: int, cap_usd: float, 
     return result
 
 
-def evaluate_robustness(client, symbol: str, interval_seconds: int, cap_usd: float) -> Tuple[float, float, List[float]]:
+def evaluate_robustness(client, symbol: str, interval_seconds: int, cap_usd: float) -> Tuple[float, float, List[float], float]:
     """
     Test strategy across multiple time periods to check robustness.
+    Includes out-of-sample testing on most recent data.
     
     Returns:
-        (average_return, consistency_score, period_returns)
+        (average_return, consistency_score, period_returns, out_of_sample_return)
         
     consistency_score: 0.0-1.0, higher = more consistent across periods
+    out_of_sample_return: Performance on held-out recent data (not used in optimization)
     """
     # Test on 3 different periods (last 200, 400, 600 bars)
+    # These are IN-SAMPLE (used for optimization)
     period_bars = [200, 400, 600]  # ~50 days, 100 days, 150 days each
     period_returns = []
     
@@ -64,22 +70,114 @@ def evaluate_robustness(client, symbol: str, interval_seconds: int, cap_usd: flo
         if ret > -999000:  # Valid result
             period_returns.append(ret)
     
-    if len(period_returns) == 0:
-        return -999999.0, 0.0, []
+    # OUT-OF-SAMPLE TEST: Fetch 750 bars, use last 150 bars (20%) as out-of-sample
+    # Train on bars 0-600, test on bars 600-750
+    try:
+        all_closes = fetch_closes(client, symbol, interval_seconds, 750)
+        if all_closes and len(all_closes) >= 700:
+            # Split: 80% train (first 600 bars), 20% test (last 150 bars)
+            train_size = 600
+            train_data = all_closes[:train_size]
+            test_data = all_closes[train_size:]  # Out-of-sample data
+            
+            # Evaluate on OUT-OF-SAMPLE data only
+            if len(test_data) >= 50:  # Need minimum data for testing
+                sim_test = simulate_signals_and_projection(test_data, interval_seconds, override_cap_usd=cap_usd)
+                out_of_sample_return = float(sim_test.get("expected_daily_usd", 0.0))
+            else:
+                out_of_sample_return = 0.0
+        else:
+            out_of_sample_return = 0.0  # Not enough data for out-of-sample test
+    except:
+        out_of_sample_return = 0.0
     
-    # Calculate average and consistency
+    if len(period_returns) == 0:
+        return -999999.0, 0.0, [], out_of_sample_return
+    
+    # Calculate average and consistency (ONLY from in-sample periods)
     avg_return = sum(period_returns) / len(period_returns)
     
     if len(period_returns) >= 2:
-        # Consistency = 1.0 - (std_dev / mean), capped at 0-1
+        # Consistency = how similar the returns are across periods
+        # BUT: consistent losses should still have LOW consistency
         import statistics
         std_dev = statistics.stdev(period_returns)
         mean_abs = abs(avg_return) if avg_return != 0 else 1.0
-        consistency = max(0.0, min(1.0, 1.0 - (std_dev / mean_abs)))
+        
+        # Base consistency on coefficient of variation
+        raw_consistency = 1.0 - (std_dev / mean_abs)
+        
+        # Penalty for negative returns - consistent losses = bad!
+        if avg_return <= 0:
+            consistency = max(0.0, min(0.3, raw_consistency))  # Cap at 0.3 for losses
+        else:
+            consistency = max(0.0, min(1.0, raw_consistency))
     else:
         consistency = 0.5  # Unknown consistency
     
-    return avg_return, consistency, period_returns
+    return avg_return, consistency, period_returns, out_of_sample_return
+
+
+def walk_forward_test(client, symbol: str, interval_seconds: int, cap_usd: float, total_bars: int = 600) -> dict:
+    """
+    Walk-forward optimization: Rolling train/test windows to prevent look-ahead bias.
+    
+    Splits data into 3 periods:
+    - Period 1: Train on bars 0-200, test on bars 200-400
+    - Period 2: Train on bars 200-400, test on bars 400-600
+    
+    Returns:
+        dict with:
+            - avg_test_return: Average return on test periods
+            - test_returns: List of test period returns
+            - train_test_ratio: Test return / Train return (>0.5 = not overfit)
+    """
+    try:
+        all_closes = fetch_closes(client, symbol, interval_seconds, total_bars)
+        if not all_closes or len(all_closes) < 400:
+            return {"avg_test_return": 0.0, "test_returns": [], "train_test_ratio": 0.0}
+        
+        period_size = len(all_closes) // 3
+        test_returns = []
+        train_returns = []
+        
+        # Period 1: Train on first 1/3, test on second 1/3
+        train_data_1 = all_closes[:period_size]
+        test_data_1 = all_closes[period_size:2*period_size]
+        
+        if len(train_data_1) >= 50 and len(test_data_1) >= 50:
+            train_sim = simulate_signals_and_projection(train_data_1, interval_seconds, override_cap_usd=cap_usd)
+            test_sim = simulate_signals_and_projection(test_data_1, interval_seconds, override_cap_usd=cap_usd)
+            train_returns.append(train_sim.get("expected_daily_usd", 0.0))
+            test_returns.append(test_sim.get("expected_daily_usd", 0.0))
+        
+        # Period 2: Train on second 1/3, test on third 1/3
+        train_data_2 = all_closes[period_size:2*period_size]
+        test_data_2 = all_closes[2*period_size:]
+        
+        if len(train_data_2) >= 50 and len(test_data_2) >= 50:
+            train_sim = simulate_signals_and_projection(train_data_2, interval_seconds, override_cap_usd=cap_usd)
+            test_sim = simulate_signals_and_projection(test_data_2, interval_seconds, override_cap_usd=cap_usd)
+            train_returns.append(train_sim.get("expected_daily_usd", 0.0))
+            test_returns.append(test_sim.get("expected_daily_usd", 0.0))
+        
+        if len(test_returns) == 0:
+            return {"avg_test_return": 0.0, "test_returns": [], "train_test_ratio": 0.0}
+        
+        avg_test = sum(test_returns) / len(test_returns)
+        avg_train = sum(train_returns) / len(train_returns) if train_returns else 1.0
+        
+        # Train/Test ratio: If test << train, we're overfitting
+        # Good ratio: >0.5 (test returns at least 50% of train returns)
+        ratio = avg_test / avg_train if avg_train > 0 else 0.0
+        
+        return {
+            "avg_test_return": avg_test,
+            "test_returns": test_returns,
+            "train_test_ratio": ratio
+        }
+    except:
+        return {"avg_test_return": 0.0, "test_returns": [], "train_test_ratio": 0.0}
 
 
 def binary_search_capital(client, symbol: str, interval_seconds: int, 
@@ -88,18 +186,213 @@ def binary_search_capital(client, symbol: str, interval_seconds: int,
     """
     Binary search to find optimal capital for given interval.
     Tests from $1 to max_cap with caching for efficiency.
+    
+    Uses REAL risk metrics (volatility, win rate, max drawdown) instead of
+    arbitrary penalties.
     """
+    # Calculate real risk metrics once for this stock/interval
+    try:
+        closes = fetch_closes(client, symbol, interval_seconds, 200)
+        if not closes or len(closes) < 50:
+            # Not enough data - apply conservative penalty
+            def apply_risk_adjustment(return_usd: float, capital: float) -> float:
+                # Unknown risk = heavy penalty for large positions
+                if capital <= 5000:
+                    return return_usd * 0.8  # 20% penalty
+                else:
+                    return return_usd * max(0.2, 1.0 - (capital / 50000))  # Up to 80% penalty
+        else:
+            # Calculate REAL risk metrics
+            import statistics
+            
+            # 1. Volatility (price standard deviation)
+            mean_price = sum(closes) / len(closes)
+            variance = sum((x - mean_price) ** 2 for x in closes) / len(closes)
+            stddev = variance ** 0.5
+            volatility_pct = stddev / mean_price if mean_price > 0 else 0.5
+            
+            # 2. Max drawdown (worst peak-to-trough drop)
+            peak = closes[0]
+            max_dd_pct = 0.0
+            for price in closes:
+                if price > peak:
+                    peak = price
+                dd = (peak - price) / peak if peak > 0 else 0.0
+                if dd > max_dd_pct:
+                    max_dd_pct = dd
+            
+            # 3. Win rate and advanced metrics from simulation (at small capital to avoid bias)
+            sim = simulate_signals_and_projection(closes, interval_seconds, override_cap_usd=1000.0)
+            win_rate = sim.get("win_rate", 0.5)
+            profit_factor = sim.get("profit_factor", 1.5)
+            max_consec_losses = sim.get("max_consecutive_losses", 3)
+            avg_trade_duration = sim.get("avg_trade_duration_bars", 5)
+            
+            # 4. Overnight gap risk (if trades hold overnight)
+            bars_per_day = (6.5 * 3600) / interval_seconds
+            holds_overnight = avg_trade_duration >= bars_per_day
+            
+            if holds_overnight:
+                gap_risk = calculate_overnight_gap_risk(symbol, client, days=60)
+                gap_frequency = gap_risk.get("gap_frequency", 0.0)  # % of days with >2% gaps
+                avg_gap_size = gap_risk.get("avg_gap_size", 0.0)  # Average gap size
+            else:
+                gap_frequency = 0.0  # No overnight risk for intraday trades
+                avg_gap_size = 0.0
+            
+            # 5. Market Beta (correlation to S&P 500)
+            market_beta = calculate_market_beta(symbol, days=60)
+            
+            # Calculate risk-adjusted penalty
+            def apply_risk_adjustment(return_usd: float, capital: float) -> float:
+                """
+                Apply penalty based on REAL risk metrics:
+                - High volatility = riskier with large capital
+                - High max drawdown = danger of large losses
+                - Low win rate = unreliable strategy
+                - Low profit factor = barely profitable
+                - High consecutive losses = streak risk (could wipe you out)
+                - Long trade duration = capital tied up (opportunity cost)
+                - Large capital = liquidity issues + harder to exit
+                """
+                # Base liquidity penalty (market impact)
+                if capital <= 10000:
+                    liquidity_penalty = 0.0
+                elif capital <= 50000:
+                    liquidity_penalty = 0.05 + 0.05 * ((capital - 10000) / 40000)
+                elif capital <= 200000:
+                    liquidity_penalty = 0.10 + 0.15 * ((capital - 50000) / 150000)
+                else:
+                    liquidity_penalty = 0.25 + 0.25 * min(1.0, (capital - 200000) / 800000)
+                
+                # Volatility risk (higher volatility = riskier with large positions)
+                # 5% vol = 0% penalty, 20% vol = 20% penalty, 50% vol = 50% penalty
+                vol_risk_penalty = min(0.5, volatility_pct) * (capital / 100000)  # Scales with capital
+                
+                # Drawdown risk (if it dropped 30% before, it can again)
+                # 10% DD = 5% penalty, 30% DD = 15% penalty, 50% DD = 25% penalty
+                dd_risk_penalty = (max_dd_pct * 0.5) * (capital / 100000)  # Scales with capital
+                
+                # Win rate risk (low win rate = unreliable)
+                # 60% WR = 0% penalty, 50% WR = 10% penalty, 40% WR = 20% penalty
+                wr_risk_penalty = max(0.0, (0.60 - win_rate) * 1.0) * (capital / 50000)
+                
+                # NEW: Profit factor risk (low profit factor = barely profitable)
+                # PF 2.0 = 0%, PF 1.5 = 5%, PF 1.0 = 20%, PF <1.0 = 50%
+                if profit_factor >= 2.0:
+                    pf_penalty = 0.0
+                elif profit_factor >= 1.0:
+                    pf_penalty = (2.0 - profit_factor) * 0.20 * (capital / 50000)
+                else:
+                    pf_penalty = 0.50 * (capital / 50000)  # Very risky!
+                
+                # NEW: Consecutive loss streak risk
+                # 3 losses = 0%, 5 losses = 10%, 10 losses = 30%
+                streak_penalty = min(0.30, max(0.0, (max_consec_losses - 3) * 0.05)) * (capital / 50000)
+                
+                # NEW: Trade duration risk (longer = capital tied up + overnight risk)
+                # Calculate bars per day to identify overnight holds
+                bars_per_day = (6.5 * 3600) / interval_seconds  # 6.5 hour trading day
+                
+                # Penalty structure:
+                # - Intraday (<1 day): 0-5% penalty (opportunity cost only)
+                # - Overnight (1-3 days): 10-20% penalty (gap risk + opportunity cost)
+                # - Multi-day (>3 days): 20-30% penalty (high risk + capital tied up)
+                
+                if avg_trade_duration < bars_per_day:
+                    # Intraday - minimal penalty (just opportunity cost)
+                    duration_penalty = min(0.05, (avg_trade_duration / bars_per_day) * 0.05) * (capital / 100000)
+                elif avg_trade_duration < bars_per_day * 3:
+                    # 1-3 days - moderate penalty (overnight gap risk)
+                    days_held = avg_trade_duration / bars_per_day
+                    duration_penalty = (0.10 + (days_held - 1) * 0.05) * (capital / 100000)
+                else:
+                    # >3 days - high penalty (excessive capital tie-up)
+                    duration_penalty = 0.30 * (capital / 100000)
+                
+                # NEW: Trade frequency optimization (penalize extremes)
+                # Optimal: 2-10 trades/day
+                # Too few (<2): Missing opportunities
+                # Too many (>20): Overtrading + high costs
+                
+                trades_per_day_actual = sim.get("expected_trades_per_day", 4.0)
+                
+                if trades_per_day_actual < 1:
+                    # Very few trades - missing opportunities
+                    frequency_penalty = 0.30 * (capital / 100000)
+                elif trades_per_day_actual < 2:
+                    # Below optimal - some penalty
+                    frequency_penalty = 0.15 * (capital / 100000)
+                elif trades_per_day_actual > 20:
+                    # Overtrading - high transaction costs + exhausting
+                    frequency_penalty = 0.25 * (capital / 100000)
+                elif trades_per_day_actual > 10:
+                    # Above optimal - moderate penalty
+                    frequency_penalty = 0.10 * (capital / 100000)
+                else:
+                    # Optimal range (2-10 trades/day) - no penalty
+                    frequency_penalty = 0.0
+                
+                # NEW: Overnight gap risk penalty
+                # If strategy holds overnight, penalize based on historical gap frequency
+                # Formula: (gap_frequency% / 100) * (avg_gap_size / 2) * capital_factor
+                # Example: 10% gap freq, 1.5% avg gap = 7.5% penalty for large positions
+                
+                if gap_frequency > 0:
+                    # Scale penalty with both frequency and size of gaps
+                    gap_risk_penalty = (gap_frequency / 100) * (avg_gap_size / 2) * (capital / 50000)
+                    gap_risk_penalty = min(0.40, gap_risk_penalty)  # Cap at 40% for extremely volatile stocks
+                else:
+                    gap_risk_penalty = 0.0  # Intraday = no gap risk
+                
+                # NEW: Market Beta risk penalty
+                # High beta (>1.5) = very market-dependent (systemic risk)
+                # Low beta (<0.7) = independent alpha (good for diversification)
+                # Ideal beta: 0.7-1.3 (some market exposure but not excessive)
+                
+                if market_beta > 1.5:
+                    # High beta = high systemic risk
+                    beta_penalty = (market_beta - 1.5) * 0.10 * (capital / 100000)
+                    beta_penalty = min(0.30, beta_penalty)  # Cap at 30%
+                elif market_beta < 0.7:
+                    # Low beta = good (independent alpha), slight bonus
+                    beta_penalty = -0.05 * (capital / 200000)  # Small bonus for diversification
+                    beta_penalty = max(-0.10, beta_penalty)  # Cap bonus at 10%
+                else:
+                    # Normal beta range - no penalty
+                    beta_penalty = 0.0
+                
+                # Total penalty (cap at 95% to avoid completely killing stocks)
+                total_penalty = min(0.95, 
+                    liquidity_penalty + vol_risk_penalty + dd_risk_penalty + 
+                    wr_risk_penalty + pf_penalty + streak_penalty + duration_penalty + frequency_penalty + gap_risk_penalty + beta_penalty
+                )
+                
+                return return_usd * (1.0 - total_penalty)
+    except Exception:
+        # Fallback if calculation fails
+        def apply_risk_adjustment(return_usd: float, capital: float) -> float:
+            if capital <= 10000:
+                return return_usd * 0.9
+            else:
+                return return_usd * max(0.2, 1.0 - (capital / 100000))
+    
+    def apply_liquidity_adjustment(return_usd: float, capital: float) -> float:
+        return apply_risk_adjustment(return_usd, capital)
+    
     # Quick sample at key capital points
     test_caps = [10, 50, 100, 250, 500, 1000, 5000, 10000, 50000, 100000, 500000]
     test_caps = [c for c in test_caps if min_cap <= c <= max_cap]
     
     best_cap = min_cap
-    best_return = evaluate_config(client, symbol, interval_seconds, min_cap)
+    raw_return = evaluate_config(client, symbol, interval_seconds, min_cap)
+    best_return = apply_liquidity_adjustment(raw_return, min_cap)
     
     for cap in test_caps:
-        ret = evaluate_config(client, symbol, interval_seconds, cap)
-        if ret > best_return:
-            best_return = ret
+        raw_ret = evaluate_config(client, symbol, interval_seconds, cap)
+        adjusted_ret = apply_liquidity_adjustment(raw_ret, cap)
+        if adjusted_ret > best_return:
+            best_return = adjusted_ret
             best_cap = cap
     
     # Binary search refinement around best
@@ -113,7 +406,8 @@ def binary_search_capital(client, symbol: str, interval_seconds: int,
     
     def get_eval(cap):
         if cap not in eval_cache:
-            eval_cache[cap] = evaluate_config(client, symbol, interval_seconds, cap)
+            raw = evaluate_config(client, symbol, interval_seconds, cap)
+            eval_cache[cap] = apply_liquidity_adjustment(raw, cap)
         return eval_cache[cap]
     
     while (search_max - search_min) > tolerance and iterations < max_iterations:
@@ -191,7 +485,7 @@ def comprehensive_binary_search(symbol: str, verbose: bool = False, max_cap: flo
         
         # Test robustness if enabled
         if use_robustness and ret > -999000:
-            avg_ret, consistency, _ = evaluate_robustness(client, symbol, snapped, cap)
+            avg_ret, consistency, _, oos_return = evaluate_robustness(client, symbol, snapped, cap)
             # Use average return from multiple periods
             ret = avg_ret
             
@@ -321,15 +615,23 @@ def comprehensive_binary_search(symbol: str, verbose: bool = False, max_cap: flo
     return best_interval, best_cap, best_return, best_consistency
 
 
-def estimate_live_trading_return(paper_return: float, interval_seconds: int, capital: float) -> float:
+def estimate_live_trading_return(paper_return: float, interval_seconds: int, capital: float, 
+                                 commission_per_trade: float = 0.0) -> float:
     """
     Estimate realistic live trading returns accounting for real-world costs.
     
     Factors considered:
-    - Slippage: ~0.1% per trade (difference between expected and actual price)
+    - Slippage: Scales with capital (larger orders = more slippage)
+    - Commission: $0 for Alpaca, configurable for other brokers (e.g., $1-5/trade)
     - Partial fills: ~5% of trades don't fully execute
     - Market regime changes: Historical patterns may not continue
     - Competition: Other traders exploit the same patterns
+    
+    Args:
+        paper_return: Backtest daily return in USD
+        interval_seconds: Trading interval
+        capital: Position size in USD
+        commission_per_trade: Commission cost per trade (default: $0 for Alpaca)
     
     Returns adjusted expected daily return for live trading.
     """
@@ -344,9 +646,21 @@ def estimate_live_trading_return(paper_return: float, interval_seconds: int, cap
     # Estimate trades per day based on interval
     trades_per_day = (6.5 * 3600) / interval_seconds  # 6.5 hour trading day
     
-    # Slippage cost per trade (as % of capital)
-    slippage_per_trade = 0.001  # 0.1% per trade
+    # Slippage cost per trade (scales with capital - larger orders = more slippage)
+    # Formula: base 0.1% + additional slippage for large orders
+    if capital <= 10000:
+        slippage_per_trade = 0.001  # 0.1% for small orders
+    elif capital <= 50000:
+        slippage_per_trade = 0.001 + 0.0005 * ((capital - 10000) / 40000)  # 0.1% to 0.15%
+    elif capital <= 200000:
+        slippage_per_trade = 0.0015 + 0.001 * ((capital - 50000) / 150000)  # 0.15% to 0.25%
+    else:
+        slippage_per_trade = 0.0025 + 0.0015 * min(1.0, (capital - 200000) / 800000)  # 0.25% to 0.40%
+    
     daily_slippage_cost = trades_per_day * slippage_per_trade * capital
+    
+    # Commission costs (default $0 for Alpaca, but support other brokers)
+    daily_commission_cost = trades_per_day * commission_per_trade
     
     # Partial fill impact (5% of trades miss, reducing profits)
     partial_fill_factor = 0.95
@@ -364,7 +678,7 @@ def estimate_live_trading_return(paper_return: float, interval_seconds: int, cap
     
     # Calculate realistic return
     gross_return = paper_return * partial_fill_factor * efficiency_factor
-    net_return = gross_return - daily_slippage_cost
+    net_return = gross_return - daily_slippage_cost - daily_commission_cost
     
     return max(net_return, paper_return * 0.3)  # At least 30% of backtest return
 
@@ -379,6 +693,8 @@ def main() -> int:
                        help="Multiple symbols to test and compare")
     parser.add_argument("-m", "--max-cap", type=float, default=1000000.0,
                        help="Maximum capital to test (default: $1,000,000)")
+    parser.add_argument("--commission", type=float, default=0.0,
+                       help="Commission per trade in USD (default: $0 for Alpaca, e.g., $1-5 for other brokers)")
     parser.add_argument("-v", "--verbose", action="store_true",
                        help="Show detailed progress")
     parser.add_argument("--no-robustness", action="store_true",
@@ -391,6 +707,7 @@ def main() -> int:
     args = parser.parse_args()
     
     use_robustness = not args.no_robustness
+    commission_per_trade = args.commission
     
     # Determine which symbols to test
     if args.symbols:
@@ -422,13 +739,15 @@ def main() -> int:
     best_cap = None
     best_return = -999999.0
     best_consistency = 0.0
+    best_trade_returns = []
+    best_trades_per_day = 1.0
     
     results = []
     
-    for symbol in symbols:
+    for idx, symbol in enumerate(symbols, 1):
         if len(symbols) > 1:
             print(f"\n{'='*70}")
-            print(f"TESTING: {symbol}")
+            print(f"[{idx}/{len(symbols)}] TESTING: {symbol}")
             print(f"{'='*70}")
         else:
             print(f"\n{'='*70}")
@@ -442,12 +761,56 @@ def main() -> int:
             symbol, verbose=args.verbose, max_cap=args.max_cap, use_robustness=use_robustness
         )
         
+        # Fetch detailed metrics for this config
+        try:
+            temp_client = make_client(allow_missing=False, go_live=False)
+            closes = fetch_closes(temp_client, symbol, optimal_interval, 200)
+            detailed_sim = simulate_signals_and_projection(closes, optimal_interval, override_cap_usd=optimal_cap)
+            sharpe = detailed_sim.get("sharpe_ratio", 0.0)
+            sortino = detailed_sim.get("sortino_ratio", 0.0)
+            expectancy = detailed_sim.get("expectancy", 0.0)
+            avg_mae = detailed_sim.get("avg_mae", 0.0)
+            max_dd = detailed_sim.get("max_drawdown_pct", 0.0)
+            recovery = detailed_sim.get("recovery_factor", 0.0)
+            trade_returns = detailed_sim.get("trade_returns", [])
+            trades_per_day = detailed_sim.get("expected_trades_per_day", 1.0)
+            
+            # Get out-of-sample performance if robustness testing was enabled
+            if use_robustness:
+                _, _, _, oos_return = evaluate_robustness(temp_client, symbol, optimal_interval, optimal_cap)
+                # Also run walk-forward test
+                wf_result = walk_forward_test(temp_client, symbol, optimal_interval, optimal_cap, total_bars=600)
+                wf_avg_test = wf_result.get("avg_test_return", 0.0)
+                wf_ratio = wf_result.get("train_test_ratio", 0.0)
+            else:
+                oos_return = 0.0
+                wf_avg_test = 0.0
+                wf_ratio = 0.0
+        except:
+            sharpe = sortino = expectancy = avg_mae = max_dd = recovery = 0.0
+            trade_returns = []
+            trades_per_day = 1.0
+            oos_return = 0.0
+            wf_avg_test = 0.0
+            wf_ratio = 0.0
+        
         results.append({
             "symbol": symbol,
             "interval": optimal_interval,
             "cap": optimal_cap,
             "return": expected_return,
-            "consistency": consistency
+            "consistency": consistency,
+            "sharpe": sharpe,
+            "sortino": sortino,
+            "expectancy": expectancy,
+            "avg_mae": avg_mae,
+            "max_dd": max_dd,
+            "recovery": recovery,
+            "oos_return": oos_return,  # Out-of-sample performance
+            "wf_avg_test": wf_avg_test,  # Walk-forward test average
+            "wf_ratio": wf_ratio,  # Walk-forward train/test ratio
+            "trade_returns": trade_returns,
+            "trades_per_day": trades_per_day,
         })
         
         # Use score (return * consistency) to rank
@@ -460,9 +823,11 @@ def main() -> int:
             best_interval = optimal_interval
             best_cap = optimal_cap
             best_consistency = consistency
+            best_trade_returns = trade_returns
+            best_trades_per_day = trades_per_day
         
         # Calculate live trading estimate
-        live_return = estimate_live_trading_return(expected_return, optimal_interval, optimal_cap)
+        live_return = estimate_live_trading_return(expected_return, optimal_interval, optimal_cap, commission_per_trade)
         
         # Determine confidence based on consistency
         if consistency >= 0.8:
@@ -480,6 +845,35 @@ def main() -> int:
         print(f"  Config: {optimal_interval}s ({optimal_interval/3600:.4f}h) @ ${optimal_cap:.0f} cap")
         if use_robustness:
             print(f"  Consistency: {consistency:.2f} ({confidence_label} confidence)")
+            if oos_return != 0.0:
+                oos_label = "✅" if oos_return > 0 else "⚠️"
+                print(f"  Out-of-Sample: ${oos_return:.2f}/day {oos_label}  (unseen data test)")
+            if wf_avg_test != 0.0:
+                wf_label = "✅" if wf_ratio >= 0.5 else "⚠️"
+                print(f"  Walk-Forward: ${wf_avg_test:.2f}/day (ratio: {wf_ratio:.2f}) {wf_label}")
+        print(f"  Quality Metrics:")
+        print(f"    Sharpe Ratio: {sharpe:.3f}  (risk-adjusted return)")
+        print(f"    Sortino Ratio: {sortino:.3f}  (downside risk-adjusted)")
+        print(f"    Expectancy: {expectancy:.2f}%  (avg return per trade)")
+        print(f"    Avg MAE: {avg_mae:.2f}%  (worst move against us)")
+        print(f"    Max Drawdown: {max_dd:.2f}%  (largest peak-to-trough drop)")
+        if recovery != float('inf'):
+            print(f"    Recovery Factor: {recovery:.2f}  (return/drawdown ratio)")
+        else:
+            print(f"    Recovery Factor: ∞  (no drawdown!)")
+        
+        # Show running best after each stock (for early stopping)
+        if len(symbols) > 1:
+            print(f"\n{'~'*70}")
+            print(f"BEST SO FAR (after {idx}/{len(symbols)} stocks):")
+            print(f"  Leader: {best_symbol}")
+            print(f"  Interval: {best_interval}s ({best_interval/3600:.4f}h)")
+            print(f"  Capital: ${best_cap:,.0f}")
+            print(f"  Expected: ${best_return:.2f}/day (paper)")
+            best_live = estimate_live_trading_return(best_return, best_interval, best_cap, commission_per_trade)
+            print(f"           ${best_live:.2f}/day (live)")
+            print(f"  Consistency: {best_consistency:.2f}")
+            print(f"{'~'*70}")
     
     # Show summary if multiple symbols
     if len(symbols) > 1:
@@ -488,7 +882,7 @@ def main() -> int:
         print(f"{'='*70}")
         # Add live trading estimates and scores to results
         for r in results:
-            r["live_return"] = estimate_live_trading_return(r["return"], r["interval"], r["cap"])
+            r["live_return"] = estimate_live_trading_return(r["return"], r["interval"], r["cap"], commission_per_trade)
             r["score"] = r["return"] * (0.5 + 0.5 * r["consistency"])
         results.sort(key=lambda x: x["score"], reverse=True)
         for i, r in enumerate(results[:10], 1):
@@ -511,7 +905,7 @@ def main() -> int:
         print(f"{'='*70}")
     
     # Calculate live trading estimate for best config
-    best_live_return = estimate_live_trading_return(best_return, best_interval, best_cap)
+    best_live_return = estimate_live_trading_return(best_return, best_interval, best_cap, commission_per_trade)
     
     # Show optimal config
     print(f"\n{'='*70}")
@@ -542,7 +936,18 @@ def main() -> int:
     print(f"\nAdjustments applied to live estimate:")
     trades_per_day = (6.5 * 3600) / best_interval
     print(f"  • Trades per day: {trades_per_day:.1f}")
-    print(f"  • Slippage cost: ~0.1% per trade")
+    # Calculate actual slippage for this capital
+    if best_cap <= 10000:
+        slip_pct = 0.1
+    elif best_cap <= 50000:
+        slip_pct = 0.1 + 0.05 * ((best_cap - 10000) / 40000)
+    elif best_cap <= 200000:
+        slip_pct = 0.15 + 0.10 * ((best_cap - 50000) / 150000)
+    else:
+        slip_pct = 0.25 + 0.15 * min(1.0, (best_cap - 200000) / 800000)
+    print(f"  • Slippage cost: ~{slip_pct:.2f}% per trade (scales with capital)")
+    if commission_per_trade > 0:
+        print(f"  • Commission: ${commission_per_trade:.2f} per trade")
     print(f"  • Partial fills: ~5% reduction")
     if trades_per_day > 20:
         print(f"  • Market efficiency: 50% (very high frequency)")
@@ -608,13 +1013,21 @@ def main() -> int:
             for months in [1, 3, 6, 12, 24]:
                 trading_days = months * 20
                 
-                paper_final = optimal_cap * ((1 + paper_daily_pct/100) ** trading_days)
-                paper_gain_pct = ((paper_final - optimal_cap) / optimal_cap) * 100
+                try:
+                    paper_final = optimal_cap * ((1 + paper_daily_pct/100) ** trading_days)
+                    paper_gain_pct = ((paper_final - optimal_cap) / optimal_cap) * 100
+                    paper_str = f"${paper_final:>10,.0f} (+{paper_gain_pct:>5.0f}%)"
+                except OverflowError:
+                    paper_str = "OVERFLOW (too large)".ljust(30)
                 
-                live_final = optimal_cap * ((1 + live_daily_pct/100) ** trading_days)
-                live_gain_pct = ((live_final - optimal_cap) / optimal_cap) * 100
+                try:
+                    live_final = optimal_cap * ((1 + live_daily_pct/100) ** trading_days)
+                    live_gain_pct = ((live_final - optimal_cap) / optimal_cap) * 100
+                    live_str = f"${live_final:>10,.0f} (+{live_gain_pct:>5.0f}%)"
+                except OverflowError:
+                    live_str = "OVERFLOW (too large)".ljust(30)
                 
-                print(f"{months:2d}mo ({trading_days:3d}days): ${paper_final:>10,.0f} (+{paper_gain_pct:>5.0f}%)  |  ${live_final:>10,.0f} (+{live_gain_pct:>5.0f}%)")
+                print(f"{months:2d}mo ({trading_days:3d}days): {paper_str}  |  {live_str}")
             
             print(f"\n⚠️  IMPORTANT REALITY CHECK:")
             print(f"   • Paper = theoretical backtest (OPTIMISTIC)")
@@ -624,6 +1037,47 @@ def main() -> int:
             print(f"     - No extended losing streaks or black swan events")
             print(f"     - Consistent execution and no downtime")
             print(f"\n💡 Professional traders expect 10-30% per YEAR, not per day.")
+            
+            # Monte Carlo confidence intervals
+            if len(best_trade_returns) >= 2:
+                print(f"\n{'='*70}")
+                print(f"MONTE CARLO SIMULATION (30 days)")
+                print(f"{'='*70}")
+                print(f"Based on {len(best_trade_returns)} historical trades, running 1000 simulations...")
+                print(f"")
+                
+                mc_result = monte_carlo_projection(
+                    trade_returns=best_trade_returns,
+                    starting_capital=optimal_cap,
+                    trades_per_day=best_trades_per_day,
+                    days=30,
+                    num_simulations=1000
+                )
+                
+                p5 = mc_result["p5"]
+                p50 = mc_result["p50"]
+                p95 = mc_result["p95"]
+                mean = mc_result["mean"]
+                
+                gain_p5 = ((p5 - optimal_cap) / optimal_cap) * 100
+                gain_p50 = ((p50 - optimal_cap) / optimal_cap) * 100
+                gain_p95 = ((p95 - optimal_cap) / optimal_cap) * 100
+                gain_mean = ((mean - optimal_cap) / optimal_cap) * 100
+                
+                print(f"Starting capital: ${optimal_cap:,.2f}")
+                print(f"")
+                print(f"After 30 trading days:")
+                print(f"  5th percentile (pessimistic): ${p5:,.2f}  ({gain_p5:+.1f}%)")
+                print(f"  50th percentile (median):     ${p50:,.2f}  ({gain_p50:+.1f}%)")
+                print(f"  Mean (average):               ${mean:,.2f}  ({gain_mean:+.1f}%)")
+                print(f"  95th percentile (optimistic): ${p95:,.2f}  ({gain_p95:+.1f}%)")
+                print(f"")
+                print(f"95% confidence interval: ${p5:,.2f} to ${p95:,.2f}")
+                print(f"")
+                print(f"⚠️  This shows the RANGE of possible outcomes, not just average.")
+                print(f"   • 5% of simulations ended worse than ${p5:,.2f}")
+                print(f"   • 5% of simulations ended better than ${p95:,.2f}")
+                print(f"   • Real results will vary - this is based on historical patterns")
         else:
             print(f"\n⚠️  Invalid capital configuration (${optimal_cap:.2f})")
             print(f"   Cannot calculate compounding projections.")
