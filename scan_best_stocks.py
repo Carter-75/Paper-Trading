@@ -53,7 +53,7 @@ def main():
     )
     
     if not results:
-        print("\n❌ No profitable stocks found!")
+        print("\n[X] No profitable stocks found!")
         print("   Try different interval or increase capital.")
         return 1
     
@@ -71,11 +71,11 @@ def main():
         price = stock['current_price']
         
         if exp_daily > 0:
-            status = "✅"
+            status = "[OK]"
         elif exp_daily > -0.5:
-            status = "⚠️ "
+            status = "[!] "
         else:
-            status = "❌"
+            status = "[X]"
         
         print(f"{i}. {status} {symbol:6s} | ${exp_daily:7.2f}/day | "
               f"Win: {win_rate:5.1f}% | Trades: {trades_day:4.1f}/day | "
@@ -97,7 +97,7 @@ def main():
         print(f"\n   Or quick test (no admin):")
         print(f"   python \"$BotDir\\runner.py\" -t {args.interval} -s {best['symbol']} -m {args.cap} --max-stocks 1")
     else:
-        print(f"\n⚠️  All stocks show negative returns.")
+        print(f"\n[!]  All stocks show negative returns.")
         print(f"   Suggestions:")
         print(f"   - Try different interval (shorter: -t 0.083, longer: -t 1.0)")
         print(f"   - Try different stocks (-s AAPL MSFT GOOGL)")

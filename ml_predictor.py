@@ -205,7 +205,7 @@ def auto_train_model_if_needed(predictor: TradingMLPredictor) -> bool:
     print("="*70)
     print("Training on 17 symbols with 500 bars each (~5-10 minutes)...")
     print("")
-    print("⚠️  Press Ctrl+C at any time to TRAIN WITH WHAT'S COLLECTED SO FAR")
+    print("[!]  Press Ctrl+C at any time to TRAIN WITH WHAT'S COLLECTED SO FAR")
     print("    (ML stays enabled, just with fewer symbols)")
     print("="*70)
     print("")
@@ -252,7 +252,7 @@ def auto_train_model_if_needed(predictor: TradingMLPredictor) -> bool:
                 # User pressed Ctrl+C - stop fetching and train with what we have
                 print("\n")
                 print("="*70)
-                print("⚠️  TRAINING INTERRUPTED - USING WHAT WE HAVE SO FAR")
+                print("[!]  TRAINING INTERRUPTED - USING WHAT WE HAVE SO FAR")
                 print("="*70)
                 print(f"Collected {len(training_data)} samples from {idx-1}/{len(symbols)} symbols")
                 print("")
@@ -266,7 +266,7 @@ def auto_train_model_if_needed(predictor: TradingMLPredictor) -> bool:
                     if success:
                         print("")
                         print("="*70)
-                        print("✅ MODEL TRAINED WITH PARTIAL DATA!")
+                        print("[OK] MODEL TRAINED WITH PARTIAL DATA!")
                         print("="*70)
                         print(f"Model saved to: {predictor.model_path}")
                         print(f"Trained on {idx-1}/{len(symbols)} symbols")
@@ -277,12 +277,12 @@ def auto_train_model_if_needed(predictor: TradingMLPredictor) -> bool:
                         print("="*70 + "\n")
                         return True
                     else:
-                        print("❌ Training failed with collected data.")
+                        print("[X] Training failed with collected data.")
                         print("ML will be DISABLED. To train later: python train_ml_model.py")
                         print("="*70 + "\n")
                         return False
                 else:
-                    print(f"❌ Not enough data for training ({len(training_data)} samples, need 50+)")
+                    print(f"[X] Not enough data for training ({len(training_data)} samples, need 50+)")
                     print("ML will be DISABLED for this run.")
                     print("To train later: python train_ml_model.py")
                     print("="*70 + "\n")
@@ -292,7 +292,7 @@ def auto_train_model_if_needed(predictor: TradingMLPredictor) -> bool:
                 print(f"(error: {e})")
         
         if len(training_data) < 100:
-            print(f"\n❌ Not enough data collected ({len(training_data)} samples, need 100+)")
+            print(f"\n[X] Not enough data collected ({len(training_data)} samples, need 100+)")
             print("ML prediction will be DISABLED for this run.")
             print("To manually train: python train_ml_model.py")
             print("")
@@ -306,21 +306,21 @@ def auto_train_model_if_needed(predictor: TradingMLPredictor) -> bool:
         if success:
             print("")
             print("="*70)
-            print("✅ AUTO-TRAINING COMPLETE (FULL DATASET)!")
+            print("[OK] AUTO-TRAINING COMPLETE (FULL DATASET)!")
             print("="*70)
             print(f"Model saved to: {predictor.model_path}")
             print("ML prediction is now ENABLED and ready to use!")
             print("="*70 + "\n")
             return True
         else:
-            print("❌ Auto-training failed. ML will be disabled.")
+            print("[X] Auto-training failed. ML will be disabled.")
             return False
     
     except KeyboardInterrupt:
         # User pressed Ctrl+C during initial setup (before any data collected)
         print("\n")
         print("="*70)
-        print("⚠️  TRAINING INTERRUPTED BEFORE DATA COLLECTION")
+        print("[!]  TRAINING INTERRUPTED BEFORE DATA COLLECTION")
         print("="*70)
         print("No data was collected yet, so ML will be DISABLED for this run.")
         print("To train later: python train_ml_model.py")
@@ -328,7 +328,7 @@ def auto_train_model_if_needed(predictor: TradingMLPredictor) -> bool:
         return False
     
     except Exception as e:
-        print(f"\n❌ Auto-training error: {e}")
+        print(f"\n[X] Auto-training error: {e}")
         print("ML prediction will be DISABLED for this run.")
         print("To manually train: python train_ml_model.py")
         print("")

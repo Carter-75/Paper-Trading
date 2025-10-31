@@ -1178,12 +1178,12 @@ def buy_flow(client, symbol: str, last_price: float, available_cap: float,
                             if abs(corr) > 0.7:
                                 # Reduce available capital by 50% for highly correlated stocks
                                 available_cap = available_cap * 0.5
-                                log_info(f"  ⚠️ High correlation with {existing_symbol}: {corr:.2f}")
+                                log_info(f"  [!] High correlation with {existing_symbol}: {corr:.2f}")
                                 log_info(f"     Reducing position size by 50% (${available_cap*2:.2f} → ${available_cap:.2f})")
                             elif abs(corr) > 0.5:
                                 # Moderate correlation: reduce by 25%
                                 available_cap = available_cap * 0.75
-                                log_info(f"  ⚠️ Moderate correlation with {existing_symbol}: {corr:.2f}")
+                                log_info(f"  [!] Moderate correlation with {existing_symbol}: {corr:.2f}")
                                 log_info(f"     Reducing position size by 25% (${available_cap/0.75:.2f} → ${available_cap:.2f})")
         except:
             pass  # Don't fail trade if correlation check fails
@@ -1255,7 +1255,7 @@ def buy_flow(client, symbol: str, last_price: float, available_cap: float,
                 
                 # Warn if price is near upper band (>80%)
                 if position_pct > 80:
-                    log_info(f"  ⚠️  Bollinger Bands: {position_pct:.0f}% (near upper band, risky)")
+                    log_info(f"  [!]  Bollinger Bands: {position_pct:.0f}% (near upper band, risky)")
                 else:
                     log_info(f"  Bollinger Bands: {position_pct:.0f}% (good position)")
         except:
@@ -1695,7 +1695,7 @@ def check_drawdown_protection(current_value: float) -> Tuple[bool, str]:
         if drawdown_pct < -config.MAX_PORTFOLIO_DRAWDOWN_PERCENT:
             if not _drawdown_protection_triggered:
                 _drawdown_protection_triggered = True
-                msg = (f"🛑 DRAWDOWN PROTECTION TRIGGERED\n"
+                msg = (f"[STOP] DRAWDOWN PROTECTION TRIGGERED\n"
                       f"   Portfolio down {abs(drawdown_pct):.1f}% from peak (${_portfolio_peak_value:.2f})\n"
                       f"   Current value: ${current_value:.2f}\n"
                       f"   Max allowed: {config.MAX_PORTFOLIO_DRAWDOWN_PERCENT}%\n"

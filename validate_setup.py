@@ -99,19 +99,19 @@ def simulate_args(args_dict: dict) -> None:
     
     # 1. Stock configuration
     valid, msg = validate_stock_args(forced_stocks, max_stocks)
-    print(f"1. Stock Selection: {'✅' if valid else '❌'}")
+    print(f"1. Stock Selection: {'[OK]' if valid else '[X]'}")
     print(f"   {msg}")
     if not valid:
         all_valid = False
     
     # 2. Capital allocation
     valid, msg = validate_capital(total_cap, cap_per_stock, max_stocks)
-    print(f"\n2. Capital Allocation: {'✅' if valid else '⚠️'}")
+    print(f"\n2. Capital Allocation: {'[OK]' if valid else '[!]'}")
     print(f"   {msg}")
     
     # 3. Interval
     valid, msg = validate_interval(interval)
-    print(f"\n3. Trading Interval: {'✅' if valid else '⚠️'}")
+    print(f"\n3. Trading Interval: {'[OK]' if valid else '[!]'}")
     print(f"   {msg}")
     
     # 4. Show what will happen
@@ -148,9 +148,9 @@ def simulate_args(args_dict: dict) -> None:
     
     print(f"\n{'='*70}")
     if all_valid:
-        print("✅ CONFIGURATION VALID - Ready to run!")
+        print("[OK] CONFIGURATION VALID - Ready to run!")
     else:
-        print("❌ CONFIGURATION ERRORS - Fix issues above before running!")
+        print("[X] CONFIGURATION ERRORS - Fix issues above before running!")
     print(f"{'='*70}\n")
     
     return all_valid

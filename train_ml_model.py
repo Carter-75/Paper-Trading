@@ -72,7 +72,7 @@ def main():
     
     if success:
         print("\n" + "="*70)
-        print("✅ ML MODEL TRAINING COMPLETE!")
+        print("[OK] ML MODEL TRAINING COMPLETE!")
         print("="*70)
         print(f"Model saved to: {predictor.model_path}")
         print("\nNext steps:")
@@ -88,7 +88,7 @@ def main():
         return 0
     else:
         print("\n" + "="*70)
-        print("❌ MODEL TRAINING FAILED")
+        print("[X] MODEL TRAINING FAILED")
         print("="*70)
         print("To disable ML and run anyway, add to .env:")
         print("  ENABLE_ML_PREDICTION=0")

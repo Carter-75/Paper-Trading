@@ -221,7 +221,7 @@ def apply_conservative_preset():
     RISKY_MODE_ENABLED = False
     TAKE_PROFIT_PERCENT = 2.0
     STOP_LOSS_PERCENT = 1.0
-    print("✅ Applied CONSERVATIVE preset (recommended for beginners)")
+    print("[OK] Applied CONSERVATIVE preset (recommended for beginners)")
 
 def apply_aggressive_preset():
     """Apply maximum profit settings (high risk!)"""
@@ -230,7 +230,7 @@ def apply_aggressive_preset():
     RISKY_MODE_ENABLED = True
     TAKE_PROFIT_PERCENT = 3.0
     STOP_LOSS_PERCENT = 1.5
-    print("⚠️  Applied AGGRESSIVE preset (high risk, experienced users only)")
+    print("[!]  Applied AGGRESSIVE preset (high risk, experienced users only)")
 
 # Auto-apply based on environment variable
 PRESET_MODE = os.getenv("PRESET_MODE", "").upper()

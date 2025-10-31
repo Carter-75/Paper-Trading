@@ -868,69 +868,105 @@ def comprehensive_binary_search(symbol: str, verbose: bool = False, max_cap: flo
 def estimate_live_trading_return(paper_return: float, interval_seconds: int, capital: float, 
                                  commission_per_trade: float = 0.0) -> float:
     """
-    Estimate realistic live trading returns accounting for real-world costs.
+    SMART realistic live trading estimate based on actual market conditions.
     
-    Factors considered:
-    - Slippage: Scales with capital (larger orders = more slippage)
-    - Commission: $0 for Alpaca, configurable for other brokers (e.g., $1-5/trade)
-    - Partial fills: ~5% of trades don't fully execute
-    - Market regime changes: Historical patterns may not continue
-    - Competition: Other traders exploit the same patterns
+    This accounts for ALL real-world factors that degrade backtest performance:
+    - Slippage (larger orders = worse prices)
+    - Partial fills (orders don't always fill completely)
+    - Market regime changes (patterns stop working)
+    - Competition (others exploit same patterns)
+    - Execution delays (network, API, decision time)
+    - Overnight gaps (if holding positions)
+    - Psychological factors (harder to follow rules with real money)
+    - Overfitting penalty (if returns are suspiciously good)
     
-    Args:
-        paper_return: Backtest daily return in USD
-        interval_seconds: Trading interval
-        capital: Position size in USD
-        commission_per_trade: Commission cost per trade (default: $0 for Alpaca)
-    
-    Returns adjusted expected daily return for live trading.
+    Returns CONSERVATIVE estimate, not optimistic best-case.
     """
     if paper_return <= 0:
         # If strategy is losing money in backtest, live trading will be worse
-        return paper_return * 1.3  # 30% worse losses in live trading
+        return paper_return * 1.5  # 50% worse losses in live trading (fear, worse execution)
     
     # Guard against division by zero
     if interval_seconds <= 0 or capital <= 0:
-        return paper_return * 0.5  # Conservative 50% of backtest if invalid params
+        return paper_return * 0.3  # Very conservative if invalid params
+    
+    # Calculate daily return percentage
+    daily_pct = (paper_return / capital) * 100
+    
+    # OVERFITTING DETECTION: If returns are too good, it's probably overfit
+    # Professional hedge funds aim for 15-30% per YEAR (not per day!)
+    # If we're seeing >5% per day consistently, something's wrong
+    overfitting_penalty = 1.0
+    if daily_pct > 10:  # >10%/day = 99.9% likely overfit
+        overfitting_penalty = 0.20  # Keep only 20%
+    elif daily_pct > 5:  # >5%/day = extremely suspicious
+        overfitting_penalty = 0.35  # Keep only 35%
+    elif daily_pct > 2:  # >2%/day = very suspicious
+        overfitting_penalty = 0.50  # Keep only 50%
+    elif daily_pct > 1:  # >1%/day = moderately suspicious
+        overfitting_penalty = 0.65  # Keep 65%
+    elif daily_pct > 0.5:  # >0.5%/day = slightly suspicious but possible
+        overfitting_penalty = 0.75  # Keep 75%
+    else:  # <0.5%/day = realistic range
+        overfitting_penalty = 0.85  # Keep 85% (still some slippage)
     
     # Estimate trades per day based on interval
     trades_per_day = (6.5 * 3600) / interval_seconds  # 6.5 hour trading day
     
-    # Slippage cost per trade (scales with capital - larger orders = more slippage)
-    # Formula: base 0.1% + additional slippage for large orders
+    # Slippage cost per trade (scales with capital AND frequency)
+    # More trades = market sees your pattern = worse prices
     if capital <= 10000:
-        slippage_per_trade = 0.001  # 0.1% for small orders
+        base_slippage = 0.0015  # 0.15% for small orders
     elif capital <= 50000:
-        slippage_per_trade = 0.001 + 0.0005 * ((capital - 10000) / 40000)  # 0.1% to 0.15%
+        base_slippage = 0.0015 + 0.001 * ((capital - 10000) / 40000)  # 0.15% to 0.25%
     elif capital <= 200000:
-        slippage_per_trade = 0.0015 + 0.001 * ((capital - 50000) / 150000)  # 0.15% to 0.25%
+        base_slippage = 0.0025 + 0.0015 * ((capital - 50000) / 150000)  # 0.25% to 0.40%
     else:
-        slippage_per_trade = 0.0025 + 0.0015 * min(1.0, (capital - 200000) / 800000)  # 0.25% to 0.40%
+        base_slippage = 0.004 + 0.002 * min(1.0, (capital - 200000) / 800000)  # 0.40% to 0.60%
     
-    daily_slippage_cost = trades_per_day * slippage_per_trade * capital
+    # Frequency multiplier: High frequency = predictable = front-run
+    if trades_per_day > 50:
+        slippage_multiplier = 2.0  # You're being front-run
+    elif trades_per_day > 20:
+        slippage_multiplier = 1.5
+    elif trades_per_day > 10:
+        slippage_multiplier = 1.2
+    else:
+        slippage_multiplier = 1.0
     
-    # Commission costs (default $0 for Alpaca, but support other brokers)
+    actual_slippage = base_slippage * slippage_multiplier
+    daily_slippage_cost = trades_per_day * actual_slippage * capital
+    
+    # Commission costs
     daily_commission_cost = trades_per_day * commission_per_trade
     
-    # Partial fill impact (5% of trades miss, reducing profits)
-    partial_fill_factor = 0.95
+    # Partial fill impact (realistic: 10-15% of trades have issues)
+    partial_fill_factor = 0.88  # 12% reduction due to partial fills, rejections, etc.
     
-    # Market efficiency factor (historical patterns degrade)
-    # More frequent trading = more competition = lower edge
+    # Execution delay factor (thinking time, network lag, API delays)
+    # By the time you execute, price has moved
     if trades_per_day > 20:
-        efficiency_factor = 0.50  # Very frequent trading (1min) = 50% of backtest
+        execution_delay_factor = 0.85  # High frequency = timing critical = big impact
     elif trades_per_day > 10:
-        efficiency_factor = 0.60  # Frequent trading (5min) = 60% of backtest
-    elif trades_per_day > 4:
-        efficiency_factor = 0.70  # Moderate trading (15min-1hr) = 70% of backtest
+        execution_delay_factor = 0.90
     else:
-        efficiency_factor = 0.80  # Infrequent trading (4hr+) = 80% of backtest
+        execution_delay_factor = 0.95  # Lower frequency = less timing critical
     
-    # Calculate realistic return
-    gross_return = paper_return * partial_fill_factor * efficiency_factor
-    net_return = gross_return - daily_slippage_cost - daily_commission_cost
+    # Market regime change factor (patterns degrade over time)
+    # Historical edge erodes as more people find it or market changes
+    regime_factor = 0.70  # Assume 70% of edge persists (30% disappears)
     
-    return max(net_return, paper_return * 0.3)  # At least 30% of backtest return
+    # Psychological factor (harder to follow rules with real money)
+    # Fear causes early exits, greed causes late entries
+    psychological_factor = 0.90  # 10% reduction due to human emotions
+    
+    # Calculate realistic return with ALL factors
+    adjusted_return = paper_return * overfitting_penalty * partial_fill_factor * execution_delay_factor * regime_factor * psychological_factor
+    net_return = adjusted_return - daily_slippage_cost - daily_commission_cost
+    
+    # Return the REAL calculated value - no artificial caps
+    # If math says it's negative after all costs, then it's negative
+    return net_return
 
 
 def main() -> int:
@@ -1074,25 +1110,29 @@ def main() -> int:
             # Restore original signal handler
             signal.signal(signal.SIGINT, original_sigint)
         
-        # Find best result
+        # Find best result - RANK BY LIVE RETURNS, NOT PAPER!
         for idx, result in enumerate(results, 1):
             symbol = result["symbol"]
             optimal_interval = result["interval"]
             optimal_cap = result["cap"]
-            expected_return = result["return"]
+            expected_return = result["return"]  # Paper backtest
             consistency = result["consistency"]
             trade_returns = result["trade_returns"]
             trades_per_day = result["trades_per_day"]
             
-            # Update best if this is better
-            score = expected_return * (0.5 + 0.5 * consistency)
-            best_score = best_return * (0.5 + 0.5 * best_consistency)
+            # Calculate LIVE return for this stock
+            live_return = estimate_live_trading_return(expected_return, optimal_interval, optimal_cap, commission_per_trade)
+            
+            # Update best if this is better (RANK BY LIVE, NOT PAPER!)
+            score = live_return * (0.5 + 0.5 * consistency)
+            best_live = estimate_live_trading_return(best_return, best_interval, best_cap, commission_per_trade) if best_return > -999000 else -999999
+            best_score = best_live * (0.5 + 0.5 * best_consistency)
             
             if score > best_score:
                 best_symbol = symbol
                 best_interval = optimal_interval
                 best_cap = optimal_cap
-                best_return = expected_return
+                best_return = expected_return  # Store paper for reference
                 best_consistency = consistency
                 best_trade_returns = trade_returns
                 best_trades_per_day = trades_per_day
@@ -1214,21 +1254,22 @@ def main() -> int:
             cvar_95=cvar_95
         )
         
-        # Use score (return * consistency) to rank
-        score = expected_return * (0.5 + 0.5 * consistency)
-        best_score = best_return * (0.5 + 0.5 * best_consistency)
+        # Calculate live trading estimate FIRST
+        live_return = estimate_live_trading_return(expected_return, optimal_interval, optimal_cap, commission_per_trade)
+        
+        # Use LIVE score (live return * consistency) to rank - NOT paper!
+        score = live_return * (0.5 + 0.5 * consistency)
+        best_live = estimate_live_trading_return(best_return, best_interval, best_cap, commission_per_trade) if best_return > -999000 else -999999
+        best_score = best_live * (0.5 + 0.5 * best_consistency)
         
         if score > best_score:
-            best_return = expected_return
+            best_return = expected_return  # Store paper for reference
             best_symbol = symbol
             best_interval = optimal_interval
             best_cap = optimal_cap
             best_consistency = consistency
             best_trade_returns = trade_returns
             best_trades_per_day = trades_per_day
-        
-        # Calculate live trading estimate
-        live_return = estimate_live_trading_return(expected_return, optimal_interval, optimal_cap, commission_per_trade)
         
         # Determine confidence based on consistency
         if consistency >= 0.8:
@@ -1283,7 +1324,7 @@ def main() -> int:
                     kelly_pct = kelly_half * 100
                     
                     print(f"    Kelly Criterion: {kelly_pct:.1f}%  (optimal position size)")
-                    print(f"      → Bot uses Half-Kelly for safety ({kelly_full*50:.1f}% of full Kelly)")
+                    print(f"      -> Bot uses Half-Kelly for safety ({kelly_full*50:.1f}% of full Kelly)")
             except:
                 pass
         
@@ -1303,12 +1344,13 @@ def main() -> int:
     # Show summary if multiple symbols
     if len(symbols) > 1:
         print(f"\n{'='*70}")
-        print(f"RESULTS SUMMARY (Ranked by score = return × consistency)")
+        print(f"RESULTS SUMMARY (Ranked by LIVE return × consistency)")
         print(f"{'='*70}")
         # Add live trading estimates and scores to results
         for r in results:
             r["live_return"] = estimate_live_trading_return(r["return"], r["interval"], r["cap"], commission_per_trade)
-            r["score"] = r["return"] * (0.5 + 0.5 * r["consistency"])
+            # RANK BY LIVE RETURNS, NOT PAPER!
+            r["score"] = r["live_return"] * (0.5 + 0.5 * r["consistency"])
         results.sort(key=lambda x: x["score"], reverse=True)
         for i, r in enumerate(results[:10], 1):
             status = "[OK]" if r["return"] > 0 else "[X]"
@@ -1323,7 +1365,7 @@ def main() -> int:
             else:
                 conf_label = "LOW"
             
-            print(f"{i}. {r['symbol']:6s} {status}  Paper: ${r['return']:6.2f}/day  Live: ${r['live_return']:6.2f}/day")
+            print(f"{i}. {r['symbol']:6s} {status}  LIVE: ${r['live_return']:6.2f}/day  (paper: ${r['return']:6.2f}/day)")
             print(f"   Config: {r['interval']:5d}s ({r['interval']/3600:.4f}h) @ ${r['cap']:7.0f} cap")
             if use_robustness:
                 print(f"   Consistency: {r['consistency']:.2f} ({conf_label})")
@@ -1354,7 +1396,7 @@ def main() -> int:
             if high_corr_pairs:
                 print(f"\n[!]  High Correlation Pairs (>0.7):")
                 for sym1, sym2, corr in high_corr_pairs[:5]:  # Show top 5
-                    print(f"   {sym1} ↔ {sym2}: {corr:.2f} (move together)")
+                    print(f"   {sym1} <-> {sym2}: {corr:.2f} (move together)")
                 print(f"\n[TIP] Consider replacing one stock from each pair for better diversification")
             else:
                 print(f"\n[OK] No high correlation pairs found (>0.7)")
@@ -1381,11 +1423,13 @@ def main() -> int:
     
     # Show optimal config
     print(f"\n{'='*70}")
-    print(f"OPTIMAL CONFIGURATION")
+    print(f"OPTIMAL CONFIGURATION (Bot auto-picks stocks)")
     print(f"{'='*70}")
-    print(f"Symbol: {best_symbol}")
-    print(f"Interval: {best_interval}s ({best_interval/3600:.4f}h)")
-    print(f"Capital: ${best_cap:.2f}")
+    print(f"Best performer found: {best_symbol}  (reference only)")
+    print(f"\n>>> YOU SET THESE 2 VALUES:")
+    print(f"  1. Time Interval: {best_interval}s ({best_interval/3600:.4f}h)")
+    print(f"  2. Total Capital: ${best_cap:.2f}")
+    print(f"\n>>> BOT DOES EVERYTHING ELSE AUTOMATICALLY")
     
     if use_robustness:
         if best_consistency >= 0.8:
@@ -1398,37 +1442,56 @@ def main() -> int:
             conf_label = "LOW"
         print(f"Consistency: {best_consistency:.2f} ({conf_label} confidence)")
     
-    print(f"\nExpected Daily Returns:")
-    print(f"  Paper Trading (backtest):  ${best_return:.2f}/day")
+    print(f"\nExpected Daily Returns (USE THESE VALUES!):")
+    print(f"  Live Trading (REALISTIC):  ${best_live_return:.2f}/day  <<< USE THIS")
     if best_return != 0:
         live_pct = best_live_return/best_return*100
-        print(f"  Live Trading (realistic):  ${best_live_return:.2f}/day  ({live_pct:.0f}% of backtest)")
+        print(f"  Paper Trading (reference):  ${best_return:.2f}/day  (backtest only, {100-live_pct:.0f}% unrealistic)")
+        
+        # OVERFITTING WARNING based on return percentage
+        daily_return_pct = (best_return / best_cap) * 100
+        if daily_return_pct > 5:
+            print(f"\n[!]  OVERFITTING WARNING: {daily_return_pct:.1f}%/day is EXTREMELY suspicious!")
+            print(f"     This is likely curve-fitted to recent data and won't persist.")
+            print(f"     Hedge funds average 1-2% per MONTH, not per day.")
+            print(f"     Live estimate already applies 65-80% penalty for overfitting.")
+        elif daily_return_pct > 2:
+            print(f"\n[!]  HIGH RETURNS WARNING: {daily_return_pct:.1f}%/day is very high")
+            print(f"     This may not be sustainable long-term.")
+            print(f"     Live estimate applies 50% penalty for potential overfitting.")
+        elif daily_return_pct > 1:
+            print(f"\n[!]  NOTE: {daily_return_pct:.1f}%/day is above typical algo performance")
+            print(f"     Live estimate applies 35% penalty as safety margin.")
     else:
         print(f"  Live Trading (realistic):  ${best_live_return:.2f}/day")
-    print(f"\nAdjustments applied to live estimate:")
+    
+    print(f"\nRealistic Factors Applied to Live Estimate:")
     trades_per_day = (6.5 * 3600) / best_interval
     print(f"  • Trades per day: {trades_per_day:.1f}")
-    # Calculate actual slippage for this capital
-    if best_cap <= 10000:
-        slip_pct = 0.1
-    elif best_cap <= 50000:
-        slip_pct = 0.1 + 0.05 * ((best_cap - 10000) / 40000)
-    elif best_cap <= 200000:
-        slip_pct = 0.15 + 0.10 * ((best_cap - 50000) / 150000)
+    
+    # Show actual factors applied
+    daily_pct = (best_return / best_cap) * 100
+    if daily_pct > 10:
+        print(f"  • Overfitting penalty: 80% (returns too high = likely overfit)")
+    elif daily_pct > 5:
+        print(f"  • Overfitting penalty: 65% (very high returns = suspicious)")
+    elif daily_pct > 2:
+        print(f"  • Overfitting penalty: 50% (high returns = caution)")
+    elif daily_pct > 1:
+        print(f"  • Overfitting penalty: 35% (above average = conservative)")
+    elif daily_pct > 0.5:
+        print(f"  • Overfitting penalty: 25% (good returns = mild caution)")
     else:
-        slip_pct = 0.25 + 0.15 * min(1.0, (best_cap - 200000) / 800000)
-    print(f"  • Slippage cost: ~{slip_pct:.2f}% per trade (scales with capital)")
+        print(f"  • Overfitting penalty: 15% (realistic returns)")
+    
+    print(f"  • Slippage: 0.15-0.60% per trade (scales with capital & frequency)")
+    print(f"  • Partial fills: 12% reduction (realistic market impact)")
+    print(f"  • Execution delays: 5-15% reduction (network, API, timing)")
+    print(f"  • Market regime changes: 30% edge erosion (patterns degrade)")
+    print(f"  • Psychological factors: 10% reduction (human emotions)")
     if commission_per_trade > 0:
         print(f"  • Commission: ${commission_per_trade:.2f} per trade")
-    print(f"  • Partial fills: ~5% reduction")
-    if trades_per_day > 20:
-        print(f"  • Market efficiency: 50% (very high frequency)")
-    elif trades_per_day > 10:
-        print(f"  • Market efficiency: 60% (high frequency)")
-    elif trades_per_day > 4:
-        print(f"  • Market efficiency: 70% (moderate frequency)")
-    else:
-        print(f"  • Market efficiency: 80% (low frequency)")
+    print(f"  • NO ARTIFICIAL CAPS - pure math based on real-world costs")
     
     symbol = best_symbol
     optimal_interval = best_interval
@@ -1457,18 +1520,22 @@ def main() -> int:
     else:
         print(f"[OK] STRATEGY IS PROFITABLE")
         print(f"{'='*70}")
-        print(f"\nRun bot (as Administrator from anywhere):")
+        print(f"\nRun bot (ONLY SET 2 THINGS: interval & capital):")
         print(f"  $BotDir = 'C:\\Users\\YourName\\...\\Paper-Trading'")
-        print(f"\n  # Single stock (Admin mode - full automation)")
-        print(f"  & \"$BotDir\\botctl.ps1\" start python -u runner.py -t {optimal_interval/3600:.4f} -s {symbol} -m {optimal_cap:.0f} --max-stocks 1")
-        print(f"\n  # Multi-stock portfolio (Admin mode - bot picks best 15)")
-        print(f"  & \"$BotDir\\botctl.ps1\" start python -u runner.py -t {optimal_interval/3600:.4f} -m {15 * optimal_cap:.0f}")
-        print(f"\n  # Quick test (Simple mode - no automation)")
-        print(f"  python \"$BotDir\\runner.py\" -t {optimal_interval/3600:.4f} -s {symbol} -m {optimal_cap:.0f} --max-stocks 1")
+        print(f"\n  # RECOMMENDED: Bot auto-picks best stocks & manages everything")
+        print(f"  & \"$BotDir\\botctl.ps1\" start python -u runner.py -t {optimal_interval/3600:.4f} -m {optimal_cap:.0f}")
+        print(f"\n  Bot will automatically:")
+        print(f"    - Scan top stocks (S&P 500)")
+        print(f"    - Pick best 15 performers")
+        print(f"    - Allocate capital smartly")
+        print(f"    - Set stop loss/take profit")
+        print(f"    - Rebalance portfolio")
+        print(f"    - Everything else!")
+        print(f"\n  You ONLY set: Time interval ({optimal_interval/3600:.4f}h) + Total capital (${optimal_cap:.0f})")
         
         # Compounding projections with both paper and live estimates
         print(f"\n{'='*70}")
-        print(f"COMPOUNDING PROJECTIONS")
+        print(f"REALISTIC EXPECTED RETURNS")
         print(f"{'='*70}")
         
         if optimal_cap > 0:
@@ -1479,36 +1546,63 @@ def main() -> int:
             print(f"Paper return: ${expected_return:.2f}/day ({paper_daily_pct:.3f}%/day)")
             print(f"Live return:  ${best_live_return:.2f}/day ({live_daily_pct:.3f}%/day)")
             
-            print(f"\n{'Paper Backtest':<25} {'Live Trading (Realistic)':<30}")
-            print(f"{'-'*25} {'-'*30}")
+            # Only show realistic timeframes (1-6 months, not years)
+            # Anything beyond 6 months is pure speculation
+            print(f"\n{'Timeframe':<15} {'Expected Profit (Conservative)':<35}")
+            print(f"{'-'*15} {'-'*35}")
             
-            for months in [1, 3, 6, 12, 24]:
+            for months in [1, 2, 3, 6]:
                 trading_days = months * 20
                 
-                try:
-                    paper_final = optimal_cap * ((1 + paper_daily_pct/100) ** trading_days)
-                    paper_gain_pct = ((paper_final - optimal_cap) / optimal_cap) * 100
-                    paper_str = f"${paper_final:>10,.0f} (+{paper_gain_pct:>5.0f}%)"
-                except OverflowError:
-                    paper_str = "OVERFLOW (too large)".ljust(30)
+                # Account for variance and drawdowns (not just straight compounding)
+                # Real returns have ups and downs, not smooth exponential growth
+                # Use geometric mean instead of arithmetic mean
+                
+                # Assume 20% variance drag (realistic for algo trading)
+                variance_drag = 0.80
+                
+                # Assume periodic drawdowns reduce compounding
+                # Longer timeframes = more likely to hit drawdown
+                if months == 1:
+                    drawdown_factor = 0.95  # 5% chance of 10-20% drawdown
+                elif months == 2:
+                    drawdown_factor = 0.90  # 10% expected drawdown impact
+                elif months == 3:
+                    drawdown_factor = 0.85  # 15% expected drawdown impact
+                else:  # 6 months
+                    drawdown_factor = 0.75  # 25% expected drawdown impact
+                
+                # Calculate conservative estimate
+                effective_daily_return = live_daily_pct * variance_drag * drawdown_factor
                 
                 try:
-                    live_final = optimal_cap * ((1 + live_daily_pct/100) ** trading_days)
-                    live_gain_pct = ((live_final - optimal_cap) / optimal_cap) * 100
-                    live_str = f"${live_final:>10,.0f} (+{live_gain_pct:>5.0f}%)"
-                except OverflowError:
-                    live_str = "OVERFLOW (too large)".ljust(30)
-                
-                print(f"{months:2d}mo ({trading_days:3d}days): {paper_str}  |  {live_str}")
+                    if effective_daily_return > 0:
+                        final_capital = optimal_cap * ((1 + effective_daily_return/100) ** trading_days)
+                    else:
+                        final_capital = optimal_cap  # No growth if negative
+                    
+                    profit = final_capital - optimal_cap
+                    gain_pct = (profit / optimal_cap) * 100
+                    
+                    if profit > 0:
+                        result_str = f"+${profit:>10,.0f} (+{gain_pct:>5.1f}%)"
+                    else:
+                        result_str = f"${profit:>10,.0f} ({gain_pct:>5.1f}%)"
+                    
+                    print(f"{months:2d} month{'s' if months>1 else ' '} ({trading_days:3d} days): {result_str}")
+                except (OverflowError, ValueError):
+                    print(f"{months:2d} month{'s' if months>1 else ' '} ({trading_days:3d} days): [Data insufficient for projection]")
             
-            print(f"\n[!]  IMPORTANT REALITY CHECK:")
-            print(f"   • Paper = theoretical backtest (OPTIMISTIC)")
-            print(f"   • Live = adjusted for real trading costs (MORE REALISTIC)")
-            print(f"   • Even live estimates assume:")
-            print(f"     - Market conditions stay similar to backtest period")
-            print(f"     - No extended losing streaks or black swan events")
-            print(f"     - Consistent execution and no downtime")
-            print(f"\n[TIP] Professional traders expect 10-30% per YEAR, not per day.")
+            print(f"\n[!]  CRITICAL: These are BEST-CASE estimates assuming:")
+            print(f"   • No major market crashes or regime changes")
+            print(f"   • You follow the strategy perfectly (no emotion)")
+            print(f"   • No extended losing streaks (very unlikely)")
+            print(f"   • Bot runs 24/7 with no downtime")
+            print(f"   • Already accounts for: slippage, fees, execution delays,")
+            print(f"     psychological factors, variance drag, and drawdowns")
+            print(f"\n[!]  REALITY: Actual returns will likely be 30-50% lower than shown")
+            print(f"   Professional traders expect 15-30% per YEAR, not per month")
+            print(f"   If you beat 2%/month consistently, you're doing VERY well")
             
             # Monte Carlo confidence intervals
             if len(best_trade_returns) >= 2:
@@ -1550,9 +1644,9 @@ def main() -> int:
                 print(f"")
                 print(f"RISK METRICS (Institutional Standard):")
                 print(f"  VaR (95% confidence):  ${var_95:,.2f}")
-                print(f"    → 95% chance daily loss won't exceed this amount")
+                print(f"    -> 95% chance daily loss won't exceed this amount")
                 print(f"  CVaR (Expected Shortfall): ${cvar_95:,.2f}")
-                print(f"    → Average loss in worst 5% of scenarios")
+                print(f"    -> Average loss in worst 5% of scenarios")
                 print(f"")
                 print(f"[!]  This shows the RANGE of possible outcomes, not just average.")
                 print(f"   • 5% of simulations ended worse than ${p5:,.2f}")

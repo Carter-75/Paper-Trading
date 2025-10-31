@@ -95,7 +95,7 @@ def fetch_top_stocks_dynamic(limit: int = 100, force_refresh: bool = False) -> L
                 if cache_age_hours < CACHE_DURATION_HOURS and is_same_day:
                     symbols = cache.get('symbols', [])
                     if len(symbols) >= limit:
-                        print(f"✓ Using cached top {len(symbols[:limit])} stocks (age: {cache_age_hours:.1f}h)")
+                        print(f"[OK] Using cached top {len(symbols[:limit])} stocks (age: {cache_age_hours:.1f}h)")
                         return symbols[:limit]
                 else:
                     if not is_same_day:
@@ -165,7 +165,7 @@ def fetch_top_stocks_dynamic(limit: int = 100, force_refresh: bool = False) -> L
         except Exception:
             pass
         
-        print(f"✓ Successfully fetched top {len(top_symbols)} stocks")
+        print(f"[OK] Successfully fetched top {len(top_symbols)} stocks")
         return top_symbols[:limit]
         
     except Exception as e:
