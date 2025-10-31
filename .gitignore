@@ -14,4 +14,6 @@ pnl_ledger.json
 top_stocks_cache.json
 start_bot.ps1
 ml_model.pkl
+price_cache.db
+optimization_history.csv
 
