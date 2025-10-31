@@ -181,12 +181,169 @@ class TradingMLPredictor:
 
 # Global instance
 _ml_predictor = None
+_auto_train_attempted = False
+
+def auto_train_model_if_needed(predictor: TradingMLPredictor) -> bool:
+    """
+    Auto-train ML model if it doesn't exist.
+    Uses FULL training set (17 symbols, 500 bars) for best accuracy.
+    User can press Ctrl+C to skip if needed.
+    """
+    global _auto_train_attempted
+    
+    # Only try once per process
+    if _auto_train_attempted:
+        return False
+    _auto_train_attempted = True
+    
+    # Check if model already exists
+    if os.path.exists(predictor.model_path):
+        return False
+    
+    print("\n" + "="*70)
+    print("ML MODEL NOT FOUND - AUTO-TRAINING NOW (FULL DATASET)")
+    print("="*70)
+    print("Training on 17 symbols with 500 bars each (~5-10 minutes)...")
+    print("")
+    print("⚠️  Press Ctrl+C at any time to TRAIN WITH WHAT'S COLLECTED SO FAR")
+    print("    (ML stays enabled, just with fewer symbols)")
+    print("="*70)
+    print("")
+    
+    try:
+        # Import here to avoid circular dependency
+        import config
+        from runner import make_client, fetch_closes_with_volume
+        
+        # FULL training set (17 diverse symbols - same as train_ml_model.py)
+        symbols = [
+            "AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "NVDA", "META",
+            "JPM", "V", "WMT", "JNJ", "PG", "UNH", "HD", "DIS",
+            "SPY", "QQQ"  # Include ETFs for diverse patterns
+        ]
+        interval_seconds = int(getattr(config, 'DEFAULT_INTERVAL_SECONDS', 900))
+        training_data = []
+        
+        print(f"Connecting to market data...")
+        client = make_client(allow_missing=False, go_live=False)
+        print("")
+        
+        for idx, symbol in enumerate(symbols, 1):
+            print(f"  [{idx}/{len(symbols)}] Fetching {symbol}...", end=" ", flush=True)
+            try:
+                closes, volumes = fetch_closes_with_volume(client, symbol, interval_seconds, 500)
+                
+                if len(closes) < 50:
+                    print("(insufficient data, skipping)")
+                    continue
+                
+                # Create labels: 1 if next price is higher, 0 if lower
+                samples_added = 0
+                for i in range(40, len(closes) - 1):
+                    window_closes = closes[:i]
+                    window_volumes = volumes[:i]
+                    label = 1 if closes[i+1] > closes[i] else 0
+                    training_data.append((window_closes, window_volumes, label))
+                    samples_added += 1
+                
+                print(f"({samples_added} samples)")
+            
+            except KeyboardInterrupt:
+                # User pressed Ctrl+C - stop fetching and train with what we have
+                print("\n")
+                print("="*70)
+                print("⚠️  TRAINING INTERRUPTED - USING WHAT WE HAVE SO FAR")
+                print("="*70)
+                print(f"Collected {len(training_data)} samples from {idx-1}/{len(symbols)} symbols")
+                print("")
+                
+                # Try to train with what we have (require at least 50 samples minimum)
+                if len(training_data) >= 50:
+                    print(f"Training model with {len(training_data)} samples...")
+                    print("(This is less than the full dataset but still usable)")
+                    print("")
+                    success = predictor.train(training_data, test_size=0.3)
+                    if success:
+                        print("")
+                        print("="*70)
+                        print("✅ MODEL TRAINED WITH PARTIAL DATA!")
+                        print("="*70)
+                        print(f"Model saved to: {predictor.model_path}")
+                        print(f"Trained on {idx-1}/{len(symbols)} symbols")
+                        print("ML prediction is now ENABLED!")
+                        print("")
+                        print("For full accuracy with all 17 symbols, run:")
+                        print("  python train_ml_model.py")
+                        print("="*70 + "\n")
+                        return True
+                    else:
+                        print("❌ Training failed with collected data.")
+                        print("ML will be DISABLED. To train later: python train_ml_model.py")
+                        print("="*70 + "\n")
+                        return False
+                else:
+                    print(f"❌ Not enough data for training ({len(training_data)} samples, need 50+)")
+                    print("ML will be DISABLED for this run.")
+                    print("To train later: python train_ml_model.py")
+                    print("="*70 + "\n")
+                    return False
+            
+            except Exception as e:
+                print(f"(error: {e})")
+        
+        if len(training_data) < 100:
+            print(f"\n❌ Not enough data collected ({len(training_data)} samples, need 100+)")
+            print("ML prediction will be DISABLED for this run.")
+            print("To manually train: python train_ml_model.py")
+            print("")
+            return False
+        
+        print("")
+        print(f"Training Random Forest model on {len(training_data)} samples...")
+        print("(This may take 1-2 minutes...)")
+        success = predictor.train(training_data, test_size=0.3)
+        
+        if success:
+            print("")
+            print("="*70)
+            print("✅ AUTO-TRAINING COMPLETE (FULL DATASET)!")
+            print("="*70)
+            print(f"Model saved to: {predictor.model_path}")
+            print("ML prediction is now ENABLED and ready to use!")
+            print("="*70 + "\n")
+            return True
+        else:
+            print("❌ Auto-training failed. ML will be disabled.")
+            return False
+    
+    except KeyboardInterrupt:
+        # User pressed Ctrl+C during initial setup (before any data collected)
+        print("\n")
+        print("="*70)
+        print("⚠️  TRAINING INTERRUPTED BEFORE DATA COLLECTION")
+        print("="*70)
+        print("No data was collected yet, so ML will be DISABLED for this run.")
+        print("To train later: python train_ml_model.py")
+        print("="*70 + "\n")
+        return False
+    
+    except Exception as e:
+        print(f"\n❌ Auto-training error: {e}")
+        print("ML prediction will be DISABLED for this run.")
+        print("To manually train: python train_ml_model.py")
+        print("")
+        return False
 
 def get_ml_predictor() -> TradingMLPredictor:
     """Get global ML predictor instance"""
     global _ml_predictor
     if _ml_predictor is None:
         _ml_predictor = TradingMLPredictor()
-        _ml_predictor.load_model()  # Try to load existing model
+        
+        # Try to load existing model
+        if not _ml_predictor.load_model():
+            # Model doesn't exist - try auto-training
+            auto_train_model_if_needed(_ml_predictor)
+    
     return _ml_predictor
 
