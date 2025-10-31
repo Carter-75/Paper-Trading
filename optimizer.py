@@ -1018,6 +1018,7 @@ def main() -> int:
         num_workers = args.workers or multiprocessing.cpu_count()
         print(f"\n🚀 PARALLEL MODE: Using {num_workers} workers")
         print(f"   Estimated speedup: {num_workers}x faster\n")
+        print(f"   (Press Ctrl+C to cancel)\n")
         
         # Create worker function with fixed parameters
         worker = partial(evaluate_single_stock, 
@@ -1026,13 +1027,17 @@ def main() -> int:
                         commission_per_trade=commission_per_trade)
         
         # Run in parallel with progress bar
-        with multiprocessing.Pool(processes=num_workers) as pool:
-            results = list(tqdm(
-                pool.imap(worker, symbols),
-                total=len(symbols),
-                desc="Optimizing (Parallel)",
-                unit="stock"
-            ))
+        try:
+            with multiprocessing.Pool(processes=num_workers) as pool:
+                results = list(tqdm(
+                    pool.imap(worker, symbols),
+                    total=len(symbols),
+                    desc="Optimizing (Parallel)",
+                    unit="stock"
+                ))
+        except KeyboardInterrupt:
+            print(f"\n\n❌ Optimization cancelled by user (Ctrl+C)")
+            return 1
         
         # Find best result
         for idx, result in enumerate(results, 1):
@@ -1551,4 +1556,6 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    # Required for Windows multiprocessing support
+    multiprocessing.freeze_support()
     sys.exit(main())
