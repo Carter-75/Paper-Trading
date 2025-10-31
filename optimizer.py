@@ -746,9 +746,41 @@ def comprehensive_binary_search(symbol: str, verbose: bool = False, max_cap: flo
             if verbose:
                 print(f"  {snapped:5d}s ({snapped/3600:6.3f}h): ${ret:7.2f}/day @ ${cap:>9.0f} cap")
         
-        # Favor configs with good returns AND high consistency
-        score = ret * (0.5 + 0.5 * consistency)  # Weight consistency 50%
-        best_score = best_return * (0.5 + 0.5 * best_consistency)
+        # SMART SCORING: Penalize intervals that waste the trading day
+        # Trading day is 6.5 hours - we want to maximize useful trades
+        trading_day_seconds = 6.5 * 3600
+        actual_trades_per_day = trading_day_seconds / snapped
+        
+        # Utilization factor: How well does this interval use the trading day?
+        # Examples:
+        #   4h = 1.6 trades = basically 1 = 15% utilization = BAD
+        #   2h = 3.25 trades = basically 3 = 46% utilization = BETTER  
+        #   1h = 6.5 trades = basically 6-7 = 100% utilization = BEST
+        effective_trades = int(actual_trades_per_day)  # How many COMPLETE trades you get
+        utilization = min(effective_trades / 6.5, 1.0)  # Max 100%
+        
+        # Bonus for intervals that don't waste much time
+        # If 4h gives 1.6 trades, you waste 0.6 trades worth of time (2.4 hours!)
+        waste = actual_trades_per_day - effective_trades
+        waste_penalty = 1.0 - (waste * 0.2)  # Penalize wasted partial trades
+        
+        utilization_factor = utilization * waste_penalty
+        
+        # Final score: return × consistency × utilization
+        # Utilization weighted at 50% to strongly prefer intervals that maximize trades
+        score = ret * (0.5 + 0.5 * consistency) * (0.5 + 0.5 * utilization_factor)
+        
+        if best_return > -999000:
+            best_trading_day_seconds = 6.5 * 3600
+            best_actual_trades = best_trading_day_seconds / best_interval
+            best_effective_trades = int(best_actual_trades)
+            best_utilization = min(best_effective_trades / 6.5, 1.0)
+            best_waste = best_actual_trades - best_effective_trades
+            best_waste_penalty = 1.0 - (best_waste * 0.2)
+            best_utilization_factor = best_utilization * best_waste_penalty
+            best_score = best_return * (0.5 + 0.5 * best_consistency) * (0.5 + 0.5 * best_utilization_factor)
+        else:
+            best_score = -999999
         
         if score > best_score:
             best_return = ret
@@ -1123,10 +1155,30 @@ def main() -> int:
             # Calculate LIVE return for this stock
             live_return = estimate_live_trading_return(expected_return, optimal_interval, optimal_cap, commission_per_trade)
             
-            # Update best if this is better (RANK BY LIVE, NOT PAPER!)
-            score = live_return * (0.5 + 0.5 * consistency)
-            best_live = estimate_live_trading_return(best_return, best_interval, best_cap, commission_per_trade) if best_return > -999000 else -999999
-            best_score = best_live * (0.5 + 0.5 * best_consistency)
+            # SMART SCORING: Penalize intervals that waste the trading day
+            trading_day_seconds = 6.5 * 3600
+            actual_trades = trading_day_seconds / optimal_interval
+            effective_trades = int(actual_trades)
+            utilization = min(effective_trades / 6.5, 1.0)
+            waste = actual_trades - effective_trades
+            waste_penalty = 1.0 - (waste * 0.2)
+            utilization_factor = utilization * waste_penalty
+            
+            # Update best if this is better (RANK BY LIVE × consistency × utilization!)
+            # Utilization weighted at 50% to strongly prefer intervals that maximize trades
+            score = live_return * (0.5 + 0.5 * consistency) * (0.5 + 0.5 * utilization_factor)
+            
+            if best_return > -999000:
+                best_live = estimate_live_trading_return(best_return, best_interval, best_cap, commission_per_trade)
+                best_actual_trades = trading_day_seconds / best_interval
+                best_effective = int(best_actual_trades)
+                best_util = min(best_effective / 6.5, 1.0)
+                best_waste = best_actual_trades - best_effective
+                best_waste_pen = 1.0 - (best_waste * 0.2)
+                best_util_factor = best_util * best_waste_pen
+                best_score = best_live * (0.5 + 0.5 * best_consistency) * (0.5 + 0.5 * best_util_factor)
+            else:
+                best_score = -999999
             
             if score > best_score:
                 best_symbol = symbol
@@ -1257,10 +1309,30 @@ def main() -> int:
         # Calculate live trading estimate FIRST
         live_return = estimate_live_trading_return(expected_return, optimal_interval, optimal_cap, commission_per_trade)
         
-        # Use LIVE score (live return * consistency) to rank - NOT paper!
-        score = live_return * (0.5 + 0.5 * consistency)
-        best_live = estimate_live_trading_return(best_return, best_interval, best_cap, commission_per_trade) if best_return > -999000 else -999999
-        best_score = best_live * (0.5 + 0.5 * best_consistency)
+        # SMART SCORING: Penalize intervals that waste the trading day
+        trading_day_seconds = 6.5 * 3600
+        actual_trades = trading_day_seconds / optimal_interval
+        effective_trades = int(actual_trades)
+        utilization = min(effective_trades / 6.5, 1.0)
+        waste = actual_trades - effective_trades
+        waste_penalty = 1.0 - (waste * 0.2)
+        utilization_factor = utilization * waste_penalty
+        
+        # Use LIVE score (live return × consistency × utilization) to rank - NOT paper!
+        # Utilization weighted at 50% to strongly prefer intervals that maximize trades
+        score = live_return * (0.5 + 0.5 * consistency) * (0.5 + 0.5 * utilization_factor)
+        
+        if best_return > -999000:
+            best_live = estimate_live_trading_return(best_return, best_interval, best_cap, commission_per_trade)
+            best_actual_trades = trading_day_seconds / best_interval
+            best_effective = int(best_actual_trades)
+            best_util = min(best_effective / 6.5, 1.0)
+            best_waste = best_actual_trades - best_effective
+            best_waste_pen = 1.0 - (best_waste * 0.2)
+            best_util_factor = best_util * best_waste_pen
+            best_score = best_live * (0.5 + 0.5 * best_consistency) * (0.5 + 0.5 * best_util_factor)
+        else:
+            best_score = -999999
         
         if score > best_score:
             best_return = expected_return  # Store paper for reference
@@ -1334,10 +1406,16 @@ def main() -> int:
             print(f"BEST SO FAR (after {idx}/{len(symbols)} stocks):")
             print(f"  Leader: {best_symbol}")
             print(f"  Interval: {best_interval}s ({best_interval/3600:.4f}h)")
+            
+            # Show trading day utilization
+            best_trades_per_day = (6.5 * 3600) / best_interval
+            best_effective_trades = int(best_trades_per_day)
+            print(f"  Trades/day: {best_effective_trades} complete trades ({best_trades_per_day:.1f} total)")
+            
             print(f"  Capital: ${best_cap:,.0f}")
             print(f"  Expected: ${best_return:.2f}/day (paper)")
             best_live = estimate_live_trading_return(best_return, best_interval, best_cap, commission_per_trade)
-            print(f"           ${best_live:.2f}/day (live)")
+            print(f"           ${best_live:.2f}/day (live) <<< USE THIS")
             print(f"  Consistency: {best_consistency:.2f}")
             print(f"{'~'*70}")
     
@@ -1428,6 +1506,17 @@ def main() -> int:
     print(f"Best performer found: {best_symbol}  (reference only)")
     print(f"\n>>> YOU SET THESE 2 VALUES:")
     print(f"  1. Time Interval: {best_interval}s ({best_interval/3600:.4f}h)")
+    
+    # Show why this interval is optimal
+    optimal_trades_per_day = (6.5 * 3600) / best_interval
+    optimal_effective_trades = int(optimal_trades_per_day)
+    waste_time = (optimal_trades_per_day - optimal_effective_trades) * (best_interval / 3600)
+    print(f"     -> {optimal_effective_trades} complete trades/day ({optimal_trades_per_day:.1f} total)")
+    if waste_time > 0.5:
+        print(f"     -> Wastes {waste_time:.1f}h at end of day (acceptable)")
+    else:
+        print(f"     -> Minimal waste ({waste_time:.1f}h) - good utilization!")
+    
     print(f"  2. Total Capital: ${best_cap:.2f}")
     print(f"\n>>> BOT DOES EVERYTHING ELSE AUTOMATICALLY")
     
