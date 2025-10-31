@@ -43,7 +43,7 @@ Automated stock trading bot with advanced strategy filters, risk management, and
 
 ```powershell
 # Open PowerShell as Administrator
-cd C:\Users\YourName\Desktop\Code\Paper-Trading
+cd C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading
 
 # Install dependencies
 pip install -r requirements.txt
@@ -54,12 +54,68 @@ notepad .env
 
 **Add to `.env`:**
 ```env
+# ===== REQUIRED =====
 ALPACA_API_KEY=your_alpaca_key
 ALPACA_SECRET_KEY=your_alpaca_secret
 ALPACA_BASE_URL=https://paper-api.alpaca.markets
 POLYGON_API_KEY=your_polygon_key
-CONFIRM_GO_LIVE=NO
+
+# ===== SAFETY (Important) =====
+CONFIRM_GO_LIVE=NO                    # Must be YES for live trading
+EXIT_ON_NEGATIVE_PROJECTION=1         # Exit if negative returns
+
+# ===== STRATEGY (optional, have good defaults) =====
+DEFAULT_INTERVAL_SECONDS=900          # 15 minutes
+SHORT_WINDOW=9                        # Fast MA
+LONG_WINDOW=21                        # Slow MA
+MAX_CAP_USD=100
+TRADE_SIZE_FRAC_OF_CAP=0.65          # Use 65% per trade
+TAKE_PROFIT_PERCENT=2.0              # TP at +2%
+STOP_LOSS_PERCENT=1.0                # SL at -1%
+TRAILING_STOP_PERCENT=0.75           # Trailing stop (locks in profits)
+
+# ===== RISK MANAGEMENT (optional) =====
+MIN_CONFIDENCE_TO_TRADE=0.005
+VOLATILITY_PCT_THRESHOLD=0.15
+PROFITABILITY_MIN_EXPECTED_USD=0.10
+MAX_DAILY_LOSS_PERCENT=5.0
+MAX_TRADE_SIZE_FRAC=0.95
+
+# ===== DYNAMIC (optional) =====
+DYNAMIC_PARAM_ENABLED=1
+RISKY_MODE_ENABLED=1
+RISKY_TP_MULT=1.5
+RISKY_SL_MULT=0.8
+RISKY_FRAC_MULT=1.3
+
+# ===== ADVANCED FILTERS (All enabled by default) =====
+RSI_ENABLED=1                          # RSI overbought/oversold filter
+RSI_OVERBOUGHT=70                      # Don't buy above this RSI
+RSI_OVERSOLD=30                        # Don't sell below this RSI
+
+MULTI_TIMEFRAME_ENABLED=1              # Multi-timeframe confirmation
+VOLUME_CONFIRMATION_ENABLED=1          # Volume confirmation filter
+
+ENABLE_DRAWDOWN_PROTECTION=1           # Stop trading if down >15% from peak
+MAX_PORTFOLIO_DRAWDOWN_PERCENT=15.0
+
+ENABLE_KELLY_SIZING=1                  # Kelly Criterion position sizing
+ENABLE_CORRELATION_CHECK=1             # Correlation-based diversification
+CORRELATION_CHECK_ENABLED=1
+
+USE_LIMIT_ORDERS=1                     # Use limit orders for better prices
+LIMIT_ORDER_OFFSET_PERCENT=0.1
+LIMIT_ORDER_TIMEOUT_SECONDS=300
+
+ENABLE_SAFE_HOURS=1                    # Avoid market open/close volatility
+AVOID_FIRST_MINUTES=15
+AVOID_LAST_MINUTES=15
+
+ENABLE_ML_PREDICTION=1                 # Random Forest prediction
+ML_CONFIDENCE_THRESHOLD=0.6
 ```
+
+**Note:** You only need the REQUIRED section to get started. The rest have good defaults and make the bot smarter, but you can skip them initially.
 
 ### 2. Find Optimal Parameters (Optional)
 
@@ -204,39 +260,16 @@ python train_ml_model.py
 
 ## ⚙️ Configuration
 
-Edit `.env` to customize behavior:
+**All configuration is in the `.env` file** - see the full example in the Quick Start section above.
 
-**Strategy Settings:**
-```env
-DEFAULT_INTERVAL_SECONDS=900        # 15 minutes
-SHORT_WINDOW=9                      # Fast MA
-LONG_WINDOW=21                      # Slow MA
-TAKE_PROFIT_PERCENT=2.0             # TP at +2%
-STOP_LOSS_PERCENT=1.0               # SL at -1%
-TRAILING_STOP_PERCENT=0.75          # Trailing stop
-```
+**Key settings you might want to change:**
+- `TAKE_PROFIT_PERCENT` - Default: 2.0% (when to take profits)
+- `STOP_LOSS_PERCENT` - Default: 1.0% (when to cut losses)
+- `TRAILING_STOP_PERCENT` - Default: 0.75% (locks in profits as price rises)
+- `MAX_DAILY_LOSS_PERCENT` - Default: 5.0% (bot exits if down this much in one day)
+- `MAX_PORTFOLIO_DRAWDOWN_PERCENT` - Default: 15.0% (stops trading if down this much from peak)
 
-**Risk Management:**
-```env
-MAX_DAILY_LOSS_PERCENT=5.0          # Exit if down 5% in one day
-MAX_PORTFOLIO_DRAWDOWN_PERCENT=15.0 # Stop trading if down >15% from peak
-VOLATILITY_PCT_THRESHOLD=0.15       # Skip stocks with >15% volatility
-```
-
-**Advanced Filters:**
-```env
-RSI_ENABLED=1                       # RSI overbought/oversold filter
-RSI_OVERBOUGHT=70
-RSI_OVERSOLD=30
-
-MULTI_TIMEFRAME_ENABLED=1           # Multi-timeframe confirmation
-VOLUME_CONFIRMATION_ENABLED=1       # Volume confirmation filter
-
-ENABLE_KELLY_SIZING=1               # Kelly Criterion position sizing
-ENABLE_CORRELATION_CHECK=1          # Correlation-based diversification
-USE_LIMIT_ORDERS=1                  # Use limit orders for better prices
-ENABLE_ML_PREDICTION=1              # Random Forest prediction
-```
+**All advanced filters are enabled by default** - see `.env` example in Quick Start to customize.
 
 ---
 
