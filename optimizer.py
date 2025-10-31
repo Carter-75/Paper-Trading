@@ -492,138 +492,131 @@ def binary_search_capital(client, symbol: str, interval_seconds: int,
                 return return_usd * max(0.2, 1.0 - (capital / 50000))  # Up to 80% penalty
     else:
         # Calculate risk-adjusted penalty
-            def apply_risk_adjustment(return_usd: float, capital: float) -> float:
-                """
-                Apply penalty based on REAL risk metrics:
-                - High volatility = riskier with large capital
-                - High max drawdown = danger of large losses
-                - Low win rate = unreliable strategy
-                - Low profit factor = barely profitable
-                - High consecutive losses = streak risk (could wipe you out)
-                - Long trade duration = capital tied up (opportunity cost)
-                - Large capital = liquidity issues + harder to exit
-                """
-                # Base liquidity penalty (market impact)
-                if capital <= 10000:
-                    liquidity_penalty = 0.0
-                elif capital <= 50000:
-                    liquidity_penalty = 0.05 + 0.05 * ((capital - 10000) / 40000)
-                elif capital <= 200000:
-                    liquidity_penalty = 0.10 + 0.15 * ((capital - 50000) / 150000)
-                else:
-                    liquidity_penalty = 0.25 + 0.25 * min(1.0, (capital - 200000) / 800000)
-                
-                # Volatility risk (higher volatility = riskier with large positions)
-                # 5% vol = 0% penalty, 20% vol = 20% penalty, 50% vol = 50% penalty
-                vol_risk_penalty = min(0.5, volatility_pct) * (capital / 100000)  # Scales with capital
-                
-                # Drawdown risk (if it dropped 30% before, it can again)
-                # 10% DD = 5% penalty, 30% DD = 15% penalty, 50% DD = 25% penalty
-                dd_risk_penalty = (max_dd_pct * 0.5) * (capital / 100000)  # Scales with capital
-                
-                # Win rate risk (low win rate = unreliable)
-                # 60% WR = 0% penalty, 50% WR = 10% penalty, 40% WR = 20% penalty
-                wr_risk_penalty = max(0.0, (0.60 - win_rate) * 1.0) * (capital / 50000)
-                
-                # NEW: Profit factor risk (low profit factor = barely profitable)
-                # PF 2.0 = 0%, PF 1.5 = 5%, PF 1.0 = 20%, PF <1.0 = 50%
-                if profit_factor >= 2.0:
-                    pf_penalty = 0.0
-                elif profit_factor >= 1.0:
-                    pf_penalty = (2.0 - profit_factor) * 0.20 * (capital / 50000)
-                else:
-                    pf_penalty = 0.50 * (capital / 50000)  # Very risky!
-                
-                # NEW: Consecutive loss streak risk
-                # 3 losses = 0%, 5 losses = 10%, 10 losses = 30%
-                streak_penalty = min(0.30, max(0.0, (max_consec_losses - 3) * 0.05)) * (capital / 50000)
-                
-                # NEW: Trade duration risk (longer = capital tied up + overnight risk)
-                # Calculate bars per day to identify overnight holds
-                bars_per_day = (6.5 * 3600) / interval_seconds  # 6.5 hour trading day
-                
-                # Penalty structure:
-                # - Intraday (<1 day): 0-5% penalty (opportunity cost only)
-                # - Overnight (1-3 days): 10-20% penalty (gap risk + opportunity cost)
-                # - Multi-day (>3 days): 20-30% penalty (high risk + capital tied up)
-                
-                if avg_trade_duration < bars_per_day:
-                    # Intraday - minimal penalty (just opportunity cost)
-                    duration_penalty = min(0.05, (avg_trade_duration / bars_per_day) * 0.05) * (capital / 100000)
-                elif avg_trade_duration < bars_per_day * 3:
-                    # 1-3 days - moderate penalty (overnight gap risk)
-                    days_held = avg_trade_duration / bars_per_day
-                    duration_penalty = (0.10 + (days_held - 1) * 0.05) * (capital / 100000)
-                else:
-                    # >3 days - high penalty (excessive capital tie-up)
-                    duration_penalty = 0.30 * (capital / 100000)
-                
-                # NEW: Trade frequency optimization (penalize extremes)
-                # Optimal: 2-10 trades/day
-                # Too few (<2): Missing opportunities
-                # Too many (>20): Overtrading + high costs
-                
-                trades_per_day_actual = sim.get("expected_trades_per_day", 4.0)
-                
-                if trades_per_day_actual < 1:
-                    # Very few trades - missing opportunities
-                    frequency_penalty = 0.30 * (capital / 100000)
-                elif trades_per_day_actual < 2:
-                    # Below optimal - some penalty
-                    frequency_penalty = 0.15 * (capital / 100000)
-                elif trades_per_day_actual > 20:
-                    # Overtrading - high transaction costs + exhausting
-                    frequency_penalty = 0.25 * (capital / 100000)
-                elif trades_per_day_actual > 10:
-                    # Above optimal - moderate penalty
-                    frequency_penalty = 0.10 * (capital / 100000)
-                else:
-                    # Optimal range (2-10 trades/day) - no penalty
-                    frequency_penalty = 0.0
-                
-                # NEW: Overnight gap risk penalty
-                # If strategy holds overnight, penalize based on historical gap frequency
-                # Formula: (gap_frequency% / 100) * (avg_gap_size / 2) * capital_factor
-                # Example: 10% gap freq, 1.5% avg gap = 7.5% penalty for large positions
-                
-                if gap_frequency > 0:
-                    # Scale penalty with both frequency and size of gaps
-                    gap_risk_penalty = (gap_frequency / 100) * (avg_gap_size / 2) * (capital / 50000)
-                    gap_risk_penalty = min(0.40, gap_risk_penalty)  # Cap at 40% for extremely volatile stocks
-                else:
-                    gap_risk_penalty = 0.0  # Intraday = no gap risk
-                
-                # NEW: Market Beta risk penalty
-                # High beta (>1.5) = very market-dependent (systemic risk)
-                # Low beta (<0.7) = independent alpha (good for diversification)
-                # Ideal beta: 0.7-1.3 (some market exposure but not excessive)
-                
-                if market_beta > 1.5:
-                    # High beta = high systemic risk
-                    beta_penalty = (market_beta - 1.5) * 0.10 * (capital / 100000)
-                    beta_penalty = min(0.30, beta_penalty)  # Cap at 30%
-                elif market_beta < 0.7:
-                    # Low beta = good (independent alpha), slight bonus
-                    beta_penalty = -0.05 * (capital / 200000)  # Small bonus for diversification
-                    beta_penalty = max(-0.10, beta_penalty)  # Cap bonus at 10%
-                else:
-                    # Normal beta range - no penalty
-                    beta_penalty = 0.0
-                
-                # Total penalty (cap at 95% to avoid completely killing stocks)
-                total_penalty = min(0.95, 
-                    liquidity_penalty + vol_risk_penalty + dd_risk_penalty + 
-                    wr_risk_penalty + pf_penalty + streak_penalty + duration_penalty + frequency_penalty + gap_risk_penalty + beta_penalty
-                )
-                
-                return return_usd * (1.0 - total_penalty)
-    except Exception:
-        # Fallback if calculation fails
         def apply_risk_adjustment(return_usd: float, capital: float) -> float:
+            """
+            Apply penalty based on REAL risk metrics:
+            - High volatility = riskier with large capital
+            - High max drawdown = danger of large losses
+            - Low win rate = unreliable strategy
+            - Low profit factor = barely profitable
+            - High consecutive losses = streak risk (could wipe you out)
+            - Long trade duration = capital tied up (opportunity cost)
+            - Large capital = liquidity issues + harder to exit
+            """
+            # Base liquidity penalty (market impact)
             if capital <= 10000:
-                return return_usd * 0.9
+                liquidity_penalty = 0.0
+            elif capital <= 50000:
+                liquidity_penalty = 0.05 + 0.05 * ((capital - 10000) / 40000)
+            elif capital <= 200000:
+                liquidity_penalty = 0.10 + 0.15 * ((capital - 50000) / 150000)
             else:
-                return return_usd * max(0.2, 1.0 - (capital / 100000))
+                liquidity_penalty = 0.25 + 0.25 * min(1.0, (capital - 200000) / 800000)
+            
+            # Volatility risk (higher volatility = riskier with large positions)
+            # 5% vol = 0% penalty, 20% vol = 20% penalty, 50% vol = 50% penalty
+            vol_risk_penalty = min(0.5, volatility_pct) * (capital / 100000)  # Scales with capital
+            
+            # Drawdown risk (if it dropped 30% before, it can again)
+            # 10% DD = 5% penalty, 30% DD = 15% penalty, 50% DD = 25% penalty
+            dd_risk_penalty = (max_dd_pct * 0.5) * (capital / 100000)  # Scales with capital
+            
+            # Win rate risk (low win rate = unreliable)
+            # 60% WR = 0% penalty, 50% WR = 10% penalty, 40% WR = 20% penalty
+            wr_risk_penalty = max(0.0, (0.60 - win_rate) * 1.0) * (capital / 50000)
+            
+            # NEW: Profit factor risk (low profit factor = barely profitable)
+            # PF 2.0 = 0%, PF 1.5 = 5%, PF 1.0 = 20%, PF <1.0 = 50%
+            if profit_factor >= 2.0:
+                pf_penalty = 0.0
+            elif profit_factor >= 1.0:
+                pf_penalty = (2.0 - profit_factor) * 0.20 * (capital / 50000)
+            else:
+                pf_penalty = 0.50 * (capital / 50000)  # Very risky!
+            
+            # NEW: Consecutive loss streak risk
+            # 3 losses = 0%, 5 losses = 10%, 10 losses = 30%
+            streak_penalty = min(0.30, max(0.0, (max_consec_losses - 3) * 0.05)) * (capital / 50000)
+            
+            # NEW: Trade duration risk (longer = capital tied up + overnight risk)
+            # Calculate bars per day to identify overnight holds
+            bars_per_day = (6.5 * 3600) / interval_seconds  # 6.5 hour trading day
+            
+            # Penalty structure:
+            # - Intraday (<1 day): 0-5% penalty (opportunity cost only)
+            # - Overnight (1-3 days): 10-20% penalty (gap risk + opportunity cost)
+            # - Multi-day (>3 days): 20-30% penalty (high risk + capital tied up)
+            
+            if avg_trade_duration < bars_per_day:
+                # Intraday - minimal penalty (just opportunity cost)
+                duration_penalty = min(0.05, (avg_trade_duration / bars_per_day) * 0.05) * (capital / 100000)
+            elif avg_trade_duration < bars_per_day * 3:
+                # 1-3 days - moderate penalty (overnight gap risk)
+                days_held = avg_trade_duration / bars_per_day
+                duration_penalty = (0.10 + (days_held - 1) * 0.05) * (capital / 100000)
+            else:
+                # >3 days - high penalty (excessive capital tie-up)
+                duration_penalty = 0.30 * (capital / 100000)
+            
+            # NEW: Trade frequency optimization (penalize extremes)
+            # Optimal: 2-10 trades/day
+            # Too few (<2): Missing opportunities
+            # Too many (>20): Overtrading + high costs
+            
+            trades_per_day_actual = sim.get("expected_trades_per_day", 4.0)
+            
+            if trades_per_day_actual < 1:
+                # Very few trades - missing opportunities
+                frequency_penalty = 0.30 * (capital / 100000)
+            elif trades_per_day_actual < 2:
+                # Below optimal - some penalty
+                frequency_penalty = 0.15 * (capital / 100000)
+            elif trades_per_day_actual > 20:
+                # Overtrading - high transaction costs + exhausting
+                frequency_penalty = 0.25 * (capital / 100000)
+            elif trades_per_day_actual > 10:
+                # Above optimal - moderate penalty
+                frequency_penalty = 0.10 * (capital / 100000)
+            else:
+                # Optimal range (2-10 trades/day) - no penalty
+                frequency_penalty = 0.0
+            
+            # NEW: Overnight gap risk penalty
+            # If strategy holds overnight, penalize based on historical gap frequency
+            # Formula: (gap_frequency% / 100) * (avg_gap_size / 2) * capital_factor
+            # Example: 10% gap freq, 1.5% avg gap = 7.5% penalty for large positions
+            
+            if gap_frequency > 0:
+                # Scale penalty with both frequency and size of gaps
+                gap_risk_penalty = (gap_frequency / 100) * (avg_gap_size / 2) * (capital / 50000)
+                gap_risk_penalty = min(0.40, gap_risk_penalty)  # Cap at 40% for extremely volatile stocks
+            else:
+                gap_risk_penalty = 0.0  # Intraday = no gap risk
+            
+            # NEW: Market Beta risk penalty
+            # High beta (>1.5) = very market-dependent (systemic risk)
+            # Low beta (<0.7) = independent alpha (good for diversification)
+            # Ideal beta: 0.7-1.3 (some market exposure but not excessive)
+            
+            if market_beta > 1.5:
+                # High beta = high systemic risk
+                beta_penalty = (market_beta - 1.5) * 0.10 * (capital / 100000)
+                beta_penalty = min(0.30, beta_penalty)  # Cap at 30%
+            elif market_beta < 0.7:
+                # Low beta = good (independent alpha), slight bonus
+                beta_penalty = -0.05 * (capital / 200000)  # Small bonus for diversification
+                beta_penalty = max(-0.10, beta_penalty)  # Cap bonus at 10%
+            else:
+                # Normal beta range - no penalty
+                beta_penalty = 0.0
+            
+            # Total penalty (cap at 95% to avoid completely killing stocks)
+            total_penalty = min(0.95, 
+                liquidity_penalty + vol_risk_penalty + dd_risk_penalty + 
+                wr_risk_penalty + pf_penalty + streak_penalty + duration_penalty + frequency_penalty + gap_risk_penalty + beta_penalty
+            )
+            
+            return return_usd * (1.0 - total_penalty)
     
     def apply_liquidity_adjustment(return_usd: float, capital: float) -> float:
         return apply_risk_adjustment(return_usd, capital)
@@ -1072,20 +1065,20 @@ def main() -> int:
         progress_bar = tqdm(enumerate(symbols, 1), total=len(symbols), desc="Optimizing", unit="stock")
         
         for idx, symbol in progress_bar:
-        # Update progress bar description
-        progress_bar.set_description(f"Testing {symbol}")
-        
-        if len(symbols) > 1:
-            print(f"\n{'='*70}")
-            print(f"[{idx}/{len(symbols)}] TESTING: {symbol}")
-            print(f"{'='*70}")
-        else:
-            print(f"\n{'='*70}")
-            print(f"COMPREHENSIVE OPTIMIZER: {symbol}")
-            print(f"{'='*70}")
-        
-        print(f"Method: Binary search with multi-period robustness testing")
-        print(f"Range: 1 min to 6.5 hours × $1 to ${args.max_cap:,.0f}")
+            # Update progress bar description
+            progress_bar.set_description(f"Testing {symbol}")
+            
+            if len(symbols) > 1:
+                print(f"\n{'='*70}")
+                print(f"[{idx}/{len(symbols)}] TESTING: {symbol}")
+                print(f"{'='*70}")
+            else:
+                print(f"\n{'='*70}")
+                print(f"COMPREHENSIVE OPTIMIZER: {symbol}")
+                print(f"{'='*70}")
+            
+            print(f"Method: Binary search with multi-period robustness testing")
+            print(f"Range: 1 min to 6.5 hours × $1 to ${args.max_cap:,.0f}")
         
         optimal_interval, optimal_cap, expected_return, consistency = comprehensive_binary_search(
             symbol, verbose=args.verbose, max_cap=args.max_cap, use_robustness=use_robustness
