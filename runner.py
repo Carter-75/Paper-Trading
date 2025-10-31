@@ -936,6 +936,44 @@ def buy_flow(client, symbol: str, last_price: float, available_cap: float,
     if confidence < config.MIN_CONFIDENCE_TO_TRADE:
         return (False, f"Low confidence: {confidence:.4f}")
     
+    # Correlation check - avoid doubling up on correlated positions
+    if config.CORRELATION_CHECK_ENABLED and interval_seconds:
+        try:
+            # Get all current positions
+            positions = client.list_positions()
+            if positions:
+                # Fetch closes for this symbol
+                my_closes = fetch_closes(client, symbol, interval_seconds, 60)
+                
+                if my_closes and len(my_closes) >= 30:
+                    for existing_pos in positions:
+                        existing_symbol = existing_pos.symbol
+                        if existing_symbol == symbol:
+                            continue  # Skip self
+                        
+                        # Fetch closes for existing position
+                        other_closes = fetch_closes(client, existing_symbol, interval_seconds, 60)
+                        
+                        if other_closes and len(other_closes) >= 30:
+                            # Calculate correlation
+                            # Align to same length
+                            min_len = min(len(my_closes), len(other_closes))
+                            corr = calculate_correlation(my_closes[-min_len:], other_closes[-min_len:])
+                            
+                            # If high correlation (>0.7), reduce position or skip
+                            if abs(corr) > 0.7:
+                                # Reduce available capital by 50% for highly correlated stocks
+                                available_cap = available_cap * 0.5
+                                log_info(f"  ⚠️ High correlation with {existing_symbol}: {corr:.2f}")
+                                log_info(f"     Reducing position size by 50% (${available_cap*2:.2f} → ${available_cap:.2f})")
+                            elif abs(corr) > 0.5:
+                                # Moderate correlation: reduce by 25%
+                                available_cap = available_cap * 0.75
+                                log_info(f"  ⚠️ Moderate correlation with {existing_symbol}: {corr:.2f}")
+                                log_info(f"     Reducing position size by 25% (${available_cap/0.75:.2f} → ${available_cap:.2f})")
+        except:
+            pass  # Don't fail trade if correlation check fails
+    
     # Profitability check
     if interval_seconds:
         closes = fetch_closes(client, symbol, interval_seconds, config.LONG_WINDOW + 50)
@@ -1015,6 +1053,18 @@ def buy_flow(client, symbol: str, last_price: float, available_cap: float,
     # Apply dynamic adjustment based on confidence (if enabled)
     if dynamic_enabled:
         tp, sl, frac = adjust_runtime_params(confidence, tp, sl, frac)
+    
+    # Apply dynamic position sizing multiplier based on recent performance
+    dynamic_multiplier = get_dynamic_position_multiplier()
+    if dynamic_multiplier != 1.0:
+        original_cap = available_cap
+        available_cap = available_cap * dynamic_multiplier
+        log_info(f"  Dynamic Position Sizing: {dynamic_multiplier:.2f}x (${original_cap:.2f} → ${available_cap:.2f})")
+        
+        # Ensure we don't exceed max capital limits
+        if available_cap > config.MAX_CAP_USD:
+            available_cap = config.MAX_CAP_USD
+            log_info(f"    Capped at max: ${config.MAX_CAP_USD:.2f}")
     
     # Calculate position size (Kelly or static)
     if config.ENABLE_KELLY_SIZING and interval_seconds:
@@ -1186,6 +1236,13 @@ def buy_flow(client, symbol: str, last_price: float, available_cap: float,
             return (True, f"Bought {shares_text} shares @ ${last_price:.2f} (TP:{tp:.2f}% SL:{sl:.2f}%)")
         else:
             # Whole shares: Use bracket orders with GTC
+            # Use trailing stop if enabled (locks in profits as price rises)
+            if config.TRAILING_STOP_PERCENT > 0:
+                stop_loss_config = {'trail_percent': config.TRAILING_STOP_PERCENT}
+                log_info(f"  Using trailing stop: {config.TRAILING_STOP_PERCENT}% (locks in profits)")
+            else:
+                stop_loss_config = {'stop_price': round(sl_price, 2)}
+            
             order = client.submit_order(
                 symbol=symbol,
                 qty=int(qty),
@@ -1194,7 +1251,7 @@ def buy_flow(client, symbol: str, last_price: float, available_cap: float,
                 time_in_force='gtc',
                 order_class='bracket',
                 take_profit={'limit_price': round(tp_price, 2)},
-                stop_loss={'stop_price': round(sl_price, 2)},
+                stop_loss=stop_loss_config,
                 client_order_id=client_order_id
             )
             
@@ -1290,6 +1347,17 @@ def sell_flow(client, symbol: str, confidence: float = 0.0):
             return (False, f"Sell order not filled after {max_wait_seconds}s")
         elif actual_filled_qty < qty * 0.9:
             log_warn(f"Partial sell: {actual_filled_qty}/{qty} shares")
+        
+        # Calculate profit percentage for dynamic position sizing
+        try:
+            cost_basis = float(pos.get("cost_basis", 0))
+            current_value = float(pos.get("market_value", 0))
+            if cost_basis > 0:
+                profit_pct = ((current_value - cost_basis) / cost_basis) * 100
+                update_trade_history(symbol, profit_pct)
+                log_info(f"Dynamic Position Sizing: Recorded {profit_pct:+.2f}% trade")
+        except:
+            pass
         
         # Log to PnL ledger
         try:
@@ -1865,6 +1933,76 @@ def monte_carlo_projection(
 
 # Track if we've already done network wait (prevent duplicate waits)
 _network_wait_done = False
+
+# Dynamic Position Sizing: Track recent trade outcomes
+# Format: list of (symbol, profit_pct, timestamp)
+_recent_trades = []
+_MAX_TRADE_HISTORY = 20  # Keep last 20 trades
+
+
+def update_trade_history(symbol: str, profit_pct: float):
+    """
+    Track trade outcome for dynamic position sizing.
+    
+    Args:
+        symbol: Stock symbol
+        profit_pct: Profit/loss as percentage (positive = win, negative = loss)
+    """
+    global _recent_trades
+    import time
+    
+    _recent_trades.append((symbol, profit_pct, time.time()))
+    
+    # Keep only recent trades
+    if len(_recent_trades) > _MAX_TRADE_HISTORY:
+        _recent_trades = _recent_trades[-_MAX_TRADE_HISTORY:]
+
+
+def get_dynamic_position_multiplier() -> float:
+    """
+    Calculate position size multiplier based on recent performance.
+    
+    Strategy:
+    - After wins: Slightly increase position size (compound gains)
+    - After losses: Decrease position size (protect capital)
+    - Look at last 5 trades
+    
+    Returns:
+        Multiplier (0.5 to 1.5):
+        - 0.5 = Half size (after losses)
+        - 1.0 = Normal size (neutral)
+        - 1.5 = 50% larger (after wins)
+    """
+    if not _recent_trades or len(_recent_trades) < 2:
+        return 1.0  # Neutral if no history
+    
+    # Look at last 5 trades
+    recent = _recent_trades[-5:]
+    
+    # Calculate win rate and average profit
+    wins = sum(1 for _, pct, _ in recent if pct > 0)
+    total = len(recent)
+    win_rate = wins / total if total > 0 else 0.5
+    
+    # Calculate average profit/loss
+    avg_pnl = sum(pct for _, pct, _ in recent) / total if total > 0 else 0.0
+    
+    # Dynamic multiplier based on recent performance
+    if win_rate >= 0.6 and avg_pnl > 0.5:
+        # Hot streak: 3+ wins in last 5, avg profit > 0.5%
+        return 1.3  # Increase size by 30%
+    elif win_rate >= 0.6:
+        # Winning streak but small profits
+        return 1.15  # Increase size by 15%
+    elif win_rate <= 0.4 and avg_pnl < -0.5:
+        # Cold streak: 3+ losses in last 5
+        return 0.6  # Decrease size by 40%
+    elif win_rate <= 0.4:
+        # Losing streak
+        return 0.75  # Decrease size by 25%
+    else:
+        # Neutral (40-60% win rate)
+        return 1.0
 
 # ===== Network Connectivity =====
 def wait_for_network_on_boot(client, max_wait_seconds: int = 60):

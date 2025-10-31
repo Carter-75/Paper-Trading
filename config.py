@@ -43,7 +43,7 @@ MAX_CAP_USD: float = float(os.getenv("MAX_CAP_USD", "100.0"))
 # TP/SL base percents
 TAKE_PROFIT_PERCENT: float = float(os.getenv("TAKE_PROFIT_PERCENT", "3.0") or 0.0)
 STOP_LOSS_PERCENT: float = float(os.getenv("STOP_LOSS_PERCENT", "1.0") or 0.0)
-TRAILING_STOP_PERCENT: float = float(os.getenv("TRAILING_STOP_PERCENT", "0.0") or 0.0)
+TRAILING_STOP_PERCENT: float = float(os.getenv("TRAILING_STOP_PERCENT", "0.75") or 0.0)  # Enable by default: locks in profits
 
 # Confidence sizing
 CONFIDENCE_MULTIPLIER: float = float(os.getenv("CONFIDENCE_MULTIPLIER", "9.0"))

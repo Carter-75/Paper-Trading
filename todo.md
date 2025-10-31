@@ -99,35 +99,6 @@
 
 ### **🛡️ RISK MANAGEMENT ENHANCEMENTS**
 
-**36. Value at Risk (VaR)**
-- **What**: "95% chance daily loss won't exceed $X"
-- **Why**: Standard institutional risk metric
-- **Formula**: 5th percentile of return distribution
-- **Impact**: Set realistic stop levels
-
-**37. Conditional VaR (CVaR)**
-- **What**: Average loss in worst 5% of days
-- **Why**: VaR says "worst case", CVaR says "how bad is worst case"
-- **Impact**: Know tail risk
-
-**38. Kelly Criterion in Optimizer**
-- **Current**: Bot uses Kelly, optimizer doesn't
-- **Fix**: Calculate optimal position size using Kelly
-- **Formula**: `f* = (p × b - q) / b` where p=win rate, b=win/loss ratio
-- **Impact**: Mathematically optimal position sizing
-
-**39. Dynamic Position Sizing**
-- **What**: Increase size after wins, decrease after losses
-- **Why**: Compound winners, protect capital after losses
-- **Where**: Add to bot logic
-- **Impact**: Better risk management
-
-**40. Correlation-Based Position Limits**
-- **What**: If holding GOOGL, limit GOOG position
-- **Why**: They're the same company!
-- **Where**: Enhance correlation check
-- **Impact**: True diversification
-
 **41. Sector Exposure Limits**
 - **What**: Max 30% in Tech, 20% in Finance, etc.
 - **Why**: Sector crashes affect correlated stocks
@@ -192,30 +163,6 @@
 
 ### **📈 ADVANCED STRATEGY IMPROVEMENTS**
 
-**51. Multi-Timeframe SMA**
-- **Current**: Fixed 9/21 SMA
-- **Better**: Optimize SMA windows too
-- **Test**: 5/13, 9/21, 13/34, 21/55
-- **Impact**: Find best MA combo per stock
-
-**52. Adaptive Parameters**
-- **What**: Change TP/SL based on volatility
-- **Why**: Volatile stocks need wider stops
-- **Formula**: `SL = base_SL × (current_vol / avg_vol)`
-- **Impact**: More robust across conditions
-
-**53. Trailing Stop Enhancement**
-- **What**: Move stop up as profit increases
-- **Why**: Lock in profits
-- **Current**: Basic trailing, not optimized
-- **Impact**: Capture more of big moves
-
-**54. Partial Position Exits**
-- **What**: Sell 50% at 2%, hold rest for 5%
-- **Why**: Lock some profit, let winners run
-- **Where**: Enhance sell logic
-- **Impact**: Better risk/reward ratio
-
 **55. Support/Resistance Levels**
 - **What**: Identify key price levels
 - **Why**: Better entry/exit points
@@ -239,12 +186,6 @@
 - **Why**: Overbought/oversold detection
 - **Where**: Alternative to RSI
 - **Impact**: Mean reversion signals
-
-**59. ATR-Based Stops**
-- **What**: Average True Range for dynamic stops
-- **Why**: Accounts for current volatility
-- **Formula**: `stop = entry - (2 × ATR)`
-- **Impact**: Fewer false stops
 
 **60. Sentiment Analysis**
 - **What**: Analyze news headlines for stock
