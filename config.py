@@ -62,6 +62,27 @@ MAX_POSITION_AGE_HOURS: float = float(os.getenv("MAX_POSITION_AGE_HOURS", "72.0"
 DAILY_LOSS_LIMIT_USD: float = float(os.getenv("DAILY_LOSS_LIMIT_USD", "100.0") or 0.0)
 MAX_DAILY_LOSS_PERCENT: float = float(os.getenv("MAX_DAILY_LOSS_PERCENT", "5.0"))
 
+# Exposure limits - prevent going all-in on one idea
+MAX_EXPOSURE_PCT: float = float(os.getenv("MAX_EXPOSURE_PCT", "75.0"))  # Keep 25% in cash for opportunities
+
+# Kill Switch - emergency stop mechanism
+KILL_SWITCH_FILE: str = os.getenv("KILL_SWITCH_FILE", "KILL_SWITCH.flag")
+KILL_SWITCH_ENABLED: bool = os.getenv("KILL_SWITCH_ENABLED", "1") in ("1", "true", "True")
+
+# Order Verification - sanity checks before submission
+ORDER_VERIFICATION_ENABLED: bool = os.getenv("ORDER_VERIFICATION_ENABLED", "1") in ("1", "true", "True")
+MAX_PRICE_DEVIATION_PCT: float = float(os.getenv("MAX_PRICE_DEVIATION_PCT", "10.0"))  # Max price change from last
+MAX_ORDER_SIZE_ADV_PCT: float = float(os.getenv("MAX_ORDER_SIZE_ADV_PCT", "10.0"))  # Max % of avg daily volume
+
+# Max Loss Per Trade - never risk more than this % of capital on one trade
+MAX_LOSS_PER_TRADE_PCT: float = float(os.getenv("MAX_LOSS_PER_TRADE_PCT", "2.0"))  # Max risk per trade
+MAX_LOSS_PER_TRADE_ENABLED: bool = os.getenv("MAX_LOSS_PER_TRADE_ENABLED", "1") in ("1", "true", "True")
+
+# VIX-Based Volatility Filter - pause trading during extreme market fear
+VIX_FILTER_ENABLED: bool = os.getenv("VIX_FILTER_ENABLED", "1") in ("1", "true", "True")
+VIX_THRESHOLD: float = float(os.getenv("VIX_THRESHOLD", "30.0"))  # Pause if VIX > 30 (extreme fear)
+VIX_CACHE_MINUTES: int = int(os.getenv("VIX_CACHE_MINUTES", "15"))  # Cache VIX for 15 min (avoid excessive API calls)
+
 # Drawdown Protection
 MAX_PORTFOLIO_DRAWDOWN_PERCENT: float = float(os.getenv("MAX_PORTFOLIO_DRAWDOWN_PERCENT", "15.0"))
 ENABLE_DRAWDOWN_PROTECTION: bool = os.getenv("ENABLE_DRAWDOWN_PROTECTION", "1") in ("1", "true", "True")

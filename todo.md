@@ -1,166 +1,217 @@
-### **⚡ PERFORMANCE IMPROVEMENTS (Speed/Efficiency)**
-
-**1. Incremental Data Fetching** (Not Yet Implemented)
-- **What**: Only fetch NEW bars, not all 600 bars
-- **Why**: Most data doesn't change
-- **Where**: Cache price history, append new
-- **Impact**: 80% less data transfer
-
-**2. GPU Acceleration (Advanced)** - SKIP (requires CUDA setup)
-- **What**: Use CUDA for Monte Carlo simulations
-- **Why**: 1000 simulations × 100 stocks = 100k runs
-- **Tool**: CuPy or PyTorch
-- **Impact**: 100x faster on GPU
+# Paper-Trading Bot – **Production-Ready TODO**  
+*Updated: 2025-11-03 - Cleaned & Prioritized*
 
 ---
 
-### **📊 OUTPUT & UX IMPROVEMENTS**
+## Purpose
 
-**3. Visual Charts**
-- **What**: Matplotlib equity curves, drawdown charts
-- **Why**: Pictures > numbers
-- **Where**: Generate PNG after optimization
-- **Impact**: Easier to understand results
+To evolve the current Paper-Trading bot into a **resilient, profit-maximizing, production-grade algorithmic trading framework** with:
 
-**4. HTML Report Generation**
-- **What**: Beautiful HTML report with all metrics
-- **Why**: Share results, keep records
-- **Tool**: Jinja2 templates
-- **Impact**: Professional presentation
-
-**5. Live Trading Dashboard**
-- **What**: Web dashboard showing bot status
-- **Tool**: Flask + Chart.js
-- **Features**: Current positions, P&L chart, logs
-- **Impact**: Monitor bot from phone
-
-**6. Email/SMS Alerts**
-- **What**: Send alerts on large moves or errors
-- **Tool**: Twilio or SMTP
-- **Triggers**: >5% daily loss, bot crashed, trade executed
-- **Impact**: Peace of mind
+- **Ironclad risk controls** ✅ (Mostly Complete)
+- **Data-driven signal quality** ✅ (ML + Advanced Filters)
+- **Enterprise reliability & observability** 🔄 (In Progress)
+- **Scalable, maintainable architecture** 🔄 (In Progress)
 
 ---
 
-### **🧠 MACHINE LEARNING ENHANCEMENTS**
+## Task Organization
 
-**7. Use ML in Optimizer**
-- **Current**: Only bot uses ML, optimizer doesn't
-- **Fix**: Load ML model, evaluate stocks with it
-- **Why**: Find stocks ML likes
-- **Impact**: ML-optimized configs
-
-**8. Reinforcement Learning (Advanced)**
-- **What**: Train agent to pick optimal intervals/capitals
-- **Tool**: Stable-Baselines3 (PPO/A2C)
-- **Why**: Learn non-obvious patterns
-- **Impact**: Potentially find better configs
-
-**9. Ensemble Predictions**
-- **What**: Combine RandomForest + XGBoost + LSTM
-- **Why**: More robust than single model
-- **Impact**: Higher accuracy
-
-**10. Feature Importance Analysis**
-- **What**: Which metrics matter most?
-- **Tool**: SHAP values
-- **Output**: "Profit factor contributes 35% to success"
-- **Impact**: Focus on what matters
-
-**11. Auto-Retraining Pipeline**
-- **What**: Retrain ML model weekly automatically
-- **Why**: Market conditions change
-- **Where**: Scheduled task runs `train_ml_model.py`
-- **Impact**: Stay adapted to current market
+Tasks are organized by priority and grouped into logical sections. Completed tasks have been removed.
 
 ---
 
-### **🛡️ RISK MANAGEMENT ENHANCEMENTS**
-
-**12. Black Swan Stress Testing**
-- **What**: Simulate 2008 crash, COVID crash on your portfolio
-- **Why**: See if strategy survives disasters
-- **Where**: New stress test module
-- **Impact**: Know worst-case scenario
+# FREE IMPLEMENTATIONS (No APIs / Paid Services)
 
 ---
 
-### **🔧 CODE QUALITY & ARCHITECTURE**
+## **SECTION 1: RISK CONTROL LAYER** *(Highest Priority)*
 
-**13. Type Hints Everywhere**
-- **What**: Add type annotations to all functions
-- **Why**: Catch bugs at dev time
-- **Tool**: `mypy` for type checking
-- **Impact**: Fewer runtime errors
-
-**14. Unit Tests**
-- **What**: Test every function independently
-- **Tool**: `pytest`
-- **Coverage**: Aim for 80%+
-- **Impact**: Confidence in changes
-
-**15. Integration Tests**
-- **What**: Test full optimization run
-- **Why**: Ensure components work together
-- **Impact**: Catch regressions
-
-**16. Documentation Generation**
-- **What**: Auto-generate docs from docstrings
-- **Tool**: Sphinx or MkDocs
-- **Impact**: Professional documentation
-
-**17. Configuration Validation**
-- **What**: Validate all params at startup
-- **Why**: Fail fast with clear errors
-- **Where**: Enhance `validate_config()`
-- **Impact**: Better error messages
-
-**18. Logging Levels**
-- **What**: DEBUG, INFO, WARN, ERROR levels
-- **Why**: Control verbosity
-- **Tool**: Python `logging` module properly
-- **Impact**: Cleaner logs
-
-**19. Exception Handling**
-- **What**: Catch specific exceptions, not bare `except:`
-- **Why**: Know what went wrong
-- **Impact**: Better debugging
-
-**20. Profiling & Optimization**
-- **What**: Find bottlenecks with `cProfile`
-- **Why**: Optimize slow parts
-- **Impact**: Faster execution
+| # | Task | Status | Impact | Notes |
+|---|------|--------|--------|-------|
+| 1 | **Order Verification Layer** | [✓] DONE | HIGH | ✅ Price ≤10% from last, size ≤10% ADV - Prevents fat-finger errors & API glitches |
+| 2 | **Max Loss Per Trade** | [✓] DONE | HIGH | ✅ Position sizing limited by risk formula: max_position = (capital × 2%) / stop_loss% |
+| 3 | **VIX-Based Volatility Filter** | [✓] DONE | MED | ✅ Pauses trading if VIX > 30 (extreme fear) - 15min cache, auto-resumes when safe |
 
 ---
 
-### **📈 ADVANCED STRATEGY IMPROVEMENTS**
+## **SECTION 2: BACKTESTING & ANALYTICS**
 
-**21. Support/Resistance Levels**
-- **What**: Identify key price levels
-- **Why**: Better entry/exit points
-- **Tool**: Find local maxima/minima
-- **Impact**: Avoid buying at resistance
-
-**22. Fibonacci Retracement**
-- **What**: Common technical analysis tool
-- **Why**: Traders watch these levels
-- **Where**: Calculate during signal generation
-- **Impact**: More confluence
-
-**23. Sentiment Analysis**
-- **What**: Analyze news headlines for stock
-- **Tool**: FinBERT or Twitter API
-- **Why**: News moves markets
-- **Impact**: Avoid stocks with bad news
+| # | Task | Status | Impact | Notes |
+|---|------|--------|--------|-------|
+| 4 | **Black Swan Stress Testing** | [✓] DONE | HIGH | ✅ Tests strategy on 5 historical crises - generates survival report |
+| 5 | **Parameter Stability Test** | [✓] DONE | MED | ✅ Analyzes optimization_history.csv - detects drift, overfitting, degradation |
 
 ---
 
-Would you like me to:
-1. **Implement the top 10 most impactful improvements** immediately?
-2. **Prioritize by effort vs impact** (quick wins first)?
-3. **Create a roadmap** (Phase 1-5 over time)?
-4. **Focus on one category** (e.g., just risk metrics)?
+## **SECTION 3: CODE QUALITY & ARCHITECTURE**
 
-Let me know which direction you want to go and I'll start implementing!
+| # | Task | Status | Impact | Notes |
+|---|------|--------|--------|-------|
+| 6 | **Unit Test Coverage (>80%)** | [✓] DONE | HIGH | ✅ 74 tests across 4 test files - portfolio, ML, scanner, runner |
+| 7 | **Config Validation (Pydantic)** | [✓] DONE | HIGH | ✅ Created config_validated.py with Pydantic BaseSettings - automatic validation |
+| 8 | **Modular Codebase Refactor** | [✓] DONE | HIGH | ✅ Created modules: strategies/, execution/, risk/, utils/ - clean separation of concerns |
+| 9 | **Type Hints & Static Analysis** | [ ] | MED | Add mypy + ruff to CI/CD |
+| 10 | **Structured JSON Logs** | [ ] | MED | Replace basic logging with `python-json-logger` |
+| 11 | **Profiling & Optimization** | [ ] | MED | Profile runner.py with cProfile, optimize hot paths |
+| 12 | **Documentation Generation** | [ ] | MED | Sphinx / MkDocs for API docs |
+| 13 | **Memory Profiling** | [ ] | LOW | Prevent leaks in long runs |
 
-Lastly please update the @README.md  if anything has changed and only if anything has changed
+---
+
+## **SECTION 4: STRATEGY LOGIC IMPROVEMENTS**
+
+| # | Task | Status | Impact | Notes |
+|---|------|--------|--------|-------|
+| 14 | **Regime Detection** | [✓] DONE | HIGH | ✅ Created regime_detection.py - ADX, MA slope, volatility percentile - adaptive parameters |
+| 15 | **Enhanced Mean-Reversion** | [ ] | MED | Full mean-reversion strategy (has RSI/BB filters) |
+| 16 | **Support/Resistance Levels** | [ ] | MED | Local extrema detection |
+| 17 | **Volume Profile** | [ ] | MED | High-volume nodes (has basic volume confirmation) |
+| 18 | **Seasonality Filter** | [ ] | MED | Avoid pre-holiday Fridays |
+| 19 | **Fibonacci Retracement** | [ ] | LOW | Confluence tool |
+| 20 | **Order Flow Imbalance** | [ ] | LOW | Advanced edge (requires L2 data) |
+
+---
+
+## **SECTION 5: DATA HANDLING & RELIABILITY**
+
+| # | Task | Status | Impact | Notes |
+|---|------|--------|--------|-------|
+| 21 | **Enhanced Data Validation** | [ ] | MED | Improve timestamp & market hours validation |
+| 22 | **Data Quality Monitoring** | [ ] | LOW | Alert on bad ticks, gaps, anomalies |
+
+---
+
+## **SECTION 6: EXECUTION ENGINE**
+
+| # | Task | Status | Impact | Notes |
+|---|------|--------|--------|-------|
+| 23 | **Async Order Queue** | [ ] | MED | `asyncio` for parallel order management |
+
+---
+
+## **SECTION 7: OUTPUT & UX IMPROVEMENTS**
+
+| # | Task | Status | Impact | Notes |
+|---|------|--------|--------|-------|
+| 24 | **Visual Charts (Matplotlib)** | [ ] | HIGH | Equity curve, drawdown, trades overlay |
+| 25 | **HTML Report Generation** | [ ] | MED | Jinja2 templates with stats |
+| 26 | **Live Trading Dashboard (Flask)** | [ ] | MED | Real-time monitoring with Chart.js |
+| 27 | **Daily Performance Summary** | [ ] | MED | Auto-generate daily email/log summary |
+
+---
+
+## **SECTION 8: MACHINE LEARNING ENHANCEMENTS**
+
+| # | Task | Status | Impact | Notes |
+|---|------|--------|--------|-------|
+| 28 | **Model Drift Detection** | [ ] | HIGH | Alert if test accuracy drops below threshold |
+| 29 | **Ensemble Predictions** | [ ] | HIGH | RF + XGBoost + LSTM voting ensemble |
+| 30 | **Scheduled Auto-Retraining** | [ ] | HIGH | Weekly retrain + walk-forward validation |
+| 31 | **Feature Importance (SHAP)** | [ ] | MED | Explainability for ML predictions |
+| 32 | **Reinforcement Learning** | [ ] | LOW | PPO for dynamic parameter tuning |
+
+---
+
+## **SECTION 9: DEPLOYMENT & CI/CD**
+
+| # | Task | Status | Impact | Notes |
+|---|------|--------|--------|-------|
+| 33 | **Dockerfile** | [ ] | HIGH | Consistent environment for deployment |
+| 34 | **CI/CD Pipeline (GitHub Actions)** | [ ] | HIGH | Auto-test + lint on push |
+| 35 | **Docker Compose** | [ ] | MED | Bot + monitoring stack |
+| 36 | **Health Check Endpoint** | [ ] | MED | HTTP `/health` for monitoring |
+
+---
+
+## **SECTION 10: SECURITY & COMPLIANCE**
+
+| # | Task | Status | Impact | Notes |
+|---|------|--------|--------|-------|
+| 37 | **API Key Permission Audit** | [ ] | HIGH | Verify least privilege access |
+| 38 | **Enhanced Input Sanitization** | [ ] | MED | Validate all CLI args & config |
+
+---
+
+## **SECTION 11: FUTURE EXPANSION IDEAS**
+
+| # | Task | Status | Impact | Notes |
+|---|------|--------|--------|-------|
+| 39 | **Strategy Ensemble Manager** | [ ] | MED | Dynamic capital allocation between strategies |
+| 40 | **Multi-Asset Support** | [ ] | LOW | Options, Crypto, Futures |
+| 41 | **Portfolio Optimization (Markowitz)** | [ ] | LOW | Mean-variance optimization for allocation |
+
+---
+
+# API-REQUIRED IMPLEMENTATIONS
+
+---
+
+## **SECTION 12: REAL-TIME DATA & EXECUTION**
+
+| # | Task | Status | Impact | Notes |
+|---|------|--------|--------|-------|
+| 42 | **WebSocket Streaming** | [ ] | HIGH | Real-time price updates via Alpaca/Polygon |
+| 43 | **News Event Filter** | [ ] | MED | Skip trading around earnings, Fed announcements |
+| 44 | **Email Alerts (SMTP)** | [ ] | MED | Gmail SMTP for trade notifications |
+
+---
+
+# PAID/HARDWARE IMPLEMENTATIONS
+
+---
+
+## **SECTION 13: PAID SERVICES**
+
+| # | Task | Status | Impact | Notes |
+|---|------|--------|--------|-------|
+| 45 | **Cloud Hosting (AWS/GCP)** | [ ] | HIGH | 24/7 uptime with auto-scaling |
+| 46 | **Sentiment Analysis** | [ ] | MED | FinBERT + Twitter/Reddit API |
+| 47 | **Premium Market Data** | [ ] | MED | Level 2, extended hours, tick data |
+| 48 | **SMS/Phone Alerts (Twilio)** | [ ] | LOW | Critical alerts via SMS |
+| 49 | **Broker Failover System** | [ ] | LOW | Multi-broker HA for reliability |
+
+---
+
+## **SECTION 14: HARDWARE/INFRASTRUCTURE**
+
+| # | Task | Status | Impact | Notes |
+|---|------|--------|--------|-------|
+| 50 | **GPU Acceleration (CUDA)** | [ ] | LOW | 100× faster Monte Carlo simulations |
+
+---
+
+# IMPLEMENTATION ROADMAP
+
+| Phase | Goal | Focus Areas | Priority |
+|-------|------|-------------|----------|
+| **1** | Enhanced Risk Controls | Order verification (#1), per-trade loss limits (#2), VIX filter (#3) | HIGH |
+| **2** | Code Quality | Modular refactor (#8), Pydantic validation (#7), unit tests (#6) | HIGH |
+| **3** | Strategy Expansion | Regime detection (#14), enhanced indicators (#15-20) | MED |
+| **4** | ML Evolution | Model drift detection (#28), ensemble predictions (#29), auto-retrain (#30) | HIGH |
+| **5** | UX/Monitoring | Visual charts (#24), dashboard (#26), daily summaries (#27) | MED |
+| **6** | Production Deployment | Docker (#33), CI/CD (#34), health checks (#36) | HIGH |
+| **7** | Advanced Features | WebSocket streaming (#42), news filters (#43), cloud hosting (#45) | LOW |
+
+---
+
+# SUCCESS METRICS
+
+| Metric | Current Status | Target | Notes |
+|--------|----------------|--------|-------|
+| **Risk Controls** | ✅ Strong | 100% | Exposure limits, kill switch, drawdown protection, Kelly sizing, correlation checks |
+| **Data Infrastructure** | ✅ Excellent | 100% | SQLite cache (80% fewer API calls), yfinance fallback, retry logic |
+| **Strategy Quality** | ✅ Good | Excellent | ML prediction, RSI/MACD/BB filters, multi-timeframe, volume confirmation |
+| **Test Coverage** | ✅ Excellent | >80% | 74 unit tests, pytest + coverage, 4 test modules |
+| **Code Quality** | 🔄 Good | Excellent | Has type hints, needs modular refactor + static analysis |
+| **Monitoring** | ⚠️ Basic | Production | Logs exist, needs dashboard + alerts |
+| **Deployment** | ⚠️ Local | Cloud | botctl.ps1 automation, needs Docker + CI/CD |
+
+---
+
+**Last Updated**: 2025-11-03  
+**Total Tasks**: **50**   
+**Remaining**: **41**  
+**Completed**: **9** ✅✅✅✅✅✅✅✅✅
+
+---
+ 

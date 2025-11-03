@@ -171,7 +171,23 @@ Get-Content portfolio.json | ConvertFrom-Json | ConvertTo-Json
 .\botctl.ps1 restart       # Restart bot
 .\botctl.ps1 stop          # Temporary stop (auto-restarts on boot)
 .\botctl.ps1 stop-forever  # Permanent stop + clean all files
+
+# Emergency kill switch (instant halt without restart)
+echo $null > KILL_SWITCH.flag  # Activate (stops trading immediately)
+del KILL_SWITCH.flag           # Deactivate (resumes automatically)
 ```
+
+**Kill Switch Features:**
+- ✅ Instant halt - stops trading immediately when file is created
+- ✅ No restart needed - bot checks every 30 seconds and auto-resumes when file deleted
+- ✅ Safe during anomalies - quick manual override during market irregularities
+- ✅ Preserves positions - doesn't liquidate, just pauses trading
+
+**When to use Kill Switch:**
+- Market flash crash or extreme volatility
+- Suspicious API behavior or data issues
+- Need to pause bot while investigating an issue
+- Testing configuration changes mid-day
 
 ---
 
@@ -254,6 +270,45 @@ Examples:
 
 # Or manually train ahead of time
 python train_ml_model.py
+```
+
+### Stress Testing (Recommended)
+
+```powershell
+# Test strategy against historical market crashes
+python stress_test.py --symbol SPY -v
+
+# Test multiple stocks
+python stress_test.py --symbols SPY QQQ AAPL --interval 0.25
+
+# Test specific crisis only
+python stress_test.py --symbol SPY --crisis 2020
+
+# Available crises:
+#   - 2008 Financial Crisis (Sep 2008 - Mar 2009)
+#   - 2020 COVID Crash (Feb 2020 - Apr 2020)
+#   - 2022 Bear Market (Jan 2022 - Oct 2022)
+#   - 2011 Debt Crisis
+#   - 2018 Q4 Selloff
+```
+
+### Parameter Stability Analysis (Recommended)
+
+```powershell
+# Analyze optimization_history.csv for parameter drift
+python parameter_stability.py
+
+# Analyze specific symbol
+python parameter_stability.py --symbol SPY
+
+# Analyze last 30 days only
+python parameter_stability.py --window 30
+
+# What it detects:
+#   - Parameter drift (intervals/capitals changing over time)
+#   - Overfitting signals (unstable parameters)
+#   - Performance degradation
+#   - Statistical stability metrics (CV, drift %)
 ```
 
 ---

@@ -17,3 +17,6 @@ ml_model.pkl
 price_cache.db
 optimization_history.csv
 
+# Emergency controls
+KILL_SWITCH.flag
+

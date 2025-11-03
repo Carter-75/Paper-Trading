@@ -1,0 +1,86 @@
+# Coverage.py configuration file
+
+[run]
+# Files to measure coverage for
+source = 
+    runner.py
+    portfolio_manager.py
+    ml_predictor.py
+    stock_scanner.py
+    optimizer.py
+    config.py
+
+# Files to omit from coverage
+omit =
+    */tests/*
+    */test_*.py
+    */__pycache__/*
+    */venv/*
+    */env/*
+    */site-packages/*
+    setup.py
+    conftest.py
+    validate_setup.py
+    stress_test.py
+    parameter_stability.py
+    train_ml_model.py
+    scan_best_stocks.py
+    botctl.ps1
+
+# Branch coverage
+branch = True
+
+# Parallel mode for multiprocessing
+parallel = True
+
+[report]
+# Precision for coverage percentages
+precision = 2
+
+# Show missing line numbers
+show_missing = True
+
+# Skip empty files
+skip_empty = True
+
+# Fail if coverage is below this threshold
+fail_under = 80
+
+# Exclude lines from coverage
+exclude_lines =
+    # Standard pragma
+    pragma: no cover
+    
+    # Don't complain about missing debug code
+    def __repr__
+    
+    # Don't complain if tests don't hit defensive assertion code
+    raise AssertionError
+    raise NotImplementedError
+    
+    # Don't complain if non-runnable code isn't run
+    if __name__ == .__main__.:
+    if __name__ == "__main__":
+    
+    # Don't complain about abstract methods
+    @abstractmethod
+    @abc.abstractmethod
+    
+    # Don't complain about type checking code
+    if TYPE_CHECKING:
+    if typing.TYPE_CHECKING:
+    
+    # Don't complain about pass statements
+    pass
+    
+    # Don't complain about ellipsis
+    ...
+
+[html]
+# Directory for HTML coverage report
+directory = htmlcov
+
+[xml]
+# File for XML coverage report (for CI/CD)
+output = coverage.xml
+

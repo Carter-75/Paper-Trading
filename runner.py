@@ -1138,10 +1138,13 @@ def check_portfolio_correlation(client, new_symbol: str, held_symbols: List[str]
 
 def buy_flow(client, symbol: str, last_price: float, available_cap: float,
              confidence: float, base_frac: float, base_tp: float, base_sl: float,
-             dynamic_enabled: bool = True, interval_seconds: int = None):
+             dynamic_enabled: bool = True, interval_seconds: int = None,
+             total_invested: float = 0.0, max_capital: float = None):
     """
     Buy a stock using available capital.
     available_cap: How much capital is available for THIS specific trade
+    total_invested: Total capital currently invested across all positions
+    max_capital: Total capital available for trading
     """
     pos = get_position(client, symbol)
     if pos:
@@ -1149,6 +1152,25 @@ def buy_flow(client, symbol: str, last_price: float, available_cap: float,
     
     if confidence < config.MIN_CONFIDENCE_TO_TRADE:
         return (False, f"Low confidence: {confidence:.4f}")
+    
+    # Exposure limit check - don't go all-in, keep cash for opportunities
+    if max_capital and max_capital > 0:
+        # Calculate the order value we're about to place
+        estimated_order_value = available_cap * base_frac
+        
+        can_buy, adjusted_value, exp_msg = check_exposure_limit(
+            total_invested, max_capital, estimated_order_value
+        )
+        
+        if not can_buy:
+            return (False, exp_msg)
+        
+        # Adjust available capital if needed to respect exposure limit
+        if adjusted_value < estimated_order_value:
+            available_cap = adjusted_value / base_frac
+            log_info(f"  [EXPOSURE LIMIT] {exp_msg}")
+        else:
+            log_info(f"  [EXPOSURE] {exp_msg}")
     
     # Correlation check - avoid doubling up on correlated positions
     if config.CORRELATION_CHECK_ENABLED and interval_seconds:
@@ -1308,6 +1330,17 @@ def buy_flow(client, symbol: str, last_price: float, available_cap: float,
     if dynamic_enabled:
         tp, sl, frac = adjust_runtime_params(confidence, tp, sl, frac)
     
+    # Apply max loss per trade constraint FIRST (hard safety limit)
+    if max_capital and max_capital > 0:
+        risk_limited_cap, risk_msg = calculate_max_position_size_for_risk(
+            max_capital, sl, available_cap
+        )
+        if risk_limited_cap < available_cap:
+            log_info(f"  [MAX RISK] {risk_msg}")
+            available_cap = risk_limited_cap
+        elif config.MAX_LOSS_PER_TRADE_ENABLED:
+            log_info(f"  [RISK CHECK] {risk_msg}")
+    
     # Apply dynamic position sizing multiplier based on recent performance
     dynamic_multiplier = get_dynamic_position_multiplier()
     if dynamic_multiplier != 1.0:
@@ -1319,6 +1352,15 @@ def buy_flow(client, symbol: str, last_price: float, available_cap: float,
         if available_cap > config.MAX_CAP_USD:
             available_cap = config.MAX_CAP_USD
             log_info(f"    Capped at max: ${config.MAX_CAP_USD:.2f}")
+        
+        # Re-check risk limit after dynamic adjustment
+        if max_capital and max_capital > 0:
+            risk_limited_cap_2, _ = calculate_max_position_size_for_risk(
+                max_capital, sl, available_cap
+            )
+            if risk_limited_cap_2 < available_cap:
+                log_info(f"  [MAX RISK] Reduced after dynamic adjustment: ${available_cap:.2f} → ${risk_limited_cap_2:.2f}")
+                available_cap = risk_limited_cap_2
     
     # Calculate position size (Kelly or static)
     if config.ENABLE_KELLY_SIZING and interval_seconds:
@@ -1385,6 +1427,14 @@ def buy_flow(client, symbol: str, last_price: float, available_cap: float,
             if config.USE_LIMIT_ORDERS:
                 # Limit order - place slightly below market for better price
                 limit_price = effective_price * (1 - config.LIMIT_ORDER_OFFSET_PERCENT / 100)
+                
+                # Verify order safety before submission
+                is_safe, verify_msg = verify_order_safety(
+                    client, symbol, 'buy', qty, limit_price, last_price
+                )
+                if not is_safe:
+                    return (False, f"Order verification failed: {verify_msg}")
+                
                 order = client.submit_order(
                     symbol=symbol,
                     qty=qty,
@@ -1397,6 +1447,13 @@ def buy_flow(client, symbol: str, last_price: float, available_cap: float,
                 log_info(f"  Limit order @ ${limit_price:.2f} (market: ${effective_price:.2f})")
             else:
                 # Market order (original behavior)
+                # Verify order safety before submission
+                is_safe, verify_msg = verify_order_safety(
+                    client, symbol, 'buy', qty, effective_price, last_price
+                )
+                if not is_safe:
+                    return (False, f"Order verification failed: {verify_msg}")
+                
                 order = client.submit_order(
                     symbol=symbol,
                     qty=qty,
@@ -1439,6 +1496,14 @@ def buy_flow(client, symbol: str, last_price: float, available_cap: float,
                         log_warn(f"Limit order timeout - switching to market order")
                         
                         # Submit market order instead
+                        # Verify before fallback to market
+                        is_safe, verify_msg = verify_order_safety(
+                            client, symbol, 'buy', qty, effective_price, last_price
+                        )
+                        if not is_safe:
+                            log_warn(f"Fallback market order verification failed: {verify_msg}")
+                            return (False, f"Fallback verification failed: {verify_msg}")
+                        
                         order = client.submit_order(
                             symbol=symbol,
                             qty=qty,
@@ -1490,6 +1555,13 @@ def buy_flow(client, symbol: str, last_price: float, available_cap: float,
             return (True, f"Bought {shares_text} shares @ ${last_price:.2f} (TP:{tp:.2f}% SL:{sl:.2f}%)")
         else:
             # Whole shares: Use bracket orders with GTC
+            # Verify order safety before submission
+            is_safe, verify_msg = verify_order_safety(
+                client, symbol, 'buy', int(qty), effective_price, last_price
+            )
+            if not is_safe:
+                return (False, f"Order verification failed: {verify_msg}")
+            
             # Use trailing stop if enabled (locks in profits as price rises)
             if config.TRAILING_STOP_PERCENT > 0:
                 stop_loss_config = {'trail_percent': config.TRAILING_STOP_PERCENT}
@@ -1571,6 +1643,22 @@ def sell_flow(client, symbol: str, confidence: float = 0.0):
         # Market sell (use 'day' for fractional shares, 'gtc' for whole shares)
         is_fractional = (qty % 1 != 0)
         time_in_force = 'day' if is_fractional else 'gtc'
+        
+        # Verify order safety before submission
+        # Get current price for verification
+        try:
+            current_price = fetch_closes(client, symbol, 900, 1)[-1] if fetch_closes(client, symbol, 900, 1) else None
+        except:
+            current_price = None
+        
+        is_safe, verify_msg = verify_order_safety(
+            client, symbol, 'sell', qty, current_price if current_price else qty * 100, current_price
+        )
+        if not is_safe:
+            log_warn(f"Sell order verification failed: {verify_msg}")
+            # For sells, we might still want to sell even if verification fails (to exit bad position)
+            # Just log warning but continue
+        
         order = client.submit_order(
             symbol=symbol, 
             qty=qty, 
@@ -1704,6 +1792,266 @@ def check_drawdown_protection(current_value: float) -> Tuple[bool, str]:
             return (False, f"Drawdown protection active: {abs(drawdown_pct):.1f}% > {config.MAX_PORTFOLIO_DRAWDOWN_PERCENT}%")
     
     return (True, "")
+
+
+def check_exposure_limit(total_invested: float, max_capital: float, new_order_value: float) -> Tuple[bool, float, str]:
+    """
+    Check if adding a new position would exceed maximum exposure limit.
+    Returns (can_buy, adjusted_order_value, message)
+    
+    Purpose: Don't go all-in on one idea - keep some cash for opportunities.
+    Default: 75% max exposure (keep 25% in cash)
+    """
+    max_allowed = max_capital * (config.MAX_EXPOSURE_PCT / 100.0)
+    new_total = total_invested + new_order_value
+    
+    if new_total > max_allowed:
+        # Calculate how much we can actually buy without exceeding limit
+        available_room = max_allowed - total_invested
+        
+        if available_room <= 0:
+            msg = (f"Exposure limit reached: {total_invested:.2f}/${max_allowed:.2f} "
+                  f"({config.MAX_EXPOSURE_PCT:.0f}% of ${max_capital:.2f})")
+            return (False, 0.0, msg)
+        else:
+            # Can buy partial amount
+            exposure_pct = (total_invested / max_capital) * 100
+            msg = (f"Reducing order size: ${new_order_value:.2f} → ${available_room:.2f} "
+                  f"(exposure: {exposure_pct:.0f}%/{config.MAX_EXPOSURE_PCT:.0f}%)")
+            return (True, available_room, msg)
+    
+    # Within limits
+    exposure_pct = (new_total / max_capital) * 100
+    return (True, new_order_value, f"Exposure OK: {exposure_pct:.0f}%/{config.MAX_EXPOSURE_PCT:.0f}%")
+
+
+def check_kill_switch() -> Tuple[bool, str]:
+    """
+    Check if kill switch file exists - emergency stop mechanism.
+    Returns (should_continue, message)
+    
+    Purpose: Quick way to halt bot during anomalies or manual override.
+    
+    To activate: Create file KILL_SWITCH.flag in project directory
+    To deactivate: Delete the file
+    """
+    if not config.KILL_SWITCH_ENABLED:
+        return (True, "")
+    
+    if os.path.exists(config.KILL_SWITCH_FILE):
+        msg = (f"[KILL SWITCH ACTIVATED]\n"
+              f"   File found: {config.KILL_SWITCH_FILE}\n"
+              f"   Bot will stop trading until file is removed.\n"
+              f"   To resume: Delete the file and restart bot")
+        return (False, msg)
+    
+    return (True, "")
+
+
+def verify_order_safety(client, symbol: str, side: str, qty: float, price: float, 
+                        last_known_price: float = None) -> Tuple[bool, str]:
+    """
+    Verify order safety before submission - prevent fat-finger errors and API glitches.
+    Returns (is_safe, message)
+    
+    Checks:
+    1. Price is not >10% from last known price (prevents bad fills)
+    2. Order size is not >10% of average daily volume (prevents market impact)
+    3. Price exists and is valid (>0)
+    """
+    if not config.ORDER_VERIFICATION_ENABLED:
+        return (True, "")
+    
+    # Check 1: Price validation
+    if price <= 0:
+        return (False, f"Invalid price: ${price:.2f} (must be > 0)")
+    
+    # Check 2: Price deviation from last known
+    if last_known_price and last_known_price > 0:
+        price_change_pct = abs(price - last_known_price) / last_known_price * 100
+        
+        if price_change_pct > config.MAX_PRICE_DEVIATION_PCT:
+            return (False, 
+                   f"Price deviation too large: ${last_known_price:.2f} → ${price:.2f} "
+                   f"({price_change_pct:.1f}% > {config.MAX_PRICE_DEVIATION_PCT}% limit). "
+                   f"Possible API glitch or flash crash.")
+    
+    # Check 3: Order size vs average daily volume
+    try:
+        import yfinance as yf
+        ticker = yf.Ticker(symbol)
+        info = ticker.info
+        
+        avg_volume = info.get('averageVolume', 0) or info.get('averageDailyVolume10Day', 0)
+        
+        if avg_volume > 0:
+            # Calculate order size as % of average daily volume
+            order_value = qty * price
+            avg_daily_value = avg_volume * price
+            order_pct_of_adv = (qty / avg_volume) * 100
+            
+            if order_pct_of_adv > config.MAX_ORDER_SIZE_ADV_PCT:
+                return (False,
+                       f"Order too large: {qty:.2f} shares = {order_pct_of_adv:.1f}% of avg daily volume "
+                       f"({avg_volume:,.0f} shares). Limit: {config.MAX_ORDER_SIZE_ADV_PCT}%. "
+                       f"This could cause significant market impact.")
+            
+            # Log if order is getting large (warning at 5%)
+            if order_pct_of_adv > 5.0:
+                log_info(f"  [ORDER SIZE] {order_pct_of_adv:.2f}% of daily volume (acceptable but large)")
+    
+    except Exception as e:
+        # Don't fail order if volume check fails - just log warning
+        log_warn(f"Could not verify order size vs volume for {symbol}: {e}")
+    
+    # All checks passed
+    return (True, "Order verification passed")
+
+
+def calculate_max_position_size_for_risk(total_capital: float, stop_loss_pct: float, 
+                                          available_capital: float) -> Tuple[float, str]:
+    """
+    Calculate maximum position size based on max loss per trade rule.
+    Returns (max_position_value, message)
+    
+    Formula: max_position_size = (total_capital × max_loss_pct) / stop_loss_pct
+    
+    Example: $10,000 capital, 2% max loss, 1% stop loss
+    → max_loss = $200
+    → max_position = $200 / 0.01 = $20,000
+    → But capped at available_capital
+    
+    Purpose: Ensure that even if stop loss hits, we can't lose >2% of capital.
+    """
+    if not config.MAX_LOSS_PER_TRADE_ENABLED:
+        return (available_capital, "Max loss per trade check disabled")
+    
+    if stop_loss_pct <= 0:
+        # No stop loss or invalid - use very conservative limit
+        max_position = total_capital * (config.MAX_LOSS_PER_TRADE_PCT / 100)
+        msg = f"No stop loss - limiting position to {config.MAX_LOSS_PER_TRADE_PCT}% of capital"
+        return (min(max_position, available_capital), msg)
+    
+    # Calculate max loss in dollars
+    max_loss_usd = total_capital * (config.MAX_LOSS_PER_TRADE_PCT / 100)
+    
+    # Calculate max position size that would result in this max loss at stop loss price
+    # If stop loss is 1% and we want max loss of $200:
+    # max_position = $200 / 0.01 = $20,000
+    max_position_from_risk = max_loss_usd / (stop_loss_pct / 100)
+    
+    # Cap at available capital (can't invest more than we have)
+    max_position = min(max_position_from_risk, available_capital)
+    
+    # Calculate actual risk with this position size
+    actual_risk_usd = max_position * (stop_loss_pct / 100)
+    actual_risk_pct = (actual_risk_usd / total_capital) * 100
+    
+    if max_position < available_capital:
+        msg = (f"Risk limit: Max ${max_position:.2f} position (risk ${actual_risk_usd:.2f} = "
+              f"{actual_risk_pct:.2f}% at {stop_loss_pct:.1f}% SL)")
+    else:
+        msg = f"Risk OK: ${max_position:.2f} position (risk {actual_risk_pct:.2f}% of capital)"
+    
+    return (max_position, msg)
+
+
+# VIX cache to avoid excessive API calls
+_vix_cache = {"value": None, "timestamp": 0}
+
+def get_vix_level() -> Tuple[Optional[float], str]:
+    """
+    Get current VIX (Volatility Index) level.
+    Returns (vix_value, message)
+    
+    VIX interpretation:
+    - <15: Low volatility (calm market)
+    - 15-20: Normal volatility
+    - 20-30: Elevated volatility (caution)
+    - >30: Extreme fear (pause trading)
+    - >40: Panic (major market event)
+    
+    Caches result for 15 minutes to avoid excessive API calls.
+    """
+    if not config.VIX_FILTER_ENABLED:
+        return (None, "VIX filter disabled")
+    
+    # Check cache
+    cache_age_seconds = time.time() - _vix_cache["timestamp"]
+    cache_age_minutes = cache_age_seconds / 60
+    
+    if _vix_cache["value"] is not None and cache_age_minutes < config.VIX_CACHE_MINUTES:
+        return (_vix_cache["value"], f"VIX: {_vix_cache['value']:.1f} (cached {cache_age_minutes:.1f}m ago)")
+    
+    # Fetch fresh VIX data
+    try:
+        import yfinance as yf
+        
+        # VIX symbol is ^VIX
+        vix_ticker = yf.Ticker("^VIX")
+        
+        # Get most recent data (last close or current price if market is open)
+        vix_data = vix_ticker.history(period="1d", interval="1m")
+        
+        if vix_data.empty:
+            # Fallback to daily data if intraday fails
+            vix_data = vix_ticker.history(period="5d")
+        
+        if not vix_data.empty:
+            vix_value = float(vix_data['Close'].iloc[-1])
+            
+            # Update cache
+            _vix_cache["value"] = vix_value
+            _vix_cache["timestamp"] = time.time()
+            
+            # Interpret VIX level
+            if vix_value > 40:
+                level = "PANIC"
+            elif vix_value > 30:
+                level = "EXTREME FEAR"
+            elif vix_value > 20:
+                level = "ELEVATED"
+            elif vix_value > 15:
+                level = "NORMAL"
+            else:
+                level = "CALM"
+            
+            return (vix_value, f"VIX: {vix_value:.1f} ({level})")
+        else:
+            log_warn("Could not fetch VIX data - assuming safe to trade")
+            return (None, "VIX data unavailable")
+    
+    except Exception as e:
+        log_warn(f"Error fetching VIX: {e} - assuming safe to trade")
+        return (None, f"VIX fetch error: {e}")
+
+
+def check_vix_filter() -> Tuple[bool, str]:
+    """
+    Check if VIX is too high to trade safely.
+    Returns (can_trade, message)
+    
+    Purpose: Pause trading during extreme market volatility/fear.
+    """
+    if not config.VIX_FILTER_ENABLED:
+        return (True, "")
+    
+    vix_value, vix_msg = get_vix_level()
+    
+    if vix_value is None:
+        # Can't get VIX - assume safe to trade (don't halt on API errors)
+        return (True, vix_msg)
+    
+    if vix_value > config.VIX_THRESHOLD:
+        msg = (f"[VIX FILTER TRIGGERED]\n"
+              f"   Current VIX: {vix_value:.1f}\n"
+              f"   Threshold: {config.VIX_THRESHOLD:.1f}\n"
+              f"   Market is in extreme fear - pausing trading for safety.\n"
+              f"   Will resume when VIX drops below {config.VIX_THRESHOLD:.1f}")
+        return (False, msg)
+    
+    # Safe to trade
+    return (True, vix_msg)
 
 # ===== Simulation =====
 def simulate_signals_and_projection(
@@ -2786,6 +3134,27 @@ def main():
 
             log_info(f"=== Iteration {iteration} ===")
             
+            # Kill switch check - emergency stop
+            can_continue, kill_msg = check_kill_switch()
+            if not can_continue:
+                log_error(kill_msg)
+                log_error("Bot halted by kill switch. Delete the file to resume.")
+                # Wait and keep checking instead of exiting - allows resuming without restart
+                while not check_kill_switch()[0]:
+                    time.sleep(30)  # Check every 30 seconds
+                log_info("Kill switch removed - resuming trading...")
+                continue
+            
+            # VIX filter check - pause during extreme market fear
+            can_trade_vix, vix_msg = check_vix_filter()
+            if not can_trade_vix:
+                log_warn(vix_msg)
+                log_warn("Pausing trading due to high VIX. Will check again next iteration.")
+                time.sleep(interval_seconds)
+                continue
+            elif vix_msg:
+                log_info(f"  {vix_msg}")
+            
             if is_multi_stock:
                 # Multi-stock logic
                 current_positions = portfolio.get_all_positions()
@@ -3080,7 +3449,9 @@ def main():
                                     args.tp or config.TAKE_PROFIT_PERCENT,
                                     args.sl or config.STOP_LOSS_PERCENT,
                                     dynamic_enabled=not args.no_dynamic,
-                                    interval_seconds=interval_seconds
+                                    interval_seconds=interval_seconds,
+                                    total_invested=total_invested,
+                                    max_capital=args.max_cap
                                 )
                                 if ok:
                                     trades_this_cycle += 1
@@ -3181,6 +3552,10 @@ def main():
                 enforce_safety(client, symbol)
 
                 if action == "buy":
+                    # Get current position value for exposure check
+                    current_pos = get_position(client, symbol)
+                    current_invested = current_pos["market_value"] if current_pos else 0.0
+                    
                     ok, msg = buy_flow(
                         client, symbol, last_price, cap_per_stock,
                         max(0.0, confidence),
@@ -3188,7 +3563,9 @@ def main():
                         args.tp or config.TAKE_PROFIT_PERCENT,
                         args.sl or config.STOP_LOSS_PERCENT,
                         dynamic_enabled=not args.no_dynamic,
-                        interval_seconds=interval_seconds
+                        interval_seconds=interval_seconds,
+                        total_invested=current_invested,
+                        max_capital=args.max_cap
                     )
                     log_info(f"{'OK' if ok else '--'} {msg}")
                 elif action == "sell":
