@@ -132,6 +132,40 @@ python optimizer.py --preset balanced      # $250k cap
 python optimizer.py --preset aggressive    # $1M cap
 ```
 
+**How to Read Optimizer Output:**
+
+The optimizer tells you EXACTLY what 2 values to use:
+
+```
+>>> YOU SET THESE 2 VALUES:
+  1. Time Interval: 7800s (2.1667h = 130 min)   <-- USE THIS
+     -> 3.0 trades/day
+     -> Perfect fit! No wasted time
+  2. Total Capital: $198699.39                  <-- USE THIS
+```
+
+Then copy the command it gives you:
+```powershell
+& "$BotDir\botctl.ps1" start python -u runner.py -t 2.1667 -m 198699.39
+```
+
+**How the Optimizer Works (Market-Hour Aware):**
+- Market is open 6.5 hours/day (9:30 AM - 4:00 PM ET)
+- Optimizer finds the **optimal number of trades** (not arbitrary intervals!)
+- Calculates interval = 390 minutes / trades_per_day
+- This ensures **zero wasted time** (unlike old 4-hour = 1.6 trades = wastes 2.5 hours)
+
+**Example Intervals:**
+- 1 trade/day = 390min (6.5h)
+- 2 trades/day = 195min (3.25h)
+- 3 trades/day = 130min (2.17h) ← Perfect division!
+- 6 trades/day = 65min (1.08h)
+
+**Important:**
+- `-t` flag uses **HOURS** (not seconds!)
+- `-m` flag uses **DOLLARS** (no commas)
+- Use the **"Live Trading (REALISTIC)"** value, NOT "Paper Trading"
+
 ### 3. Start the Bot
 
 ```powershell

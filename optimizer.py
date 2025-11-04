@@ -704,12 +704,15 @@ def comprehensive_binary_search(symbol: str, verbose: bool = False, max_cap: flo
     # Use None as client - optimizer uses yfinance only (avoids Alpaca rate limits!)
     client = None
     
+    # Market hours: 6.5 hours = 390 minutes = 23400 seconds
+    MARKET_HOURS_SECONDS = 6.5 * 3600  # 23400 seconds
     min_interval = 60  # 1 minute (API minimum)
-    max_interval = int(6.5 * 3600)  # 6.5 hours
+    max_interval = int(MARKET_HOURS_SECONDS)
     
     if verbose:
         print(f"\nComprehensive optimization for {symbol}")
-        print(f"Interval range: {min_interval}s - {max_interval}s (1min to 6.5hrs)")
+        print(f"Strategy: Test trades-per-day, calculate perfect intervals")
+        print(f"Market hours: 6.5 hours (9:30 AM - 4:00 PM ET)")
         print(f"Capital range: $1 - ${max_cap:,.0f}")
         if use_robustness:
             print(f"Robustness testing: ENABLED (tests 3 time periods)")
@@ -717,9 +720,20 @@ def comprehensive_binary_search(symbol: str, verbose: bool = False, max_cap: flo
             print(f"  • Rewards strategies that work across ALL periods")
         print(f"{'='*70}\n")
     
-    # Phase 1: Sample key intervals
-    test_intervals = [60, 300, 900, 1800, 3600, 7200, 14400, 21600]  # 1m, 5m, 15m, 30m, 1h, 2h, 4h, 6h
-    test_intervals = [i for i in test_intervals if min_interval <= i <= max_interval]
+    # Phase 1: Test trades-per-day, calculate intervals that PERFECTLY divide the trading day
+    # This ensures no wasted time!
+    test_trades_per_day = [1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 13, 15, 18, 20, 26, 30, 39]
+    test_intervals = []
+    
+    for trades in test_trades_per_day:
+        interval_seconds = int(MARKET_HOURS_SECONDS / trades)
+        # Round to nearest minute for practicality
+        interval_rounded = max(60, (interval_seconds // 60) * 60)
+        if min_interval <= interval_rounded <= max_interval:
+            test_intervals.append(interval_rounded)
+    
+    # Remove duplicates and sort
+    test_intervals = sorted(set(test_intervals))
     
     best_interval = 3600
     best_cap = 100.0
@@ -727,11 +741,14 @@ def comprehensive_binary_search(symbol: str, verbose: bool = False, max_cap: flo
     best_consistency = 0.0
     
     if verbose:
-        print("Phase 1: Sampling key intervals with capital optimization:")
+        print("Phase 1: Testing trades-per-day (intervals perfectly divide 6.5 hour market):")
     
     for interval in test_intervals:
         snapped = snap_interval_to_supported_seconds(interval)
         cap, ret = binary_search_capital(client, symbol, snapped, min_cap=1.0, max_cap=max_cap)
+        
+        # Calculate actual trades per day with this interval
+        trades_per_day = MARKET_HOURS_SECONDS / snapped
         
         # Test robustness if enabled
         if use_robustness and ret > -999000:
@@ -740,45 +757,17 @@ def comprehensive_binary_search(symbol: str, verbose: bool = False, max_cap: flo
             ret = avg_ret
             
             if verbose:
-                print(f"  {snapped:5d}s ({snapped/3600:6.3f}h): ${ret:7.2f}/day @ ${cap:>9.0f} cap [consistency: {consistency:.2f}]")
+                print(f"  {trades_per_day:5.1f} trades/day ({snapped:5d}s = {snapped/60:5.1f}m): ${ret:7.2f}/day @ ${cap:>9.0f} cap [consistency: {consistency:.2f}]")
         else:
             consistency = 0.5  # Unknown
             if verbose:
-                print(f"  {snapped:5d}s ({snapped/3600:6.3f}h): ${ret:7.2f}/day @ ${cap:>9.0f} cap")
+                print(f"  {trades_per_day:5.1f} trades/day ({snapped:5d}s = {snapped/60:5.1f}m): ${ret:7.2f}/day @ ${cap:>9.0f} cap")
         
-        # SMART SCORING: Penalize intervals that waste the trading day
-        # Trading day is 6.5 hours - we want to maximize useful trades
-        trading_day_seconds = 6.5 * 3600
-        actual_trades_per_day = trading_day_seconds / snapped
-        
-        # Utilization factor: How well does this interval use the trading day?
-        # Examples:
-        #   4h = 1.6 trades = basically 1 = 15% utilization = BAD
-        #   2h = 3.25 trades = basically 3 = 46% utilization = BETTER  
-        #   1h = 6.5 trades = basically 6-7 = 100% utilization = BEST
-        effective_trades = int(actual_trades_per_day)  # How many COMPLETE trades you get
-        utilization = min(effective_trades / 6.5, 1.0)  # Max 100%
-        
-        # Bonus for intervals that don't waste much time
-        # If 4h gives 1.6 trades, you waste 0.6 trades worth of time (2.4 hours!)
-        waste = actual_trades_per_day - effective_trades
-        waste_penalty = 1.0 - (waste * 0.2)  # Penalize wasted partial trades
-        
-        utilization_factor = utilization * waste_penalty
-        
-        # Final score: return × consistency × utilization
-        # Utilization weighted at 50% to strongly prefer intervals that maximize trades
-        score = ret * (0.5 + 0.5 * consistency) * (0.5 + 0.5 * utilization_factor)
+        # Score: return × consistency (no utilization penalty since all intervals divide perfectly!)
+        score = ret * (0.5 + 0.5 * consistency)
         
         if best_return > -999000:
-            best_trading_day_seconds = 6.5 * 3600
-            best_actual_trades = best_trading_day_seconds / best_interval
-            best_effective_trades = int(best_actual_trades)
-            best_utilization = min(best_effective_trades / 6.5, 1.0)
-            best_waste = best_actual_trades - best_effective_trades
-            best_waste_penalty = 1.0 - (best_waste * 0.2)
-            best_utilization_factor = best_utilization * best_waste_penalty
-            best_score = best_return * (0.5 + 0.5 * best_consistency) * (0.5 + 0.5 * best_utilization_factor)
+            best_score = best_return * (0.5 + 0.5 * best_consistency)
         else:
             best_score = -999999
         
@@ -1510,17 +1499,18 @@ def main() -> int:
     print(f"{'='*70}")
     print(f"Best performer found: {best_symbol}  (reference only)")
     print(f"\n>>> YOU SET THESE 2 VALUES:")
-    print(f"  1. Time Interval: {best_interval}s ({best_interval/3600:.4f}h)")
+    # Calculate trades per day and wasted time
+    trading_day_seconds = 6.5 * 3600
+    trades_per_day = trading_day_seconds / best_interval
+    waste_time_seconds = trading_day_seconds % best_interval
+    waste_minutes = waste_time_seconds / 60
     
-    # Show why this interval is optimal
-    optimal_trades_per_day = (6.5 * 3600) / best_interval
-    optimal_effective_trades = int(optimal_trades_per_day)
-    waste_time = (optimal_trades_per_day - optimal_effective_trades) * (best_interval / 3600)
-    print(f"     -> {optimal_effective_trades} complete trades/day ({optimal_trades_per_day:.1f} total)")
-    if waste_time > 0.5:
-        print(f"     -> Wastes {waste_time:.1f}h at end of day (acceptable)")
+    print(f"  1. Time Interval: {best_interval}s ({best_interval/3600:.4f}h = {best_interval/60:.0f} min)")
+    print(f"     -> {trades_per_day:.1f} trades/day")
+    if waste_minutes > 0:
+        print(f"     -> Wastes {waste_minutes:.0f} minutes at end of day")
     else:
-        print(f"     -> Minimal waste ({waste_time:.1f}h) - good utilization!")
+        print(f"     -> Perfect fit! No wasted time")
     
     print(f"  2. Total Capital: ${best_cap:.2f}")
     print(f"\n>>> BOT DOES EVERYTHING ELSE AUTOMATICALLY")
