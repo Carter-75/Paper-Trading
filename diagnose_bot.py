@@ -158,22 +158,22 @@ def print_diagnosis():
     # Provide recommendations based on issues
     if any("low confidence" in i.lower() for i in issues):
         print("  1. Low Confidence Fix:")
-        print("     → Try a different time interval: python optimizer.py -s AAPL -v")
-        print("     → Consider using 1-hour or 2-hour intervals instead of 4-hour")
+        print("     - Try a different time interval: python optimizer.py -s AAPL -v")
+        print("     - Consider using 1-hour or 2-hour intervals instead of 4-hour")
         print()
     
     if any("no viable stocks" in i.lower() for i in issues):
         print("  2. No Viable Stocks Fix:")
-        print("     → Market may be bearish - wait for better conditions")
-        print("     → Or reduce capital and try more frequent trading:")
+        print("     - Market may be bearish - wait for better conditions")
+        print("     - Or reduce capital and try more frequent trading:")
         print("       python optimizer.py --preset conservative")
         print()
     
     if any("no positions taken" in i.lower() for i in issues):
         print("  3. No Positions Fix:")
-        print("     → Lower MIN_CONFIDENCE_TO_TRADE in config:")
+        print("     - Lower MIN_CONFIDENCE_TO_TRADE in config:")
         print("       Set MIN_CONFIDENCE_TO_TRADE=0.001 in .env file")
-        print("     → Or wait for clearer market signals")
+        print("     - Or wait for clearer market signals")
         print()
     
     if stats["positions_held"] > 0:
@@ -181,9 +181,9 @@ def print_diagnosis():
         print()
     
     print("  General Tips:")
-    print("    • Check VIX level - high VIX (>30) pauses trading")
-    print("    • Verify market hours - bot only trades 9:30 AM - 4:00 PM ET")
-    print("    • Review optimization_history.csv for performance trends")
+    print("    - Check VIX level - high VIX (>30) pauses trading")
+    print("    - Verify market hours - bot only trades 9:30 AM - 4:00 PM ET")
+    print("    - Review optimization_history.csv for performance trends")
     print()
     print("=" * 70)
 
