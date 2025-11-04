@@ -763,18 +763,30 @@ def comprehensive_binary_search(symbol: str, verbose: bool = False, max_cap: flo
     
     # Phase 1: Test trades-per-day, calculate intervals that PERFECTLY divide the trading day
     # This ensures no wasted time!
-    test_trades_per_day = [1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 13, 15, 18, 20, 26, 30, 39]
+    # We test 1 to 39 trades per day (39 = every 10 minutes, 1 = once per day)
+    test_trades_per_day = list(range(1, 40))  # 1, 2, 3, ..., 39 trades
     test_intervals = []
     
+    if verbose:
+        print(f"Calculating perfect intervals (zero wasted time):")
+    
     for trades in test_trades_per_day:
-        interval_seconds = int(MARKET_HOURS_SECONDS / trades)
-        # Round to nearest minute for practicality
-        interval_rounded = max(60, (interval_seconds // 60) * 60)
-        if min_interval <= interval_rounded <= max_interval:
-            test_intervals.append(interval_rounded)
+        interval_seconds = MARKET_HOURS_SECONDS / trades  # Exact division
+        # Check if it divides evenly (no remainder > 1 minute)
+        remainder = MARKET_HOURS_SECONDS % trades
+        
+        if remainder == 0:  # Perfect division!
+            interval_int = int(interval_seconds)
+            if min_interval <= interval_int <= max_interval:
+                test_intervals.append(interval_int)
+                if verbose:
+                    print(f"  {trades} trades/day = {interval_int}s ({interval_int/60:.0f} min) - PERFECT")
     
     # Remove duplicates and sort
     test_intervals = sorted(set(test_intervals))
+    
+    if verbose:
+        print(f"\nFound {len(test_intervals)} perfect intervals to test\n")
     
     best_interval = 3600
     best_cap = 100.0
@@ -785,24 +797,25 @@ def comprehensive_binary_search(symbol: str, verbose: bool = False, max_cap: flo
         print("Phase 1: Testing trades-per-day (intervals perfectly divide 6.5 hour market):")
     
     for interval in test_intervals:
-        snapped = snap_interval_to_supported_seconds(interval)
-        cap, ret = binary_search_capital(client, symbol, snapped, min_cap=1.0, max_cap=max_cap)
+        # DON'T snap! We want to use the perfect intervals exactly as calculated
+        # Snapping would ruin our perfect division of the 6.5 hour trading day
+        cap, ret = binary_search_capital(client, symbol, interval, min_cap=1.0, max_cap=max_cap)
         
         # Calculate actual trades per day with this interval
-        trades_per_day = MARKET_HOURS_SECONDS / snapped
+        trades_per_day = MARKET_HOURS_SECONDS / interval
         
         # Test robustness if enabled
         if use_robustness and ret > -999000:
-            avg_ret, consistency, _, oos_return = evaluate_robustness(client, symbol, snapped, cap)
+            avg_ret, consistency, _, oos_return = evaluate_robustness(client, symbol, interval, cap)
             # Use average return from multiple periods
             ret = avg_ret
             
             if verbose:
-                print(f"  {trades_per_day:5.1f} trades/day ({snapped:5d}s = {snapped/60:5.1f}m): ${ret:7.2f}/day @ ${cap:>9.0f} cap [consistency: {consistency:.2f}]")
+                print(f"  {trades_per_day:5.1f} trades/day ({interval:5d}s = {interval/60:5.1f}m): ${ret:7.2f}/day @ ${cap:>9.0f} cap [consistency: {consistency:.2f}]")
         else:
             consistency = 0.5  # Unknown
             if verbose:
-                print(f"  {trades_per_day:5.1f} trades/day ({snapped:5d}s = {snapped/60:5.1f}m): ${ret:7.2f}/day @ ${cap:>9.0f} cap")
+                print(f"  {trades_per_day:5.1f} trades/day ({interval:5d}s = {interval/60:5.1f}m): ${ret:7.2f}/day @ ${cap:>9.0f} cap")
         
         # Score: return × consistency (no utilization penalty since all intervals divide perfectly!)
         score = ret * (0.5 + 0.5 * consistency)
@@ -814,120 +827,18 @@ def comprehensive_binary_search(symbol: str, verbose: bool = False, max_cap: flo
         
         if score > best_score:
             best_return = ret
-            best_interval = snapped
+            best_interval = interval  # Use exact interval, not snapped!
             best_cap = cap
             best_consistency = consistency
     
-    # Phase 2: Golden ratio search for optimal interval (more efficient than ternary)
-    # SEARCHES DOWN TO THE MINUTE - no snapping!
+    # Phase 2: SKIPPED - We only use intervals that perfectly divide the trading day
+    # This ensures ZERO wasted market time
     if verbose:
-        print(f"\nPhase 2: Refining around {best_interval}s (golden ratio search to minute precision):")
-    
-    search_min = max(min_interval, best_interval // 2)
-    search_max = min(max_interval, best_interval * 2)
-    iterations = 0
-    max_iterations = 15  # More iterations for minute-level precision
-    
-    # Golden ratio for optimal search point placement
-    golden_ratio = (3 - 5**0.5) / 2  # ~0.382
-    
-    # Track tested intervals to avoid duplicates
-    tested_intervals = set()
-    
-    # Initial evaluation at golden ratio points
-    # Round to nearest MINUTE (60s), not to predefined intervals!
-    left_test = int(search_min + golden_ratio * (search_max - search_min))
-    right_test = int(search_max - golden_ratio * (search_max - search_min))
-    
-    # Round to nearest minute for practical trading
-    left_snap = max(60, (left_test // 60) * 60)
-    right_snap = max(60, (right_test // 60) * 60)
-    
-    # Early termination if intervals converge to same minute
-    if left_snap == right_snap:
-        if verbose:
-            print(f"  Skipping refinement - intervals converged to {left_snap}s ({left_snap/60:.0f} min)")
-    else:
-        left_cap, left_ret = binary_search_capital(client, symbol, left_snap, min_cap=1.0, max_cap=max_cap)
-        right_cap, right_ret = binary_search_capital(client, symbol, right_snap, min_cap=1.0, max_cap=max_cap)
-        
-        tested_intervals.add(left_snap)
-        tested_intervals.add(right_snap)
-        
-        # Update best if found better
-        if left_ret > best_return:
-            best_return = left_ret
-            best_interval = left_snap
-            best_cap = left_cap
-        if right_ret > best_return:
-            best_return = right_ret
-            best_interval = right_snap
-            best_cap = right_cap
-        
-        while (search_max - search_min) > 60 and iterations < max_iterations:
-            iterations += 1
-            
-            if verbose:
-                print(f"  Iter {iterations}: Range [{search_min}s - {search_max}s] = {search_max - search_min}s span")
-                print(f"    Testing: {left_snap}s (${left_ret:.2f}) vs {right_snap}s (${right_ret:.2f})")
-            
-            if left_ret > right_ret:
-                # Narrow to left side
-                search_max = right_test
-                right_test = left_test
-                right_snap = left_snap
-                right_ret = left_ret
-                right_cap = left_cap
-                
-                # New left test point
-                left_test = int(search_min + golden_ratio * (search_max - search_min))
-                # Round to nearest minute (60s precision)
-                left_snap = max(60, (left_test // 60) * 60)
-                
-                # Check if we've already tested this interval
-                if left_snap in tested_intervals or left_snap == right_snap:
-                    if verbose:
-                        print(f"  Converged to minute precision - stopping refinement")
-                    break
-                
-                tested_intervals.add(left_snap)
-                left_cap, left_ret = binary_search_capital(client, symbol, left_snap, min_cap=1.0, max_cap=max_cap)
-                
-                if left_ret > best_return:
-                    best_return = left_ret
-                    best_interval = left_snap
-                    best_cap = left_cap
-            else:
-                # Narrow to right side
-                search_min = left_test
-                left_test = right_test
-                left_snap = right_snap
-                left_ret = right_ret
-                left_cap = right_cap
-                
-                # New right test point
-                right_test = int(search_max - golden_ratio * (search_max - search_min))
-                # Round to nearest minute (60s precision)
-                right_snap = max(60, (right_test // 60) * 60)
-                
-                # Check if we've already tested this interval
-                if right_snap in tested_intervals or right_snap == left_snap:
-                    if verbose:
-                        print(f"  Converged to minute precision - stopping refinement")
-                    break
-                
-                tested_intervals.add(right_snap)
-                right_cap, right_ret = binary_search_capital(client, symbol, right_snap, min_cap=1.0, max_cap=max_cap)
-                
-                if right_ret > best_return:
-                    best_return = right_ret
-                    best_interval = right_snap
-                    best_cap = right_cap
-    
-    if verbose:
-        print(f"\nConverged after {iterations} refinement iterations")
-        print(f"Final precision: {search_max - search_min}s range (down to ~1 minute)")
-        print(f"Best config: {best_interval}s @ ${best_cap:.0f} = ${best_return:.2f}/day [consistency: {best_consistency:.2f}]")
+        print(f"\nPhase 2: Skipped (only using perfect intervals that divide 6.5 hours evenly)")
+        trades_per_day_final = MARKET_HOURS_SECONDS / best_interval
+        print(f"\nFinal Result:")
+        print(f"  Best: {trades_per_day_final:.1f} trades/day ({best_interval}s = {best_interval/60:.0f} min)")
+        print(f"  Config: ${best_cap:.0f} capital = ${best_return:.2f}/day [consistency: {best_consistency:.2f}]")
     
     return best_interval, best_cap, best_return, best_consistency
 
@@ -1820,6 +1731,16 @@ def main() -> int:
         print(f"  • Method: Golden ratio binary search")
     print(f"  • Total evaluations: ~{len(_result_cache)} configs tested (cached)")
     print(f"{'='*70}\n")
+    
+    # Final clean summary - just the 2 values you need
+    print(f"\n{'='*70}")
+    print(f"FINAL RESULT - USE THESE 2 VALUES:")
+    print(f"{'='*70}")
+    print(f"\n  Time Interval: {best_interval/3600:.4f} hours")
+    print(f"  Total Capital: ${best_cap:.2f}")
+    print(f"\n  Command:")
+    print(f"  & \"$BotDir\\botctl.ps1\" start python -u runner.py -t {best_interval/3600:.4f} -m {best_cap:.2f}")
+    print(f"\n{'='*70}\n")
     
     return 0
 
