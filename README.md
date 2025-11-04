@@ -138,7 +138,7 @@ The optimizer tells you EXACTLY what 2 values to use:
 
 ```
 >>> YOU SET THESE 2 VALUES:
-  1. Time Interval: 7800s (2.1667h = 130 min)   <-- USE THIS
+  1. Time Interval: 1.3000 hours                <-- USE THIS
      -> 3.0 trades/day
      -> Perfect fit! No wasted time
   2. Total Capital: $198699.39                  <-- USE THIS
