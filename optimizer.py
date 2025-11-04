@@ -16,6 +16,8 @@ from datetime import datetime
 import multiprocessing
 from functools import partial
 import signal
+import platform
+import ctypes
 from runner import (
     make_client,
     fetch_closes,
@@ -30,6 +32,45 @@ from stock_scanner import get_stock_universe
 
 # Global result cache to avoid duplicate API calls
 _result_cache: Dict[Tuple[str, int, float], float] = {}
+
+
+def prevent_sleep(verbose=False):
+    """
+    Prevent system from sleeping during optimization (Windows only).
+    Returns a function to restore normal sleep behavior.
+    """
+    if platform.system() != "Windows":
+        # Not Windows - return no-op functions
+        return lambda: None
+    
+    try:
+        # Windows constants for SetThreadExecutionState
+        ES_CONTINUOUS = 0x80000000
+        ES_SYSTEM_REQUIRED = 0x00000001
+        ES_DISPLAY_REQUIRED = 0x00000002
+        ES_AWAYMODE_REQUIRED = 0x00000040
+        
+        # Prevent sleep and keep display on during optimization
+        ctypes.windll.kernel32.SetThreadExecutionState(
+            ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED
+        )
+        
+        if verbose:
+            print("[OK] System sleep prevention enabled - PC will stay awake during optimization")
+        
+        def restore_sleep():
+            """Restore normal sleep behavior"""
+            try:
+                ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS)
+                if verbose:
+                    print("[OK] System sleep prevention disabled - normal power settings restored")
+            except:
+                pass
+        
+        return restore_sleep
+    except:
+        # Failed to prevent sleep - return no-op function
+        return lambda: None
 
 # Global risk metrics cache (these don't change with capital)
 _risk_cache: Dict[Tuple[str, int], dict] = {}
@@ -1786,4 +1827,17 @@ def main() -> int:
 if __name__ == "__main__":
     # Required for Windows multiprocessing support
     multiprocessing.freeze_support()
-    sys.exit(main())
+    
+    # Check if verbose mode for sleep messages
+    verbose = '-v' in sys.argv or '--verbose' in sys.argv
+    
+    # Prevent system sleep during optimization
+    restore_sleep = prevent_sleep(verbose=verbose)
+    
+    try:
+        exit_code = main()
+    finally:
+        # Always restore normal sleep behavior when done
+        restore_sleep()
+    
+    sys.exit(exit_code)
