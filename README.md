@@ -43,7 +43,7 @@ Automated stock trading bot with advanced strategy filters, risk management, and
 
 ```powershell
 # Open PowerShell as Administrator
-cd C:\Users\carte\OneDrive\Desktop\Code\Paper-Trading
+cd "C:\Users\carte\OneDrive\Desktop\Code\Portfolio-Websites (Mostly)\Paper-Trading"
 
 # Install dependencies
 pip install -r requirements.txt
