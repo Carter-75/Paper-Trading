@@ -74,17 +74,25 @@ def fetch_crisis_data(symbol: str, start_date: str, end_date: str, interval_seco
         
         ticker = yf.Ticker(symbol)
         
-        # Convert interval_seconds to yfinance period
-        if interval_seconds <= 300:
-            period_str = "1m"
-        elif interval_seconds <= 900:
-            period_str = "5m"
-        elif interval_seconds <= 3600:
+        # Convert interval_seconds to yfinance period (same logic as runner.py)
+        MARKET_HOURS_SECONDS = 23400  # 6.5 hours
+        
+        if interval_seconds >= MARKET_HOURS_SECONDS:
+            period_str = "1d"
+        elif interval_seconds >= 5400:
+            period_str = "90m"
+        elif interval_seconds >= 3600:
             period_str = "1h"
-        elif interval_seconds <= 86400:
-            period_str = "1d"
+        elif interval_seconds >= 1800:
+            period_str = "30m"
+        elif interval_seconds >= 900:
+            period_str = "15m"
+        elif interval_seconds >= 300:
+            period_str = "5m"
+        elif interval_seconds >= 120:
+            period_str = "2m"
         else:
-            period_str = "1d"
+            period_str = "1m"
         
         # Fetch data for the crisis period
         data = ticker.history(start=start_date, end=end_date, interval=period_str)

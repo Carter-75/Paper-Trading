@@ -386,19 +386,37 @@ def fetch_closes(client, symbol: str, interval_seconds: int, limit_bars: int) ->
     try:
         import yfinance as yf
         
-        # Map seconds to yfinance interval (Yahoo limits intraday to 60 days)
-        if interval_seconds <= 300:
-            yf_interval = "5m"
-            days = 59  # Max 60 days for intraday
-        elif interval_seconds <= 900:
-            yf_interval = "15m"
-            days = 59  # Max 60 days for 15min
-        elif interval_seconds <= 3600:
-            yf_interval = "1h"
-            days = 59  # Max 60 days for hourly
-        else:
+        # Smart mapping: Find CLOSEST yfinance interval that's <= trading interval
+        # Available: 1m, 2m, 5m, 15m, 30m, 60m, 90m, 1h, 1d
+        # Only use 1d if interval >= 6.5 hours (1 trade per day)
+        MARKET_HOURS_SECONDS = 23400  # 6.5 hours
+        
+        # Map interval_seconds to closest yfinance interval
+        if interval_seconds >= MARKET_HOURS_SECONDS:
+            # 1 trade per day or less - use daily data
             yf_interval = "1d"
-            days = 365  # Daily data: 1 year
+            days = 365
+        elif interval_seconds >= 5400:  # >= 90 min (≤7 trades/day)
+            yf_interval = "90m"
+            days = 59
+        elif interval_seconds >= 3600:  # >= 1 hour (≤6.5 trades/day)
+            yf_interval = "1h"
+            days = 59
+        elif interval_seconds >= 1800:  # >= 30 min (≤13 trades/day)
+            yf_interval = "30m"
+            days = 59
+        elif interval_seconds >= 900:   # >= 15 min (≤26 trades/day)
+            yf_interval = "15m"
+            days = 59
+        elif interval_seconds >= 300:   # >= 5 min
+            yf_interval = "5m"
+            days = 59
+        elif interval_seconds >= 120:   # >= 2 min
+            yf_interval = "2m"
+            days = 59
+        else:  # < 2 min (very frequent trading)
+            yf_interval = "1m"
+            days = 7  # 1min data only available for 7 days on Yahoo
         
         from datetime import datetime, timedelta
         import pytz
@@ -551,19 +569,33 @@ def fetch_closes_with_volume(client, symbol: str, interval_seconds: int,
     try:
         import yfinance as yf
         
-        # Map seconds to yfinance interval
-        if interval_seconds <= 300:
-            yf_interval = "5m"
-            days = 59
-        elif interval_seconds <= 900:
-            yf_interval = "15m"
-            days = 59
-        elif interval_seconds <= 3600:
-            yf_interval = "1h"
-            days = 59
-        else:
+        # Smart mapping: Same as fetch_closes (keep consistent!)
+        MARKET_HOURS_SECONDS = 23400  # 6.5 hours
+        
+        if interval_seconds >= MARKET_HOURS_SECONDS:
             yf_interval = "1d"
             days = 365
+        elif interval_seconds >= 5400:
+            yf_interval = "90m"
+            days = 59
+        elif interval_seconds >= 3600:
+            yf_interval = "1h"
+            days = 59
+        elif interval_seconds >= 1800:
+            yf_interval = "30m"
+            days = 59
+        elif interval_seconds >= 900:
+            yf_interval = "15m"
+            days = 59
+        elif interval_seconds >= 300:
+            yf_interval = "5m"
+            days = 59
+        elif interval_seconds >= 120:
+            yf_interval = "2m"
+            days = 59
+        else:
+            yf_interval = "1m"
+            days = 7
         
         from datetime import datetime, timedelta
         import pytz
