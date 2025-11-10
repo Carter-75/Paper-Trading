@@ -199,6 +199,8 @@ def score_stock(symbol: str, interval_seconds: int, cap_per_stock: float, bars: 
         # Minimum bars needed
         min_bars = config.LONG_WINDOW + 2
         if not closes or len(closes) < min_bars:
+            if verbose:
+                print(f" [skipped: insufficient data ({len(closes) if closes else 0}/{min_bars} bars)]")
             return None
         
         # Calculate metrics
@@ -237,9 +239,7 @@ def score_stock(symbol: str, interval_seconds: int, cap_per_stock: float, bars: 
         }
     except Exception as e:
         if verbose:
-            print(f"Warning: Could not score {symbol}: {e}")
-            import traceback
-            traceback.print_exc()
+            print(f" [skipped: error - {str(e)[:50]}]")
         return None
 
 

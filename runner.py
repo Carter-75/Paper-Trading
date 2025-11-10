@@ -647,8 +647,8 @@ def decide_action_multi_timeframe(client, symbol: str, base_interval: int,
     Check multiple timeframes for signal confirmation.
     Returns (action, details_dict)
     
-    Strategy: Only trade if 2+ timeframes agree on direction
-    Timeframes: 1x, 3x, 5x base interval
+    Strategy: Trade if MIN_AGREEMENT timeframes agree (default: 1 for flexibility)
+    Timeframes: 1x (short), 3x (medium), 5x (long) base interval
     """
     timeframes = {
         'short': base_interval,
@@ -670,10 +670,11 @@ def decide_action_multi_timeframe(client, symbol: str, base_interval: int,
     buy_votes = sum(1 for s in signals.values() if s == "buy")
     sell_votes = sum(1 for s in signals.values() if s == "sell")
     
-    # Require 2+ timeframes to agree
-    if buy_votes >= 2:
+    # Use configured minimum agreement (default: 2, but can be set to 1 for less strict)
+    min_agreement = config.MULTI_TIMEFRAME_MIN_AGREEMENT
+    if buy_votes >= min_agreement:
         return ("buy", signals)
-    elif sell_votes >= 2:
+    elif sell_votes >= min_agreement:
         return ("sell", signals)
     else:
         return ("hold", signals)

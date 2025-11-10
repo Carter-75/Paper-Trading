@@ -162,7 +162,7 @@ RSI_ENABLED: bool = os.getenv("RSI_ENABLED", "1") in ("1", "true", "True")
 
 # Multi-Timeframe Settings
 MULTI_TIMEFRAME_ENABLED: bool = os.getenv("MULTI_TIMEFRAME_ENABLED", "1") in ("1", "true", "True")
-MULTI_TIMEFRAME_MIN_AGREEMENT: int = int(os.getenv("MULTI_TIMEFRAME_MIN_AGREEMENT", "2"))  # How many TFs must agree
+MULTI_TIMEFRAME_MIN_AGREEMENT: int = int(os.getenv("MULTI_TIMEFRAME_MIN_AGREEMENT", "1"))  # How many TFs must agree (1=any timeframe, 2=majority, 3=all)
 
 # Volume Confirmation
 VOLUME_CONFIRMATION_ENABLED: bool = os.getenv("VOLUME_CONFIRMATION_ENABLED", "1") in ("1", "true", "True")
