@@ -137,7 +137,8 @@ def enforce_log_max_lines(max_lines: int = 100):
         lines = [ln for ln in lines if ln.strip()]
         
         # If under limit, no truncation needed
-        if len(lines) <= max_lines:
+        # Note: We're called BEFORE the new line is written, so check if current + 1 would exceed
+        if len(lines) < max_lines:
             return
         
         # Find INIT line (should be first line with "INIT " prefix)
@@ -1206,7 +1207,7 @@ def buy_flow(client, symbol: str, last_price: float, available_cap: float,
             log_info(f"  [EXPOSURE] {exp_msg}")
     
     # Correlation check - avoid doubling up on correlated positions
-    if config.CORRELATION_CHECK_ENABLED and interval_seconds:
+    if config.ENABLE_CORRELATION_CHECK and interval_seconds:
         try:
             # Get all current positions
             positions = client.list_positions()
