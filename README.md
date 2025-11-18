@@ -81,6 +81,12 @@ PROFITABILITY_MIN_EXPECTED_USD=0.10
 MAX_DAILY_LOSS_PERCENT=5.0
 MAX_TRADE_SIZE_FRAC=0.95
 
+# ===== SMART ALLOCATION (NEW - Dynamic Portfolio) =====
+ALLOCATION_CONCENTRATION=2.0         # How aggressive (1.0=proportional, 2.0=2x winners, 3.0=very aggressive)
+MIN_DIVERSIFICATION_STOCKS=3         # Minimum stocks for safety
+MAX_SINGLE_STOCK_PERCENT=50.0        # Max % in one stock (50% default)
+MIN_ALLOCATION_USD=5.0               # Skip stocks below this $ amount
+
 # ===== DYNAMIC (optional) =====
 DYNAMIC_PARAM_ENABLED=1
 RISKY_MODE_ENABLED=1

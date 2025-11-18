@@ -1245,10 +1245,14 @@ def buy_flow(client, symbol: str, last_price: float, available_cap: float,
             pass  # Don't fail trade if correlation check fails
     
     # Profitability check
+    # Use max_capital (total portfolio) for consistent profitability calculation with scanner
+    # Don't use available_cap here - that's just this stock's allocation slice
     if interval_seconds:
         closes = fetch_closes(client, symbol, interval_seconds, config.LONG_WINDOW + 50)
         if closes:
-            sim = simulate_signals_and_projection(closes, interval_seconds, override_cap_usd=available_cap)
+            # Use max_capital if available, otherwise fall back to available_cap for backward compatibility
+            profitability_cap = max_capital if max_capital else available_cap
+            sim = simulate_signals_and_projection(closes, interval_seconds, override_cap_usd=profitability_cap)
             expected_daily = float(sim.get("expected_daily_usd", 0.0))
             if expected_daily < config.PROFITABILITY_MIN_EXPECTED_USD:
                 return (False, f"Expected ${expected_daily:.2f}/day < ${config.PROFITABILITY_MIN_EXPECTED_USD}")
@@ -2807,86 +2811,127 @@ def allocate_capital_smartly(
     forced_symbols: List[str],
     total_capital: float,
     interval_seconds: int,
-    min_cap_per_stock: float = 10.0
+    min_cap_per_stock: float = None  # Now optional, uses config default
 ) -> Dict[str, float]:
     """
-    Allocate capital based on expected profitability.
-    Better opportunities get more capital.
+    TRULY SMART allocation that:
+    - Heavily weights best stocks (but maintains some diversification)
+    - No fixed max positions (could be 1 or 50 stocks)
+    - Considers both return AND risk
+    - Skips stocks below minimum threshold
     """
-    allocations = {}
+    if min_cap_per_stock is None:
+        min_cap_per_stock = config.MIN_ALLOCATION_USD
     
-    # Score each stock
-    scores = {}
+    allocations = {}
+    stock_data = {}  # Store all metrics for each stock
+    
+    # Score each stock with risk adjustment
     log_info(f"Scoring {len(symbols)} stocks for capital allocation...")
     for symbol in symbols:
         try:
-            closes = fetch_closes(client, symbol, interval_seconds, 200)  # Match scanner's data length
+            closes = fetch_closes(client, symbol, interval_seconds, 200)
             if not closes or len(closes) < config.LONG_WINDOW + 10:
-                scores[symbol] = 0.0
-                log_info(f"  {symbol}: No data (score: 0.0)")
+                log_info(f"  {symbol}: No data (skipped)")
                 continue
             
             sim = simulate_signals_and_projection(closes, interval_seconds, override_cap_usd=total_capital)
             expected_daily = sim.get("expected_daily_usd", 0.0)
             confidence = compute_confidence(closes)
             
-            # Score = expected return + confidence boost
-            # Use absolute value of expected_daily to consider both bullish and bearish opportunities
-            score = abs(expected_daily) + confidence * 10
+            # Skip negative expected returns (unless forced)
+            if expected_daily <= 0 and symbol not in forced_symbols:
+                log_info(f"  {symbol}: exp_daily=${expected_daily:.2f} (SKIPPED - negative)")
+                continue
+            
+            # Calculate volatility (risk measure)
+            volatility = pct_stddev(closes[-30:]) if len(closes) >= 30 else 0.05
+            
+            # Risk-adjusted score: return / volatility (Sharpe-like)
+            # Higher return + lower volatility = better score
+            risk_adjusted_return = expected_daily / max(volatility, 0.01)
+            
+            # Final score: risk-adjusted return + confidence boost
+            score = risk_adjusted_return + confidence * 100
             
             # Forced stocks get minimum viable score
             if symbol in forced_symbols:
-                score = max(score, 1.0)
+                score = max(score, 10.0)
             
-            scores[symbol] = score
-            log_info(f"  {symbol}: exp_daily=${expected_daily:.2f}, conf={confidence:.4f}, score={score:.2f}")
+            stock_data[symbol] = {
+                'expected_daily': expected_daily,
+                'confidence': confidence,
+                'volatility': volatility,
+                'risk_adjusted': risk_adjusted_return,
+                'score': score
+            }
+            
+            log_info(f"  {symbol}: exp_daily=${expected_daily:.2f}, vol={volatility*100:.1f}%, risk_adj={risk_adjusted_return:.1f}, score={score:.1f}")
         except Exception as e:
-            scores[symbol] = 1.0 if symbol in forced_symbols else 0.0
-            log_info(f"  {symbol}: Error ({e}) - score: {scores[symbol]:.2f}")
+            if symbol in forced_symbols:
+                stock_data[symbol] = {
+                    'expected_daily': 0.01,
+                    'confidence': 0.01,
+                    'volatility': 0.05,
+                    'risk_adjusted': 0.2,
+                    'score': 10.0
+                }
+                log_info(f"  {symbol}: Error ({e}) - using default score (forced)")
     
-    # Filter out stocks with very low scores (keep if score > 0.1 or forced)
-    # Lowered threshold from 0 to allow marginal opportunities
-    viable_symbols = [s for s in symbols if scores[s] > 0.1 or s in forced_symbols]
+    if not stock_data:
+        log_warn(f"No viable stocks found. Holding cash.")
+        return {}
     
-    log_info(f"Viable stocks: {len(viable_symbols)}/{len(symbols)}")
+    log_info(f"Viable stocks: {len(stock_data)}/{len(symbols)}")
     
-    if not viable_symbols:
-        log_warn(f"No viable stocks found (all scores <= 0.1). Holding cash.")
-        return {}  # Return empty dict = no allocation, hold cash
+    # Apply concentration factor (makes winners get even MORE)
+    # concentration=1.0: proportional
+    # concentration=2.0: winners get 2× more than proportional
+    # concentration=3.0: winners get 3× more (very aggressive)
+    scores = {s: data['score'] ** config.ALLOCATION_CONCENTRATION for s, data in stock_data.items()}
     
-    # Aggressive mode: Amplify differences (winners get MORE, losers get LESS)
-    # This concentrates capital on best performers for faster gains
-    if len(viable_symbols) > 1:
-        min_score = min(scores[s] for s in viable_symbols)
-        max_score = max(scores[s] for s in viable_symbols)
-        score_range = max_score - min_score if max_score > min_score else 1
-        
-        # Amplify score differences (best stocks get 50% bonus, worst get 0%)
-        for s in viable_symbols:
-            normalized = (scores[s] - min_score) / score_range if score_range > 0 else 0.5
-            aggression_bonus = 0.5 * normalized  # Best +50%, worst +0%
-            scores[s] = scores[s] * (1.0 + aggression_bonus)
-    
-    # Calculate proportional allocation
-    total_score = sum(scores[s] for s in viable_symbols)
-    
+    # Calculate raw proportional allocation
+    total_score = sum(scores.values())
     if total_score == 0:
-        # Equal split if all scores are 0
-        cap_each = total_capital / len(viable_symbols)
-        return {s: cap_each for s in viable_symbols}
+        return {}
     
-    # Allocate proportionally
-    for symbol in viable_symbols:
-        proportion = scores[symbol] / total_score
-        allocated = total_capital * proportion
-        allocations[symbol] = max(min_cap_per_stock, allocated)
+    raw_allocations = {s: (scores[s] / total_score) * total_capital for s in scores}
+    
+    # Safety limits
+    max_per_stock = total_capital * (config.MAX_SINGLE_STOCK_PERCENT / 100)
+    
+    # Apply limits and enforce minimums
+    for symbol in list(raw_allocations.keys()):
+        # Cap maximum per stock
+        if raw_allocations[symbol] > max_per_stock:
+            raw_allocations[symbol] = max_per_stock
+        
+        # Remove stocks below minimum (unless forced or we'd have < 3 stocks)
+        if raw_allocations[symbol] < min_cap_per_stock:
+            if symbol not in forced_symbols and len(raw_allocations) > config.MIN_DIVERSIFICATION_STOCKS:
+                log_info(f"  {symbol}: Allocation ${raw_allocations[symbol]:.2f} < ${min_cap_per_stock:.2f} minimum (removed)")
+                del raw_allocations[symbol]
+            else:
+                # Boost to minimum for diversification
+                raw_allocations[symbol] = min_cap_per_stock
+                log_info(f"  {symbol}: Boosted to ${min_cap_per_stock:.2f} minimum (diversification)")
     
     # Normalize to stay within total_capital
-    total_allocated = sum(allocations.values())
+    total_allocated = sum(raw_allocations.values())
     if total_allocated > total_capital:
         scale_factor = total_capital / total_allocated
-        for symbol in allocations:
-            allocations[symbol] *= scale_factor
+        for symbol in raw_allocations:
+            raw_allocations[symbol] *= scale_factor
+    
+    # Final allocations
+    allocations = raw_allocations
+    
+    # Log concentration stats
+    if allocations:
+        alloc_values = list(allocations.values())
+        top_stock_pct = (max(alloc_values) / total_capital) * 100
+        avg_per_stock = sum(alloc_values) / len(alloc_values)
+        log_info(f"Portfolio: {len(allocations)} stocks, top stock: {top_stock_pct:.1f}%, avg: ${avg_per_stock:.2f}")
     
     return allocations
 
