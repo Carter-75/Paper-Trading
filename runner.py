@@ -492,7 +492,7 @@ def fetch_closes(client, symbol: str, interval_seconds: int, limit_bars: int) ->
                 # Fill gaps with forward fill (common practice)
                 hist['Close'] = hist['Close'].ffill()  # Newer pandas syntax
             
-            closes = list(hist['Close').values)
+            closes = list(hist['Close'].values)
             
             # Cache ALL data we get (builds history over time)
             try:
