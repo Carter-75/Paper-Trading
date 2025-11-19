@@ -11,6 +11,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 import pickle
 import os
+import traceback
 
 
 class TradingMLPredictor:
@@ -290,6 +291,7 @@ def auto_train_model_if_needed(predictor: TradingMLPredictor) -> bool:
             
             except Exception as e:
                 print(f"(error: {e})")
+                print(traceback.format_exc())
         
         if len(training_data) < 100:
             print(f"\n[X] Not enough data collected ({len(training_data)} samples, need 100+)")
@@ -329,6 +331,7 @@ def auto_train_model_if_needed(predictor: TradingMLPredictor) -> bool:
     
     except Exception as e:
         print(f"\n[X] Auto-training error: {e}")
+        print(traceback.format_exc())
         print("ML prediction will be DISABLED for this run.")
         print("To manually train: python train_ml_model.py")
         print("")

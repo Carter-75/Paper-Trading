@@ -7,6 +7,7 @@ Run after collecting 3+ months of trading data
 import sys
 from ml_predictor import TradingMLPredictor
 import config
+import traceback
 
 # Import after loading config
 def get_runner_functions():
@@ -44,6 +45,7 @@ def collect_training_data(symbols: list, interval_seconds: int, bars: int = 500)
         
         except Exception as e:
             print(f"  Error with {symbol}: {e}")
+            print(traceback.format_exc())
     
     print(f"\nCollected {len(training_data)} training samples")
     return training_data

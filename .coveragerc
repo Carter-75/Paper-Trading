@@ -2,13 +2,10 @@
 
 [run]
 # Files to measure coverage for
-source = 
-    runner.py
-    portfolio_manager.py
-    ml_predictor.py
-    stock_scanner.py
-    optimizer.py
-    config.py
+# Use the project directory as the source so coverage can discover modules
+# when pytest runs from the project root. Listing individual files here
+# caused coverage to fail to find/parse modules in some environments.
+source = .
 
 # Files to omit from coverage
 omit =

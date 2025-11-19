@@ -1,36 +1,41 @@
-# Paper Trading Bot - Intelligent Multi-Stock Trading System
+# Paper Trading Bot
 
-⚠️ **CRITICAL RISK DISCLOSURE** ⚠️
+A sophisticated automated trading system designed for paper trading and strategy development.
 
-- **This software is for EDUCATIONAL and PAPER TRADING purposes**
-- **Trading involves substantial risk of loss - never trade with money you cannot afford to lose**
-- **Past performance does NOT guarantee future results**
-- **Paper trading results are NOT predictive of live performance**
-- **This software is provided AS-IS with NO warranties or guarantees**
+## Key Features
 
----
+*   **Automated Trading:** Executes trades based on technical indicators (SMA, RSI, MACD, Bollinger Bands).
+*   **Machine Learning:** Uses a Random Forest model to predict price movements and confirm signals.
+*   **Risk Management:** Implements dynamic position sizing, Kelly Criterion, trailing stops, and drawdown protection.
+*   **Portfolio Management:** Tracks positions, P&L, and ensures diversification.
+*   **Optimization:** Includes tools to find optimal parameters for different market conditions.
+*   **Efficiency:** Uses SQLite caching to minimize API calls and speed up backtesting.
 
-## 🎯 What This Bot Does
+## Quick Start
 
-Automated stock trading bot with advanced strategy filters, risk management, and machine learning:
+1.  **Install Dependencies:**
+    ```bash
+    pip install -r requirements.txt
+    ```
 
-- **Auto-selects profitable stocks** - Scans top 100 stocks by market cap, picks the best performers
-- **Smart capital allocation** - Dynamic position sizing (increases after wins, decreases after losses)
-- **Advanced strategy filters** - RSI, MACD, Bollinger Bands, multi-timeframe confirmation, volume analysis
-- **Sophisticated risk management** - Trailing stops, ATR-based stops, drawdown protection, Kelly sizing, correlation checks
-- **Machine learning prediction** - Random Forest model auto-trains on first run, confirms/overrides signals
-- **SQLite caching** - 80% fewer API calls, 5× faster backtests
-- **Full automation** - Runs as scheduled task, auto-starts on boot, wakes PC before market open (9:25 AM)
-- **Parallel optimization** - 8× faster parameter search on multi-core CPUs
-- **Fractional shares** - Trade with any budget (even $10 works)
+2.  **Configure:**
+    Create a `.env` file with your Alpaca and Polygon API keys (see `runner.py` for details).
 
-**Expected Performance:**
-- Win Rate: 65-75% (vs 50% baseline)
-- Daily Return: +$180 (vs $50 baseline) - 3.6× improvement
-- API Calls: 80% reduction via SQLite caching
-- Sharpe Ratio: 1.5-2.0 (vs 0.5 baseline)
+3.  **Run:**
+    ```bash
+    python runner.py -t 0.25 -m 10000
+    ```
+    (Runs with 15-minute intervals and $10,000 capital)
 
----
+## Project Structure
+
+*   `runner.py`: Main trading logic and execution engine.
+*   `test_all.py`: Comprehensive test suite.
+*   `portfolio_manager.py`: Manages portfolio state and persistence.
+*   `ml_predictor.py`: Machine learning model for trade confirmation.
+*   `stock_scanner.py`: Scans for potential stock picks.
+*   `optimizer.py`: Tool for parameter optimization.
+
 
 ## 🚀 Quick Start
 

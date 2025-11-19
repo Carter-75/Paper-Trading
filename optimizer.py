@@ -18,6 +18,7 @@ from functools import partial
 import signal
 import platform
 import ctypes
+import traceback
 from runner import (
     make_client,
     fetch_closes,
@@ -64,12 +65,18 @@ def prevent_sleep(verbose=False):
                 ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS)
                 if verbose:
                     print("[OK] System sleep prevention disabled - normal power settings restored")
-            except:
+            except Exception:
                 pass
         
         return restore_sleep
-    except:
+    except Exception as e:
         # Failed to prevent sleep - return no-op function
+        if verbose:
+            try:
+                print(f"[WARN] prevent_sleep failed: {e}")
+                print(traceback.format_exc())
+            except Exception:
+                pass
         return lambda: None
 
 # Global risk metrics cache (these don't change with capital)
@@ -116,7 +123,13 @@ def evaluate_single_stock(symbol: str, max_cap: float, use_robustness: bool, com
                 oos_return = 0.0
                 wf_avg_test = 0.0
                 wf_ratio = 0.0
-        except:
+        except Exception as e:
+            # Detailed simulation failed for this stock/config — log traceback and continue
+            try:
+                print(f"detailed simulation failed for {symbol}: {e}")
+                print(traceback.format_exc())
+            except Exception:
+                pass
             sharpe = sortino = expectancy = avg_mae = max_dd = recovery = 0.0
             trade_returns = []
             trades_per_day = 1.0
@@ -140,7 +153,7 @@ def evaluate_single_stock(symbol: str, max_cap: float, use_robustness: bool, com
                 cvar_95 = mc_result.get("cvar_95", 0.0)
                 wins = sum(1 for r in trade_returns if r > 0)
                 win_rate = wins / len(trade_returns) if trade_returns else 0.0
-            except:
+            except Exception:
                 pass
         
         # Save to history
@@ -179,7 +192,9 @@ def evaluate_single_stock(symbol: str, max_cap: float, use_robustness: bool, com
             "cvar_95": cvar_95,
         }
     except Exception as e:
-        # Return error result
+        # Return error result (and log traceback for debugging)
+        print(f"Error evaluating stock {symbol}: {e}")
+        print(traceback.format_exc())
         return {
             "symbol": symbol,
             "interval": 0,
@@ -248,8 +263,12 @@ def save_to_history(symbol: str, interval: int, capital: float, daily_return: fl
                 f"{cvar_95:.2f}"
             ])
     except Exception as e:
-        # Don't crash if logging fails
-        pass
+        # Don't crash if logging fails, but print traceback for diagnostics
+        try:
+            print(f"Warning: Failed to write optimization history: {e}")
+            print(traceback.format_exc())
+        except Exception:
+            pass
 
 
 def evaluate_config(client, symbol: str, interval_seconds: int, cap_usd: float, bars: int = 200) -> float:
@@ -271,6 +290,11 @@ def evaluate_config(client, symbol: str, interval_seconds: int, cap_usd: float, 
             result = float(sim.get("expected_daily_usd", -999999.0))
     except Exception:
         result = -999999.0
+        try:
+            import traceback as _tb
+            print(f"evaluate_config error for {symbol}:\n{_tb.format_exc()}")
+        except Exception:
+            pass
     
     # Cache result
     _result_cache[cache_key] = result
@@ -316,8 +340,12 @@ def evaluate_robustness(client, symbol: str, interval_seconds: int, cap_usd: flo
                 out_of_sample_return = 0.0
         else:
             out_of_sample_return = 0.0  # Not enough data for out-of-sample test
-    except:
+    except Exception as e:
         out_of_sample_return = 0.0
+        try:
+            print(f"evaluate_robustness: out_of_sample fetch failed: {e}\n" + traceback.format_exc())
+        except Exception:
+            pass
     
     if len(period_returns) == 0:
         return -999999.0, 0.0, [], out_of_sample_return
@@ -404,7 +432,11 @@ def walk_forward_test(client, symbol: str, interval_seconds: int, cap_usd: float
             "test_returns": test_returns,
             "train_test_ratio": ratio
         }
-    except:
+    except Exception as e:
+        try:
+            print("walk_forward_test failed:\n" + traceback.format_exc())
+        except Exception:
+            pass
         return {"avg_test_return": 0.0, "test_returns": [], "train_test_ratio": 0.0}
 
 
@@ -516,6 +548,10 @@ def binary_search_capital(client, symbol: str, interval_seconds: int,
                 "market_beta": 1.0
             }
             _risk_cache[cache_key] = risk_metrics
+            try:
+                print(f"binary_search_capital: risk metrics calculation failed for {symbol}:\n" + traceback.format_exc())
+            except Exception:
+                pass
     
     # Extract metrics from cache
     volatility_pct = risk_metrics.get("volatility_pct", 0.5)
@@ -1187,7 +1223,7 @@ def main() -> int:
                 oos_return = 0.0
                 wf_avg_test = 0.0
                 wf_ratio = 0.0
-        except:
+        except Exception:
             sharpe = sortino = expectancy = avg_mae = max_dd = recovery = 0.0
             trade_returns = []
             trades_per_day = 1.0
@@ -1213,7 +1249,7 @@ def main() -> int:
                 # Calculate win rate from trade returns
                 wins = sum(1 for r in trade_returns if r > 0)
                 win_rate = wins / len(trade_returns) if trade_returns else 0.0
-            except:
+            except Exception:
                 pass
         
         results.append({
@@ -1343,7 +1379,7 @@ def main() -> int:
                     
                     print(f"    Kelly Criterion: {kelly_pct:.1f}%  (optimal position size)")
                     print(f"      -> Bot uses Half-Kelly for safety ({kelly_full*50:.1f}% of full Kelly)")
-            except:
+            except Exception:
                 pass
         
         # Show running best after each stock (for early stopping)

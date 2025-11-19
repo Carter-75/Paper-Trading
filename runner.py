@@ -23,11 +23,13 @@ import sys
 import time
 import datetime as dt
 import uuid
-from typing import List, Optional, Tuple, Dict
+from typing import List, Optional, Tuple, Dict, Any
 from dotenv import load_dotenv
 
 import pytz
+import traceback
 import requests
+import pandas as pd
 import sqlite3
 from datetime import datetime, timedelta
 from alpaca_trade_api import REST
@@ -41,8 +43,13 @@ from portfolio_manager import PortfolioManager
 try:
     from ml_predictor import get_ml_predictor
     ML_AVAILABLE = True
-except:
+except Exception as e:
     ML_AVAILABLE = False
+    # Import may fail in minimal test environments; print traceback for diagnostics
+    try:
+        print("ML import failed:\n" + traceback.format_exc(), file=sys.stderr)
+    except Exception:
+        pass
 
 load_dotenv()
 
@@ -224,7 +231,7 @@ def enforce_log_max_lines(max_lines: int = None):
             if temp_path and os.path.exists(temp_path):
                 try:
                     os.remove(temp_path)
-                except:
+                except Exception:
                     pass
             print(f"Warning: Log truncation failed: {e}", file=sys.stderr)
             
@@ -430,8 +437,13 @@ def fetch_closes(client, symbol: str, interval_seconds: int, limit_bars: int) ->
             if age_hours < 168:  # 7 days - historical data is historical
                 # Cache hit! Avoid rate limits entirely
                 return cached_closes[-limit_bars:]
-    except:
-        pass  # If cache fails, fall through to API fetch
+    except Exception as e:
+        # Cache read failed - log and fall through to API fetch
+        try:
+            log_warn(f"Price cache read failed for {symbol}: {e}")
+            log_info(traceback.format_exc())
+        except Exception:
+            pass
     
     # Try yfinance first (FREE, unlimited, ALWAYS use this for backtesting)
     # Best practice: Retry with exponential backoff for 100% reliability
@@ -501,8 +513,12 @@ def fetch_closes(client, symbol: str, interval_seconds: int, limit_bars: int) ->
             try:
                 start_ts = int((end - timedelta(days=days)).timestamp())
                 _price_cache.store_bars(symbol, interval_seconds, closes, start_ts)
-            except:
-                pass  # Don't fail if caching fails
+            except Exception as e:
+                try:
+                    log_warn(f"Price cache store failed for {symbol}: {e}")
+                    log_info(traceback.format_exc())
+                except Exception:
+                    pass
             
             # ACCEPT WHATEVER WE GET - even if less than requested
             # During market open, might only have a few hours of data, that's OK
@@ -1028,7 +1044,7 @@ def get_position(client, symbol: str):
             "market_value": float(pos.market_value),
             "unrealized_pl": float(pos.unrealized_pl),
         }
-    except:
+    except Exception as e:
         return None
 
 def adjust_runtime_params(confidence: float, base_tp: float, base_sl: float, base_frac: float):
@@ -1132,7 +1148,7 @@ def calculate_correlation_matrix(symbols: List[str], days: int = 60) -> dict:
                 if not hist.empty and len(hist) >= 10:
                     returns = hist['Close'].pct_change().dropna()
                     returns_dict[symbol] = returns
-            except:
+            except Exception as e:
                 continue
         
         if len(returns_dict) < 2:
@@ -1185,7 +1201,7 @@ def calculate_correlation_matrix(symbols: List[str], days: int = 60) -> dict:
             "avg_correlation": avg_corr,
             "high_correlation_pairs": high_correlation_pairs
         }
-    except:
+    except Exception as e:
         return {
             "matrix": {},
             "avg_correlation": 0.0,
@@ -1331,7 +1347,7 @@ def buy_flow(client, symbol: str, last_price: float, available_cap: float,
                                 available_cap = available_cap * 0.75
                                 log_info(f"  [!] Moderate correlation with {existing_symbol}: {corr:.2f}")
                                 log_info(f"     Reducing position size by 25% (${available_cap/0.75:.2f} → ${available_cap:.2f})")
-        except:
+        except Exception as e:
             pass  # Don't fail trade if correlation check fails
     
     # Profitability check
@@ -1356,7 +1372,7 @@ def buy_flow(client, symbol: str, last_price: float, available_cap: float,
                 else:
                     vol_pct = pct_stddev(closes[-config.VOLATILITY_WINDOW:])
                     log_info(f"  Standard volatility: {vol_pct*100:.1f}%")
-            except:
+            except Exception as e:
                 vol_pct = pct_stddev(closes[-config.VOLATILITY_WINDOW:])
             
             if vol_pct > config.VOLATILITY_PCT_THRESHOLD:
@@ -1385,7 +1401,7 @@ def buy_flow(client, symbol: str, last_price: float, available_cap: float,
                 return (False, f"MACD histogram negative: {histogram:.4f} (weakening momentum)")
             
             log_info(f"  MACD: {macd_value:.4f} > Signal: {signal_line:.4f} (bullish momentum)")
-        except:
+        except Exception as e:
             pass  # Don't fail trade if MACD calculation fails
     
     # Bollinger Bands check - avoid overbought conditions
@@ -1408,7 +1424,7 @@ def buy_flow(client, symbol: str, last_price: float, available_cap: float,
                     log_info(f"  [!]  Bollinger Bands: {position_pct:.0f}% (near upper band, risky)")
                 else:
                     log_info(f"  Bollinger Bands: {position_pct:.0f}% (good position)")
-        except:
+        except Exception as e:
             pass  # Don't fail trade if BB calculation fails
     
     # Volume confirmation - ensure strong buying interest
@@ -1451,7 +1467,7 @@ def buy_flow(client, symbol: str, last_price: float, available_cap: float,
             
             log_info(f"  Adaptive TP/SL: ATR={atr_pct*100:.2f}%, Vol Ratio={vol_ratio:.2f}x")
             log_info(f"    → TP: {base_tp:.1f}% → {tp:.1f}%, SL: {base_sl:.1f}% → {sl:.1f}%")
-        except:
+        except Exception as e:
             pass  # Fall back to base values on error
     
     # Apply dynamic adjustment based on confidence (if enabled)
@@ -1612,7 +1628,7 @@ def buy_flow(client, symbol: str, last_price: float, available_cap: float,
                         # For fractional, partial is common - accept it
                         fill_confirmed = True
                         break
-                except:
+                except Exception as e:
                     pass
                 time.sleep(1)
             
@@ -1649,7 +1665,7 @@ def buy_flow(client, symbol: str, last_price: float, available_cap: float,
                                     actual_filled_qty = float(order_status.filled_qty)
                                     fill_confirmed = True
                                     break
-                            except:
+                            except Exception as e:
                                 pass
                             time.sleep(1)
                     except Exception as e:
@@ -1676,7 +1692,7 @@ def buy_flow(client, symbol: str, last_price: float, available_cap: float,
                     time_in_force='day',
                     stop_price=round(sl_price, 2)
                 )
-            except:
+            except Exception as e:
                 pass  # TP/SL orders are optional for fractional shares
             
             shares_text = f"{actual_filled_qty:.6f}".rstrip('0').rstrip('.') if actual_filled_qty < 1 else f"{actual_filled_qty:.2f}"
@@ -1722,7 +1738,7 @@ def buy_flow(client, symbol: str, last_price: float, available_cap: float,
                         fill_confirmed = True
                         if order_status.status == 'filled':
                             break
-                except:
+                except Exception as e:
                     pass
                 time.sleep(1)
             
@@ -1756,7 +1772,7 @@ def sell_flow(client, symbol: str, confidence: float = 0.0):
         for order in orders:
             try:
                 client.cancel_order(order.id)
-            except:
+            except Exception as e:
                 pass
         
         # Generate unique client order ID for idempotency
@@ -1776,7 +1792,7 @@ def sell_flow(client, symbol: str, confidence: float = 0.0):
         # Get current price for verification
         try:
             current_price = fetch_closes(client, symbol, 900, 1)[-1] if fetch_closes(client, symbol, 900, 1) else None
-        except:
+        except Exception as e:
             current_price = None
         
         is_safe, verify_msg = verify_order_safety(
@@ -1809,7 +1825,7 @@ def sell_flow(client, symbol: str, confidence: float = 0.0):
                     fill_confirmed = True
                     if order_status.status == 'filled':
                         break
-            except:
+            except Exception as e:
                 pass
             time.sleep(1)
         
@@ -1826,7 +1842,7 @@ def sell_flow(client, symbol: str, confidence: float = 0.0):
                 profit_pct = ((current_value - cost_basis) / cost_basis) * 100
                 update_trade_history(symbol, profit_pct)
                 log_info(f"Dynamic Position Sizing: Recorded {profit_pct:+.2f}% trade")
-        except:
+        except Exception as e:
             pass
         
         # Log to PnL ledger
@@ -1845,7 +1861,7 @@ def sell_flow(client, symbol: str, confidence: float = 0.0):
             
             with open(ledger_path, "w") as f:
                 json.dump(ledger, f, indent=2)
-        except:
+        except Exception as e:
             pass
         
         return (True, f"Sold {qty} shares (P&L: ${realized_pl:+.2f})")
@@ -1976,8 +1992,8 @@ def check_kill_switch() -> Tuple[bool, str]:
     return (True, "")
 
 
-def verify_order_safety(client, symbol: str, side: str, qty: float, price: float, 
-                        last_known_price: float = None) -> Tuple[bool, str]:
+def verify_order_safety(client: Any, symbol: str, side: str, qty: float, price: float, 
+                        last_known_price: Optional[float] = None) -> Tuple[bool, str]:
     """
     Verify order safety before submission - prevent fat-finger errors and API glitches.
     Returns (is_safe, message)
@@ -2114,93 +2130,54 @@ def get_vix_level() -> Tuple[Optional[float], str]:
     # Fetch fresh VIX data
     try:
         import yfinance as yf
+        ticker = yf.Ticker("^VIX")
+        hist = ticker.history(period="5d")
         
-        # VIX symbol is ^VIX
-        vix_ticker = yf.Ticker("^VIX")
-        
-        # Get most recent data (last close or current price if market is open)
-        vix_data = vix_ticker.history(period="1d", interval="1m")
-        
-        if vix_data.empty:
-            # Fallback to daily data if intraday fails
-            vix_data = vix_ticker.history(period="5d")
-        
-        if not vix_data.empty:
-            vix_value = float(vix_data['Close'].iloc[-1])
+        if hist.empty:
+            return (None, "VIX data empty")
             
-            # Update cache
-            _vix_cache["value"] = vix_value
-            _vix_cache["timestamp"] = time.time()
-            
-            # Interpret VIX level
-            if vix_value > 40:
-                level = "PANIC"
-            elif vix_value > 30:
-                level = "EXTREME FEAR"
-            elif vix_value > 20:
-                level = "ELEVATED"
-            elif vix_value > 15:
-                level = "NORMAL"
-            else:
-                level = "CALM"
-            
-            return (vix_value, f"VIX: {vix_value:.1f} ({level})")
-        else:
-            log_warn("Could not fetch VIX data - assuming safe to trade")
-            return (None, "VIX data unavailable")
-    
+        current_vix = hist["Close"].iloc[-1]
+        
+        # Update cache
+        _vix_cache["value"] = current_vix
+        _vix_cache["timestamp"] = time.time()
+        
+        return (current_vix, f"VIX: {current_vix:.1f}")
+        
     except Exception as e:
-        log_warn(f"Error fetching VIX: {e} - assuming safe to trade")
-        return (None, f"VIX fetch error: {e}")
-
+        return (None, f"VIX error: {str(e)}")
 
 def check_vix_filter() -> Tuple[bool, str]:
     """
-    Check if VIX is too high to trade safely.
+    Check if VIX is too high to trade.
     Returns (can_trade, message)
-    
-    Purpose: Pause trading during extreme market volatility/fear.
     """
     if not config.VIX_FILTER_ENABLED:
         return (True, "")
+        
+    vix_val, msg = get_vix_level()
     
-    vix_value, vix_msg = get_vix_level()
-    
-    if vix_value is None:
-        # Can't get VIX - assume safe to trade (don't halt on API errors)
-        return (True, vix_msg)
-    
-    if vix_value > config.VIX_THRESHOLD:
-        msg = (f"[VIX FILTER TRIGGERED]\n"
-              f"   Current VIX: {vix_value:.1f}\n"
-              f"   Threshold: {config.VIX_THRESHOLD:.1f}\n"
-              f"   Market is in extreme fear - pausing trading for safety.\n"
-              f"   Will resume when VIX drops below {config.VIX_THRESHOLD:.1f}")
-        return (False, msg)
-    
-    # Safe to trade
-    return (True, vix_msg)
+    if vix_val is None:
+        return (True, f"Warning: {msg}")
+        
+    if vix_val > config.VIX_THRESHOLD:
+        return (False, f"VIX {vix_val:.1f} > {config.VIX_THRESHOLD} (Extreme Fear) - Trading Paused")
+        
+    return (True, msg)
 
-# ===== Simulation =====
 def simulate_signals_and_projection(
-    closes: List[float],
-    interval_seconds: int,
-    override_tp_pct: Optional[float] = None,
-    override_sl_pct: Optional[float] = None,
-    override_trade_frac: Optional[float] = None,
-    override_cap_usd: Optional[float] = None,
-    use_walk_forward: bool = True  # NEW PARAMETER
+    closes: pd.Series, 
+    interval_seconds: int, 
+    override_tp_pct: Optional[float] = None, 
+    override_sl_pct: Optional[float] = None, 
+    override_trade_frac: Optional[float] = None, 
+    override_cap_usd: Optional[float] = None, 
+    use_walk_forward: bool = True
 ) -> dict:
-    
-    # Minimum bars needed for SMA calculation
-    min_bars = config.LONG_WINDOW + 2  # Need at least LONG_WINDOW + a bit for comparison
-    if len(closes) < min_bars:
-        # Not enough data - return conservative estimates
-        return {
-            "win_rate": 0.5,  # Assume 50% win rate
-            "expected_trades_per_day": 2.0,  # Estimate 2 trades/day
-            "expected_daily_usd": 0.0  # Neutral expectation
-        }
+    """
+    Simulate trading strategy on historical data to project future performance.
+    """
+    min_bars = config.LONG_WINDOW + 20
     
     # Walk-forward validation to avoid look-ahead bias
     if use_walk_forward and len(closes) >= min_bars * 2:
@@ -2506,7 +2483,7 @@ def calculate_market_beta(symbol: str, days: int = 60) -> float:
         
         # Clamp to reasonable range (0.1 to 3.0)
         return max(0.1, min(3.0, beta))
-    except:
+    except Exception as e:
         return 1.0  # Default to market beta on error
 
 
@@ -2578,7 +2555,7 @@ def calculate_overnight_gap_risk(symbol: str, client, days: int = 60) -> dict:
             "max_gap": max(gaps),  # Largest gap
             "downward_gap_freq": (downward_gaps / len(gaps)) * 100  # % negative gaps
         }
-    except:
+    except Exception as e:
         return {
             "gap_frequency": 0.0,
             "avg_gap_size": 0.0,
@@ -2763,7 +2740,7 @@ def wait_for_network_on_boot(client, max_wait_seconds: int = 60):
         if time_since_boot > 300:
             _network_wait_done = True
             return
-    except:
+    except Exception as e:
         # If can't check boot time, be safe and wait
         pass
     
@@ -2864,7 +2841,7 @@ def sleep_until_market_open(client):
             log_info(f"Market closed. Opens in {hours}h {minutes}m ({next_open.astimezone(pytz.timezone('US/Eastern')).strftime('%I:%M %p ET')})")
         else:
             log_info("Market closed. Waiting until open...")
-    except:
+    except Exception as e:
         log_info("Market closed. Waiting until open...")
     
     # Exit immediately if in scheduled task mode
@@ -2891,7 +2868,7 @@ def prevent_system_sleep(enable: bool):
             ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)
         else:
             ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS)
-    except:
+    except Exception as e:
         pass
 
 # ===== Smart Capital Allocation =====
@@ -3068,7 +3045,7 @@ def evaluate_portfolio_and_opportunities(
                 score += 999
             
             results["current_scores"][symbol] = score
-        except:
+        except Exception as e:
             if symbol in forced_symbols:
                 results["current_scores"][symbol] = 998
             else:
@@ -3130,7 +3107,7 @@ def main():
             if time_in_minutes > market_close_minutes:  # After 4:00 PM
                 print(f"Market closed ({now.strftime('%I:%M %p')}) - exiting")
                 return 0
-        except:
+        except Exception as e:
             pass  # If check fails, continue anyway
     
     parser = argparse.ArgumentParser(description="Unified trading bot (single or multi-stock)")
@@ -3359,7 +3336,7 @@ def main():
                         for sym in held_symbols:
                             sell_flow(client, sym)
                         sys.exit(1)
-                except:
+                except Exception as e:
                     pass
                 
                 # Update positions
@@ -3371,7 +3348,7 @@ def main():
                                                     pos["market_value"], pos["unrealized_pl"])
                         else:
                             portfolio.remove_position(sym)
-                    except:
+                    except Exception as e:
                         pass
                 
                 # Rebalancing check
@@ -3774,3 +3751,4 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+

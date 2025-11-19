@@ -5,7 +5,7 @@ Portfolio Manager - Tracks and manages multiple stock positions.
 
 import json
 import os
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 from datetime import datetime
 import pytz
 
@@ -15,7 +15,7 @@ class PortfolioManager:
     
     def __init__(self, portfolio_file: str = "portfolio.json"):
         self.portfolio_file = portfolio_file
-        self.positions = {}  # symbol -> {qty, avg_entry, market_value, unrealized_pl, last_update}
+        self.positions: Dict[str, Dict[str, Any]] = {}  # symbol -> {qty, avg_entry, market_value, unrealized_pl, last_update}
         self.load()
     
     def load(self):
@@ -27,6 +27,11 @@ class PortfolioManager:
                     self.positions = data.get("positions", {})
             except Exception as e:
                 print(f"Warning: Could not load portfolio: {e}")
+                try:
+                    import traceback
+                    print(traceback.format_exc())
+                except Exception:
+                    pass
                 self.positions = {}
         else:
             self.positions = {}
@@ -42,6 +47,11 @@ class PortfolioManager:
                 json.dump(data, f, indent=2)
         except Exception as e:
             print(f"Warning: Could not save portfolio: {e}")
+            try:
+                import traceback
+                print(traceback.format_exc())
+            except Exception:
+                pass
     
     def update_position(self, symbol: str, qty: float, avg_entry: float, 
                        market_value: float, unrealized_pl: float):
@@ -67,11 +77,11 @@ class PortfolioManager:
             del self.positions[symbol]
             self.save()
     
-    def get_position(self, symbol: str) -> Optional[Dict]:
+    def get_position(self, symbol: str) -> Optional[Dict[str, Any]]:
         """Get position for a symbol."""
         return self.positions.get(symbol)
     
-    def get_all_positions(self) -> Dict[str, Dict]:
+    def get_all_positions(self) -> Dict[str, Dict[str, Any]]:
         """Get all positions."""
         return self.positions.copy()
     
