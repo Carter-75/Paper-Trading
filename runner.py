@@ -48,6 +48,8 @@ load_dotenv()
 
 # Persistent session for yfinance (best practice: reuse connections, faster + less blocks)
 _yfinance_session = None
+_last_yfinance_request = 0  # Track last request time for rate limiting
+
 def get_yf_session():
     """Get or create a persistent session for yfinance with proper headers"""
     global _yfinance_session
@@ -59,6 +61,15 @@ def get_yf_session():
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         })
     return _yfinance_session
+
+def yfinance_rate_limit():
+    """Enforce rate limit for yfinance (1 request per 0.5 seconds = 120/minute)"""
+    global _last_yfinance_request
+    now = time.time()
+    elapsed = now - _last_yfinance_request
+    if elapsed < 0.5:  # Minimum 0.5s between requests
+        time.sleep(0.5 - elapsed)
+    _last_yfinance_request = time.time()
 
 # Idempotency: Track orders submitted this cycle to prevent duplicates
 _order_ids_submitted_this_cycle = set()
@@ -413,6 +424,10 @@ def fetch_closes(client, symbol: str, interval_seconds: int, limit_bars: int) ->
     
     # Try yfinance first (FREE, unlimited, ALWAYS use this for backtesting)
     # Best practice: Retry with exponential backoff for 100% reliability
+    
+    # Rate limit yfinance requests (0.5s between stocks = 120 stocks/minute max)
+    yfinance_rate_limit()
+    
     import yfinance as yf
     from datetime import datetime, timedelta
     import pytz
