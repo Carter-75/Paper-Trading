@@ -16,6 +16,14 @@ from runner import (
     pct_stddev,
 )
 
+# Safe print for scheduled task mode (no console attached)
+def safe_print(*args, **kwargs):
+    """Print that doesn't crash when stdout isn't available (scheduled task mode)"""
+    try:
+        print(*args, **kwargs)
+    except (OSError, AttributeError):
+        pass  # Silently ignore if no console available
+
 
 # Cache file for top stocks (refreshed daily at market open)
 CACHE_FILE = "top_stocks_cache.json"
@@ -95,13 +103,13 @@ def fetch_top_stocks_dynamic(limit: int = 100, force_refresh: bool = False) -> L
                 if cache_age_hours < CACHE_DURATION_HOURS and is_same_day:
                     symbols = cache.get('symbols', [])
                     if len(symbols) >= limit:
-                        print(f"[OK] Using cached top {len(symbols[:limit])} stocks (age: {cache_age_hours:.1f}h)")
+                        safe_print(f"[OK] Using cached top {len(symbols[:limit])} stocks (age: {cache_age_hours:.1f}h)")
                         return symbols[:limit]
                 else:
                     if not is_same_day:
-                        print(f"New trading day detected - refreshing stock list...")
+                        safe_print(f"New trading day detected - refreshing stock list...")
                     else:
-                        print(f"Cache expired ({cache_age_hours:.1f}h old) - refreshing stock list...")
+                        safe_print(f"Cache expired ({cache_age_hours:.1f}h old) - refreshing stock list...")
         except Exception:
             pass
     
@@ -132,7 +140,7 @@ def fetch_top_stocks_dynamic(limit: int = 100, force_refresh: bool = False) -> L
         
         # Get market caps for top symbols
         market_caps = {}
-        print(f"Fetching market caps for {len(cleaned_symbols)} stocks (this may take a minute)...")
+        safe_print(f"Fetching market caps for {len(cleaned_symbols)} stocks (this may take a minute)...")
         
         for i, symbol in enumerate(cleaned_symbols[:200], 1):  # Check top 200 from S&P 500
             try:
@@ -141,7 +149,7 @@ def fetch_top_stocks_dynamic(limit: int = 100, force_refresh: bool = False) -> L
                 if 'marketCap' in info and info['marketCap']:
                     market_caps[symbol] = info['marketCap']
                 if i % 20 == 0:
-                    print(f"  Progress: {i}/200 stocks checked...")
+                    safe_print(f"  Progress: {i}/200 stocks checked...")
             except Exception:
                 continue
         
@@ -165,12 +173,12 @@ def fetch_top_stocks_dynamic(limit: int = 100, force_refresh: bool = False) -> L
         except Exception:
             pass
         
-        print(f"[OK] Successfully fetched top {len(top_symbols)} stocks")
+        safe_print(f"[OK] Successfully fetched top {len(top_symbols)} stocks")
         return top_symbols[:limit]
         
     except Exception as e:
-        print(f"Warning: Could not fetch dynamic stock list ({e})")
-        print("Using predefined top 100 stocks...")
+        safe_print(f"Warning: Could not fetch dynamic stock list ({e})")
+        safe_print("Using predefined top 100 stocks...")
         return DEFAULT_TOP_100_STOCKS[:limit]
 
 
@@ -188,7 +196,7 @@ def score_stock(symbol: str, interval_seconds: int, cap_per_stock: float, bars: 
             avg_volume = info.get('averageVolume', 0)
             if avg_volume < config.MIN_AVG_VOLUME:
                 if verbose:
-                    print(f" skipped (low volume: {avg_volume:,})")
+                    safe_print(f" skipped (low volume: {avg_volume:,})")
                 return None
         except:
             pass  # If volume check fails, continue anyway
@@ -200,7 +208,7 @@ def score_stock(symbol: str, interval_seconds: int, cap_per_stock: float, bars: 
         min_bars = config.LONG_WINDOW + 2
         if not closes or len(closes) < min_bars:
             if verbose:
-                print(f" [skipped: insufficient data ({len(closes) if closes else 0}/{min_bars} bars)]")
+                safe_print(f" [skipped: insufficient data ({len(closes) if closes else 0}/{min_bars} bars)]")
             return None
         
         # Calculate metrics
@@ -239,7 +247,7 @@ def score_stock(symbol: str, interval_seconds: int, cap_per_stock: float, bars: 
         }
     except Exception as e:
         if verbose:
-            print(f" [skipped: error - {str(e)[:50]}]")
+            safe_print(f" [skipped: error - {str(e)[:50]}]")
         return None
 
 
@@ -260,12 +268,12 @@ def scan_stocks(symbols: List[str], interval_seconds: int,
         List of dicts with stock scores and metrics, sorted best to worst
     """
     if verbose:
-        print(f"\nScanning {len(symbols)} stocks...")
+        safe_print(f"\nScanning {len(symbols)} stocks...")
     
     results = []
     for i, symbol in enumerate(symbols, 1):
         if verbose:
-            print(f"  [{i:2d}/{len(symbols)}] Evaluating {symbol:6s}...", end="", flush=True)
+            safe_print(f"  [{i:2d}/{len(symbols)}] Evaluating {symbol:6s}...", end="", flush=True)
         
         score_data = score_stock(symbol, interval_seconds, cap_per_stock, verbose=verbose)
         
@@ -273,10 +281,10 @@ def scan_stocks(symbols: List[str], interval_seconds: int,
             results.append(score_data)
             if verbose:
                 exp_daily = score_data["expected_daily"]
-                print(f" ${exp_daily:7.2f}/day (score: {score_data['score']:7.2f})")
+                safe_print(f" ${exp_daily:7.2f}/day (score: {score_data['score']:7.2f})")
         else:
             if verbose:
-                print(" [skipped]")
+                safe_print(" [skipped]")
     
     # Sort by score (highest first)
     results.sort(key=lambda x: x["score"], reverse=True)
