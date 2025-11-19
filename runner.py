@@ -103,6 +103,7 @@ if not LOG.handlers:
 FILE_LOG_PATH = config.LOG_PATH
 DISABLE_FILE_LOG = os.getenv("BOT_TEE_LOG", "") in ("1", "true", "True")
 SCHEDULED_TASK_MODE = os.getenv("SCHEDULED_TASK_MODE", "0") in ("1", "true", "True")
+LOG_MAX_LINES = int(os.getenv("LOG_MAX_LINES", "200"))
 
 if not os.path.exists(FILE_LOG_PATH):
     open(FILE_LOG_PATH, "a").close()
@@ -132,7 +133,7 @@ def append_to_log_line(line: str):
     delay = 0.2
     for i in range(attempts):
         try:
-            enforce_log_max_lines(250)
+            enforce_log_max_lines(LOG_MAX_LINES)
             with open(FILE_LOG_PATH, "a", encoding="utf-8") as fh:
                 fh.write(clean_line + "\n")
             return
@@ -141,8 +142,10 @@ def append_to_log_line(line: str):
                 time.sleep(delay)
                 delay *= 2
 
-def enforce_log_max_lines(max_lines: int = 100):
+def enforce_log_max_lines(max_lines: int = None):
     """Truncate log file to max_lines, preserving INIT line at top."""
+    if max_lines is None:
+        max_lines = LOG_MAX_LINES
     try:
         if not os.path.exists(FILE_LOG_PATH):
             return
@@ -581,9 +584,9 @@ def fetch_closes(client, symbol: str, interval_seconds: int, limit_bars: int) ->
                         # Use what we have, even if less than requested
                         if len(closes) >= limit_bars:
                             return closes[-limit_bars:]
-                        else:
-                            # Not enough data, but log the actual amount
-                            raise Exception(f"Polygon returned only {len(closes)}/{limit_bars} bars (free tier limitation)")
+                        # Accept partial data when free tier limits history
+                        log_warn(f"Polygon returned only {len(closes)}/{limit_bars} bars (free tier limitation)")
+                        return closes
                 else:
                     raise Exception(f"Polygon returned no results for {symbol}")
                 break
@@ -636,7 +639,8 @@ def fetch_closes(client, symbol: str, interval_seconds: int, limit_bars: int) ->
             tf, 
             start=start_str,
             end=end_str,
-            limit=None  # Get all bars in range
+            limit=None,  # Get all bars in range
+            feed="iex"
         ).df
         
         if not bars.empty:
