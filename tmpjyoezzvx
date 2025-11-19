@@ -1,0 +1,250 @@
+INIT 2025-11-06T23:58:13 user=NT AUTHORITY\SYSTEM
+ [skipped]
+  [31/98] Evaluating ACN   ... [skipped: insufficient data (5/23 bars)]
+ [skipped]
+  [32/98] Evaluating LIN   ... [skipped: insufficient data (8/23 bars)]
+ [skipped]
+  [33/98] Evaluating MCD   ... [skipped: insufficient data (4/23 bars)]
+ [skipped]
+  [34/98] Evaluating ADBE  ... [skipped: insufficient data (7/23 bars)]
+ [skipped]
+  [35/98] Evaluating NFLX  ... [skipped: insufficient data (8/23 bars)]
+ [skipped]
+  [36/98] Evaluating ABT   ... [skipped: insufficient data (3/23 bars)]
+ [skipped]
+  [37/98] Evaluating WFC   ... [skipped: insufficient data (6/23 bars)]
+ [skipped]
+  [38/98] Evaluating NKE   ... [skipped: insufficient data (8/23 bars)]
+ [skipped]
+  [39/98] Evaluating DIS   ... [skipped: insufficient data (7/23 bars)]
+ [skipped]
+  [40/98] Evaluating VZ    ... [skipped: insufficient data (8/23 bars)]
+ [skipped]
+  [41/98] Evaluating TXN   ... [skipped: insufficient data (5/23 bars)]
+ [skipped]
+  [42/98] Evaluating CMCSA ... [skipped: insufficient data (7/23 bars)]
+ [skipped]
+  [43/98] Evaluating NEE   ... [skipped: insufficient data (6/23 bars)]
+ [skipped]
+  [44/98] Evaluating PM    ... [skipped: insufficient data (3/23 bars)]
+ [skipped]
+  [45/98] Evaluating INTC  ... [skipped: insufficient data (8/23 bars)]
+ [skipped]
+  [46/98] Evaluating COP   ... [skipped: insufficient data (5/23 bars)]
+ [skipped]
+  [47/98] Evaluating BMY   ... [skipped: insufficient data (6/23 bars)]
+ [skipped]
+  [48/98] Evaluating UNP   ... [skipped: insufficient data (3/23 bars)]
+ [skipped]
+  [49/98] Evaluating RTX   ... [skipped: insufficient data (6/23 bars)]
+ [skipped]
+  [50/98] Evaluating UPS   ... [skipped: insufficient data (6/23 bars)]
+ [skipped]
+  [51/98] Evaluating HON   ... [skipped: insufficient data (6/23 bars)]
+ [skipped]
+  [52/98] Evaluating QCOM  ... [skipped: insufficient data (8/23 bars)]
+ [skipped]
+  [53/98] Evaluating INTU  ... [skipped: insufficient data (4/23 bars)]
+ [skipped]
+  [54/98] Evaluating T     ... [skipped: insufficient data (6/23 bars)]
+ [skipped]
+  [55/98] Evaluating LOW   ... [skipped: insufficient data (6/23 bars)]
+ [skipped]
+  [56/98] Evaluating MS    ... [skipped: insufficient data (4/23 bars)]
+ [skipped]
+  [57/98] Evaluating AMGN  ... [skipped: insufficient data (4/23 bars)]
+ [skipped]
+  [58/98] Evaluating CAT   ... [skipped: insufficient data (5/23 bars)]
+ [skipped]
+  [59/98] Evaluating BA    ... [skipped: insufficient data (8/23 bars)]
+ [skipped]
+  [60/98] Evaluating SBUX  ... [skipped: insufficient data (5/23 bars)]
+ [skipped]
+  [61/98] Evaluating DE    ... [skipped: insufficient data (4/23 bars)]
+ [skipped]
+  [62/98] Evaluating ELV   ... [skipped: insufficient data (5/23 bars)]
+ [skipped]
+  [63/98] Evaluating GE    ... [skipped: insufficient data (6/23 bars)]
+ [skipped]
+  [64/98] Evaluating AMAT  ... [skipped: insufficient data (6/23 bars)]
+ [skipped]
+  [65/98] Evaluating BLK   ... skipped (low volume: 592,250)
+ [skipped]
+  [66/98] Evaluating MDT   ... [skipped: insufficient data (8/23 bars)]
+ [skipped]
+  [67/98] Evaluating AXP   ... [skipped: insufficient data (5/23 bars)]
+ [skipped]
+  [68/98] Evaluating PLD   ... [skipped: insufficient data (3/23 bars)]
+ [skipped]
+  [69/98] Evaluating ADI   ... [skipped: insufficient data (4/23 bars)]
+ [skipped]
+  [70/98] Evaluating GILD  ... [skipped: insufficient data (6/23 bars)]
+ [skipped]
+  [71/98] Evaluating BKNG  ... skipped (low volume: 237,700)
+ [skipped]
+  [72/98] Evaluating SYK   ... [skipped: insufficient data (4/23 bars)]
+ [skipped]
+  [73/98] Evaluating LRCX  ... [skipped: insufficient data (8/23 bars)]
+ [skipped]
+  [74/98] Evaluating AMT   ... [skipped: insufficient data (5/23 bars)]
+ [skipped]
+  [75/98] Evaluating ISRG  ... [skipped: insufficient data (4/23 bars)]
+ [skipped]
+  [76/98] Evaluating CI    ... [skipped: insufficient data (5/23 bars)]
+ [skipped]
+  [77/98] Evaluating MMC   ... [skipped: insufficient data (6/23 bars)]
+ [skipped]
+  [78/98] Evaluating VRTX  ... [skipped: insufficient data (4/23 bars)]
+ [skipped]
+  [79/98] Evaluating TJX   ... [skipped: insufficient data (7/23 bars)]
+ [skipped]
+  [80/98] Evaluating REGN  ... [skipped: insufficient data (7/23 bars)]
+ [skipped]
+  [81/98] Evaluating C     ... [skipped: insufficient data (7/23 bars)]
+ [skipped]
+  [82/98] Evaluating CVS   ... [skipped: insufficient data (7/23 bars)]
+ [skipped]
+  [83/98] Evaluating PGR   ... [skipped: insufficient data (5/23 bars)]
+ [skipped]
+  [84/98] Evaluating MDLZ  ... [skipped: insufficient data (6/23 bars)]
+ [skipped]
+  [85/98] Evaluating ZTS   ...
+INIT 2025-11-19T11:15:35 user=NT AUTHORITY\SYSTEM
+2025-11-19 11:15:43,637 INFO - ======================================================================
+2025-11-19 11:15:43,637 INFO - UNIFIED TRADING BOT - Production Ready
+2025-11-19 11:15:43,637 INFO - ======================================================================
+2025-11-19 11:15:43,638 INFO -   Mode: Multi-Stock Portfolio
+2025-11-19 11:15:43,638 INFO -   Interval: 4680s (1.3h)
+2025-11-19 11:15:43,638 INFO -   Total Capital: $100.0
+2025-11-19 11:15:43,638 INFO -   Max Positions: 15
+2025-11-19 11:15:43,638 INFO -   Forced Stocks: 0
+2025-11-19 11:15:43,638 INFO -   Auto-Fill Slots: 15
+2025-11-19 11:15:43,638 INFO -   Rebalance Every: 4 intervals
+2025-11-19 11:15:43,638 INFO -   Allocation: Smart (profit-based)
+2025-11-19 11:15:43,638 INFO - 
+  Strategy Improvements (9 features enabled by default):
+2025-11-19 11:15:43,638 INFO -     Phase 1 - Advanced Filters:
+2025-11-19 11:15:43,639 INFO -       - RSI Filter: [ON] (blocks overbought/oversold)
+2025-11-19 11:15:43,639 INFO -       - Multi-Timeframe: [ON] (3 timeframes must agree)
+2025-11-19 11:15:43,639 INFO -       - Volume Confirmation: [ON] (requires 1.2x avg volume)
+2025-11-19 11:15:43,639 INFO -     Phase 2 - Risk Management:
+2025-11-19 11:15:43,639 INFO -       - Drawdown Protection: [ON] (stops at 15.0% loss)
+2025-11-19 11:15:43,639 INFO -       - Kelly Criterion: [ON] (optimal position sizing)
+2025-11-19 11:15:43,639 INFO -       - Correlation Check: [ON] (diversification)
+2025-11-19 11:15:43,640 INFO -     Phase 3 - Better Execution:
+2025-11-19 11:15:43,640 INFO -       - Limit Orders: [ON] (0.1% better than market)
+2025-11-19 11:15:43,640 INFO -       - Safe Trading Hours: [ON] (avoids first/last 15min)
+2025-11-19 11:15:43,641 INFO -     Phase 4 - Machine Learning:
+Model loaded from ml_model.pkl
+2025-11-19 11:15:43,685 INFO -       - Random Forest: [ON & TRAINED] (confirms/overrides signals)
+2025-11-19 11:15:45,389 INFO - Broker: $100009.88 total value
+2025-11-19 11:15:45,389 INFO - Found 2 existing positions
+New trading day detected - refreshing stock list...
+Warning: Could not fetch dynamic stock list ('Symbol')
+Using predefined top 100 stocks...
+2025-11-19 11:15:48,181 INFO - ======================================================================
+2025-11-19 11:15:48,316 INFO - === Iteration 1 ===
+2025-11-19 11:15:49,466 INFO -   VIX: 23.6 (ELEVATED)
+2025-11-19 11:15:49,467 INFO - Positions: 2/15 | Invested: $8.31/$100.00
+Scanning 98 stocks...
+  [ 1/98] Evaluating AAPL  ...2025-11-19 11:15:53,354 WARNING - Alpaca fetch failed for AAPL: Invalid format for parameter start: error parsing '2025-05-23T11:15:51.911305' as RFC3339 or 2006-01-02 time: parsing time "2025-05-23T11:15:51.911305": extra text: "T11:15:51.911305"
+ [skipped: insufficient data (9/23 bars)]
+ [skipped]
+  [ 2/98] Evaluating MSFT  ...2025-11-19 11:15:58,596 WARNING - Alpaca fetch failed for MSFT: Invalid format for parameter start: error parsing '2025-05-23T11:15:57.228674' as RFC3339 or 2006-01-02 time: parsing time "2025-05-23T11:15:57.228674": extra text: "T11:15:57.228674"
+ [skipped: insufficient data (10/23 bars)]
+ [skipped]
+  [ 3/98] Evaluating GOOGL ...2025-11-19 11:16:06,640 WARNING - Alpaca fetch failed for GOOGL: Invalid format for parameter start: error parsing '2025-05-23T11:16:05.135246' as RFC3339 or 2006-01-02 time: parsing time "2025-05-23T11:16:05.135246": extra text: "T11:16:05.135246"
+ [skipped: insufficient data (9/23 bars)]
+ [skipped]
+  [ 4/98] Evaluating AMZN  ...2025-11-19 11:16:11,547 WARNING - Alpaca fetch failed for AMZN: Invalid format for parameter start: error parsing '2025-05-23T11:16:10.139227' as RFC3339 or 2006-01-02 time: parsing time "2025-05-23T11:16:10.139227": extra text: "T11:16:10.139227"
+ [skipped: insufficient data (8/23 bars)]
+ [skipped]
+  [ 5/98] Evaluating NVDA  ...2025-11-19 11:16:16,793 WARNING - Alpaca fetch failed for NVDA: Invalid format for parameter start: error parsing '2025-05-23T11:16:15.282014' as RFC3339 or 2006-01-02 time: parsing time "2025-05-23T11:16:15.282014": extra text: "T11:16:15.282014"
+ [skipped: insufficient data (6/23 bars)]
+ [skipped]
+  [ 6/98] Evaluating META  ...2025-11-19 11:16:21,999 WARNING - Alpaca fetch failed for META: Invalid format for parameter start: error parsing '2025-05-23T11:16:20.535458' as RFC3339 or 2006-01-02 time: parsing time "2025-05-23T11:16:20.535458": extra text: "T11:16:20.535458"
+2025-11-19 11:16:21,999 INFO - Polygon rate limit: sleeping 31.5s
+ [skipped: insufficient data (10/23 bars)]
+ [skipped]
+  [ 7/98] Evaluating TSLA  ...2025-11-19 11:16:59,716 WARNING - Alpaca fetch failed for TSLA: Invalid format for parameter start: error parsing '2025-05-23T11:16:58.236800' as RFC3339 or 2006-01-02 time: parsing time "2025-05-23T11:16:58.236800": extra text: "T11:16:58.236800"
+ [skipped: insufficient data (6/23 bars)]
+ [skipped]
+  [ 8/98] Evaluating BRK.B ... skipped (low volume: 0)
+ [skipped]
+  [ 9/98] Evaluating LLY   ...2025-11-19 11:17:05,222 WARNING - Alpaca fetch failed for LLY: Invalid format for parameter start: error parsing '2025-05-23T11:17:03.752697' as RFC3339 or 2006-01-02 time: parsing time "2025-05-23T11:17:03.752697": extra text: "T11:17:03.752697"
+2025-11-19 11:17:05,222 INFO - Polygon rate limit: sleeping 1.5s
+ [skipped: insufficient data (8/23 bars)]
+ [skipped]
+  [10/98] Evaluating V     ...2025-11-19 11:17:15,102 WARNING - Alpaca fetch failed for V: Invalid format for parameter start: error parsing '2025-05-23T11:17:13.465927' as RFC3339 or 2006-01-02 time: parsing time "2025-05-23T11:17:13.465927": extra text: "T11:17:13.465927"
+ [skipped: insufficient data (9/23 bars)]
+ [skipped]
+  [11/98] Evaluating UNH   ...2025-11-19 11:17:20,443 WARNING - Alpaca fetch failed for UNH: Invalid format for parameter start: error parsing '2025-05-23T11:17:18.955240' as RFC3339 or 2006-01-02 time: parsing time "2025-05-23T11:17:18.955240": extra text: "T11:17:18.955240"
+ [skipped: insufficient data (7/23 bars)]
+ [skipped]
+  [12/98] Evaluating XOM   ...2025-11-19 11:17:26,301 WARNING - Alpaca fetch failed for XOM: Invalid format for parameter start: error parsing '2025-05-23T11:17:24.731610' as RFC3339 or 2006-01-02 time: parsing time "2025-05-23T11:17:24.731610": extra text: "T11:17:24.731610"
+2025-11-19 11:17:26,301 INFO - Polygon rate limit: sleeping 27.3s
+ [skipped: insufficient data (11/23 bars)]
+ [skipped]
+  [13/98] Evaluating WMT   ...2025-11-19 11:17:59,673 WARNING - Alpaca fetch failed for WMT: Invalid format for parameter start: error parsing '2025-05-23T11:17:58.143171' as RFC3339 or 2006-01-02 time: parsing time "2025-05-23T11:17:58.143171": extra text: "T11:17:58.143171"
+2025-11-19 11:17:59,673 INFO - Polygon rate limit: sleeping 0.1s
+ [skipped: insufficient data (7/23 bars)]
+ [skipped]
+  [14/98] Evaluating JPM   ...2025-11-19 11:18:05,373 WARNING - Alpaca fetch failed for JPM: Invalid format for parameter start: error parsing '2025-05-23T11:18:03.960976' as RFC3339 or 2006-01-02 time: parsing time "2025-05-23T11:18:03.960976": extra text: "T11:18:03.960976"
+2025-11-19 11:18:05,373 INFO - Polygon rate limit: sleeping 1.5s
+ [skipped: insufficient data (10/23 bars)]
+ [skipped]
+  [15/98] Evaluating JNJ   ...2025-11-19 11:18:11,930 WARNING - Alpaca fetch failed for JNJ: Invalid format for parameter start: error parsing '2025-05-23T11:18:10.589016' as RFC3339 or 2006-01-02 time: parsing time "2025-05-23T11:18:10.589016": extra text: "T11:18:10.589016"
+2025-11-19 11:18:11,931 INFO - Polygon rate limit: sleeping 3.3s
+ [skipped: insufficient data (8/23 bars)]
+ [skipped]
+  [16/98] Evaluating MA    ...2025-11-19 11:18:23,348 WARNING - Alpaca fetch failed for MA: Invalid format for parameter start: error parsing '2025-05-23T11:18:21.965578' as RFC3339 or 2006-01-02 time: parsing time "2025-05-23T11:18:21.965578": extra text: "T11:18:21.965578"
+ [skipped: insufficient data (8/23 bars)]
+ [skipped]
+  [17/98] Evaluating AVGO  ...2025-11-19 11:18:28,385 WARNING - Alpaca fetch failed for AVGO: Invalid format for parameter start: error parsing '2025-05-23T11:18:26.986165' as RFC3339 or 2006-01-02 time: parsing time "2025-05-23T11:18:26.986165": extra text: "T11:18:26.986165"
+2025-11-19 11:18:28,385 INFO - Polygon rate limit: sleeping 25.3s
+ [skipped: insufficient data (10/23 bars)]
+ [skipped]
+  [18/98] Evaluating PG    ...2025-11-19 11:18:58,871 WARNING - Alpaca fetch failed for PG: Invalid format for parameter start: error parsing '2025-05-23T11:18:57.433101' as RFC3339 or 2006-01-02 time: parsing time "2025-05-23T11:18:57.433101": extra text: "T11:18:57.433101"
+2025-11-19 11:18:58,871 INFO - Polygon rate limit: sleeping 1.0s
+ [skipped: insufficient data (10/23 bars)]
+ [skipped]
+  [19/98] Evaluating HD    ...2025-11-19 11:19:04,937 WARNING - Alpaca fetch failed for HD: Invalid format for parameter start: error parsing '2025-05-23T11:19:03.533173' as RFC3339 or 2006-01-02 time: parsing time "2025-05-23T11:19:03.533173": extra text: "T11:19:03.533173"
+2025-11-19 11:19:04,938 INFO - Polygon rate limit: sleeping 2.0s
+ [skipped: insufficient data (9/23 bars)]
+ [skipped]
+  [20/98] Evaluating CVX   ...2025-11-19 11:19:11,790 WARNING - Alpaca fetch failed for CVX: Invalid format for parameter start: error parsing '2025-05-23T11:19:10.395701' as RFC3339 or 2006-01-02 time: parsing time "2025-05-23T11:19:10.395701": extra text: "T11:19:10.395701"
+2025-11-19 11:19:11,790 INFO - Polygon rate limit: sleeping 3.5s
+ [skipped: insufficient data (10/23 bars)]
+ [skipped]
+  [21/98] Evaluating COST  ...2025-11-19 11:19:20,130 WARNING - Alpaca fetch failed for COST: Invalid format for parameter start: error parsing '2025-05-23T11:19:18.774108' as RFC3339 or 2006-01-02 time: parsing time "2025-05-23T11:19:18.774108": extra text: "T11:19:18.774108"
+2025-11-19 11:19:20,130 INFO - Polygon rate limit: sleeping 3.3s
+ [skipped: insufficient data (12/23 bars)]
+ [skipped]
+  [22/98] Evaluating ABBV  ...2025-11-19 11:19:28,435 WARNING - Alpaca fetch failed for ABBV: Invalid format for parameter start: error parsing '2025-05-23T11:19:27.010220' as RFC3339 or 2006-01-02 time: parsing time "2025-05-23T11:19:27.010220": extra text: "T11:19:27.010220"
+2025-11-19 11:19:28,435 INFO - Polygon rate limit: sleeping 25.3s
+ [skipped: insufficient data (10/23 bars)]
+ [skipped]
+  [23/98] Evaluating BAC   ...2025-11-19 11:19:59,077 WARNING - Alpaca fetch failed for BAC: Invalid format for parameter start: error parsing '2025-05-23T11:19:57.548905' as RFC3339 or 2006-01-02 time: parsing time "2025-05-23T11:19:57.548905": extra text: "T11:19:57.548905"
+2025-11-19 11:19:59,077 INFO - Polygon rate limit: sleeping 0.9s
+ [skipped: insufficient data (10/23 bars)]
+ [skipped]
+  [24/98] Evaluating ORCL  ...2025-11-19 11:20:10,909 WARNING - Alpaca fetch failed for ORCL: Invalid format for parameter start: error parsing '2025-05-23T11:20:09.385714' as RFC3339 or 2006-01-02 time: parsing time "2025-05-23T11:20:09.385714": extra text: "T11:20:09.385714"
+ [skipped: insufficient data (10/23 bars)]
+ [skipped]
+  [25/98] Evaluating CRM   ...2025-11-19 11:20:16,613 WARNING - Alpaca fetch failed for CRM: Invalid format for parameter start: error parsing '2025-05-23T11:20:14.913079' as RFC3339 or 2006-01-02 time: parsing time "2025-05-23T11:20:14.913079": extra text: "T11:20:14.913079"
+ [skipped: insufficient data (10/23 bars)]
+ [skipped]
+  [26/98] Evaluating KO    ...2025-11-19 11:20:22,087 WARNING - Alpaca fetch failed for KO: Invalid format for parameter start: error parsing '2025-05-23T11:20:20.487697' as RFC3339 or 2006-01-02 time: parsing time "2025-05-23T11:20:20.487697": extra text: "T11:20:20.487697"
+2025-11-19 11:20:22,087 INFO - Polygon rate limit: sleeping 1.5s
+ [skipped: insufficient data (10/23 bars)]
+ [skipped]
+  [27/98] Evaluating AMD   ...2025-11-19 11:20:28,760 WARNING - Alpaca fetch failed for AMD: Invalid format for parameter start: error parsing '2025-05-23T11:20:27.262123' as RFC3339 or 2006-01-02 time: parsing time "2025-05-23T11:20:27.262123": extra text: "T11:20:27.262123"
+2025-11-19 11:20:28,760 INFO - Polygon rate limit: sleeping 25.1s
+ [skipped: insufficient data (8/23 bars)]
+ [skipped]
+  [28/98] Evaluating PEP   ...2025-11-19 11:20:59,371 WARNING - Alpaca fetch failed for PEP: Invalid format for parameter start: error parsing '2025-05-23T11:20:57.872764' as RFC3339 or 2006-01-02 time: parsing time "2025-05-23T11:20:57.872764": extra text: "T11:20:57.872764"
+2025-11-19 11:20:59,371 INFO - Polygon rate limit: sleeping 0.7s
+ [skipped: insufficient data (10/23 bars)]
+ [skipped]
+  [29/98] Evaluating TMO   ...2025-11-19 11:21:05,786 WARNING - Alpaca fetch failed for TMO: Invalid format for parameter start: error parsing '2025-05-23T11:21:04.286744' as RFC3339 or 2006-01-02 time: parsing time "2025-05-23T11:21:04.286744": extra text: "T11:21:04.286744"
+2025-11-19 11:21:05,786 INFO - Polygon rate limit: sleeping 5.2s
