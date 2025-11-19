@@ -33,8 +33,8 @@ DEFAULT_INTERVAL_SECONDS: float = float(os.getenv("DEFAULT_INTERVAL_SECONDS", "9
 SHORT_WINDOW: int = int(os.getenv("SHORT_WINDOW", "9"))
 LONG_WINDOW: int = int(os.getenv("LONG_WINDOW", "21"))
 
-# sizing (increased default from 0.50 to 0.65 for more aggressive profit targeting)
-TRADE_SIZE_FRAC_OF_CAP: float = float(os.getenv("TRADE_SIZE_FRAC_OF_CAP", "0.75"))  # Increased from 0.65 for more aggressive trading
+# sizing (best practice: 60-70% for balanced risk/reward)
+TRADE_SIZE_FRAC_OF_CAP: float = float(os.getenv("TRADE_SIZE_FRAC_OF_CAP", "0.70"))  # 70% allows risky mode to reach 84% (under 95% limit)
 FIXED_TRADE_USD: float = float(os.getenv("FIXED_TRADE_USD", "0.0"))
 
 # per-symbol cap (USD)
@@ -141,9 +141,9 @@ RISKY_MODE_ENABLED: bool = os.getenv("RISKY_MODE_ENABLED", "1") in ("1", "true",
 RISKY_EXPECTED_DAILY_USD_MIN: float = float(os.getenv("RISKY_EXPECTED_DAILY_USD_MIN", "0.05") or 0.0)  # Lower threshold
 RISKY_VOL_MULTIPLIER: float = float(os.getenv("RISKY_VOL_MULTIPLIER", "2.0") or 1.0)  # Accept more volatility
 RISKY_TRADES_PER_DAY_MULTIPLIER: float = float(os.getenv("RISKY_TRADES_PER_DAY_MULTIPLIER", "2.0") or 1.0)  # More trades OK
-RISKY_TP_MULT: float = float(os.getenv("RISKY_TP_MULT", "1.25") or 1.0)  # Higher profit targets
-RISKY_SL_MULT: float = float(os.getenv("RISKY_SL_MULT", "1.15") or 1.0)  # Wider stops for more room
-RISKY_SIZE_MULT: float = float(os.getenv("RISKY_SIZE_MULT", "1.30") or 1.0)  # Larger position sizes
+RISKY_TP_MULT: float = float(os.getenv("RISKY_TP_MULT", "1.25") or 1.0)  # Higher profit targets (best practice: 1.15-1.25x)
+RISKY_SL_MULT: float = float(os.getenv("RISKY_SL_MULT", "1.15") or 1.0)  # Wider stops for more room (best practice: 1.10-1.20x)
+RISKY_SIZE_MULT: float = float(os.getenv("RISKY_SIZE_MULT", "1.20") or 1.0)  # Larger position sizes (best practice: 1.15-1.25x, max 1.30x)
 RISKY_MAX_FRAC_CAP: float = float(os.getenv("RISKY_MAX_FRAC_CAP", "0.95") or 1.0)  # Use nearly all cap
 
 # Profitability/Confidence gates
