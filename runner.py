@@ -49,26 +49,33 @@ load_dotenv()
 # Persistent session for yfinance (best practice: reuse connections, faster + less blocks)
 _yfinance_session = None
 _last_yfinance_request = 0  # Track last request time for rate limiting
+_session_request_count = 0  # Track requests per session
 
 def get_yf_session():
     """Get or create a persistent session for yfinance with proper headers"""
-    global _yfinance_session
-    if _yfinance_session is None:
+    global _yfinance_session, _session_request_count
+    
+    # FUNDAMENTAL FIX: Recreate session every 20 requests to clear rate limit state
+    if _yfinance_session is None or _session_request_count >= 20:
         import requests
         _yfinance_session = requests.Session()
         # User agent rotation to avoid blocks (best practice)
         _yfinance_session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         })
+        _session_request_count = 0
+    
+    _session_request_count += 1
     return _yfinance_session
 
 def yfinance_rate_limit():
-    """Enforce rate limit for yfinance (1 request per 0.5 seconds = 120/minute)"""
+    """Enforce rate limit for yfinance (2 seconds between stocks to be VERY conservative)"""
     global _last_yfinance_request
     now = time.time()
     elapsed = now - _last_yfinance_request
-    if elapsed < 0.5:  # Minimum 0.5s between requests
-        time.sleep(0.5 - elapsed)
+    min_delay = 2.0  # 2 seconds between stocks (30 stocks/minute max, very conservative)
+    if elapsed < min_delay:
+        time.sleep(min_delay - elapsed)
     _last_yfinance_request = time.time()
 
 # Idempotency: Track orders submitted this cycle to prevent duplicates
@@ -403,21 +410,22 @@ def fetch_closes(client, symbol: str, interval_seconds: int, limit_bars: int) ->
     - RSI needs 30+ bars for stable values
     - More data = better indicator accuracy
     """
-    # Request extra bars for technical indicator warm-up (best practice: 2-3x requested)
-    fetch_bars = max(limit_bars * 3, 100)  # Minimum 100 bars, preferably 3x requested
+    # Request enough bars for technical indicators (2x requested)
+    # For 23 bars needed, request 46 (enough for 21-period MA + buffer)
+    fetch_bars = limit_bars * 2
     
-    # Check cache first (80% faster!)
+    # Check cache first (80% faster and avoids rate limits!)
     try:
         cached_closes, newest_timestamp = _price_cache.get_cached_bars(symbol, interval_seconds, fetch_bars)
         
-        # If we have enough cached data and it's recent, use it
+        # If we have enough cached data, use it (historical data doesn't need to be real-time)
         if cached_closes and len(cached_closes) >= limit_bars:
-            # Check if data is fresh enough (within last 24 hours)
+            # Check if data is reasonably fresh (within last 7 days)
             now_timestamp = int(time.time())
             age_hours = (now_timestamp - newest_timestamp) / 3600
             
-            if age_hours < 24:
-                # Cache hit! 80% faster than API call
+            if age_hours < 168:  # 7 days - historical data is historical
+                # Cache hit! Avoid rate limits entirely
                 return cached_closes[-limit_bars:]
     except:
         pass  # If cache fails, fall through to API fetch
@@ -436,31 +444,30 @@ def fetch_closes(client, symbol: str, interval_seconds: int, limit_bars: int) ->
     # Available: 1m, 2m, 5m, 15m, 30m, 60m, 90m, 1h, 1d
     MARKET_HOURS_SECONDS = 23400  # 6.5 hours
     
-    # Map interval_seconds to closest yfinance interval
-    if interval_seconds >= MARKET_HOURS_SECONDS:
+    # DYNAMIC: Match data interval to trading interval (analyze what you trade on)
+    # Available: 1m, 2m, 5m, 15m, 30m, 60m, 90m, 1h, 1d
+    # Get maximum history available for each timeframe (yfinance limits)
+    if interval_seconds >= 86400:  # >= 1 day
         yf_interval = "1d"
-        days = 365
-    elif interval_seconds >= 5400:
-        yf_interval = "90m"
-        days = 59
-    elif interval_seconds >= 3600:
+        days = 730  # 2 years of daily data available
+    elif interval_seconds >= 3600:  # >= 1 hour (includes your 1.3h)
         yf_interval = "1h"
-        days = 59
-    elif interval_seconds >= 1800:
+        days = 60  # yfinance limit: 60 days for hourly = ~300 bars
+    elif interval_seconds >= 1800:  # >= 30 min
         yf_interval = "30m"
-        days = 59
-    elif interval_seconds >= 900:
+        days = 60  # yfinance limit: 60 days for 30m data
+    elif interval_seconds >= 900:   # >= 15 min
         yf_interval = "15m"
-        days = 59
-    elif interval_seconds >= 300:
+        days = 60  # yfinance limit: 60 days for 15m data
+    elif interval_seconds >= 300:   # >= 5 min
         yf_interval = "5m"
-        days = 59
-    elif interval_seconds >= 120:
+        days = 60  # yfinance limit: 60 days for 5m data
+    elif interval_seconds >= 120:   # >= 2 min
         yf_interval = "2m"
-        days = 59
-    else:
+        days = 60  # yfinance limit: 60 days for 2m data
+    else:  # < 2 min
         yf_interval = "1m"
-        days = 7
+        days = 7  # yfinance limit: 7 days for 1m data
     
     end = datetime.now(pytz.UTC)
     start = end - timedelta(days=int(days))
@@ -485,26 +492,38 @@ def fetch_closes(client, symbol: str, interval_seconds: int, limit_bars: int) ->
                 # Fill gaps with forward fill (common practice)
                 hist['Close'] = hist['Close'].ffill()  # Newer pandas syntax
             
-            closes = list(hist['Close'].values)
+            closes = list(hist['Close').values)
             
-            # Return most recent bars (we fetched extra for indicator stability)
+            # Cache ALL data we get (builds history over time)
+            try:
+                start_ts = int((end - timedelta(days=days)).timestamp())
+                _price_cache.store_bars(symbol, interval_seconds, closes, start_ts)
+            except:
+                pass  # Don't fail if caching fails
+            
+            # ACCEPT WHATEVER WE GET - even if less than requested
+            # During market open, might only have a few hours of data, that's OK
             if len(closes) >= limit_bars:
-                # Cache the full dataset (not just what we need)
-                try:
-                    start_ts = int((end - timedelta(days=days)).timestamp())
-                    _price_cache.store_bars(symbol, interval_seconds, closes, start_ts)
-                except:
-                    pass  # Don't fail if caching fails
-                
-                # SUCCESS! Return data
                 return closes[-limit_bars:]
+            elif len(closes) > 0:
+                # Return what we have, even if insufficient
+                # Bot will skip this stock for now, but cache is building
+                return closes
             else:
-                raise Exception(f"Insufficient bars: got {len(closes)}/{limit_bars} (interval={yf_interval}, {days} days)")
+                raise Exception(f"No data returned (interval={yf_interval}, {days} days requested)")
                 
         except Exception as e:
             last_error = e
+            error_msg = str(e)
+            
+            # DON'T retry rate limits - makes it worse!
+            if "Too Many Requests" in error_msg or "Rate limit" in error_msg or "429" in error_msg:
+                log_warn(f"yfinance RATE LIMITED for {symbol}: {e} (not retrying - would make it worse)")
+                break  # Exit retry loop immediately
+            
+            # Only retry for network/timeout errors
             if attempt < max_retries - 1:
-                # Exponential backoff: 1s, 2s, 4s
+                # Exponential backoff: 1s, 2s
                 backoff = 2 ** attempt
                 log_warn(f"yfinance attempt {attempt+1}/{max_retries} failed for {symbol}: {e}, retrying in {backoff}s...")
                 time.sleep(backoff)
@@ -521,23 +540,27 @@ def fetch_closes(client, symbol: str, interval_seconds: int, limit_bars: int) ->
         # Enforce rate limit BEFORE making call
         _polygon_rate_limiter.wait_if_needed()
         
+        # DYNAMIC: Match trading interval - request max history available
         snap = snap_interval_to_supported_seconds(interval_seconds)
-        multiplier = 1
-        timespan = "minute"
         
-        if snap == 60:
-            multiplier, timespan = 1, "minute"
-        elif snap == 300:
-            multiplier, timespan = 5, "minute"
-        elif snap == 900:
-            multiplier, timespan = 15, "minute"
-        elif snap == 3600:
+        if snap >= 86400:  # >= 1 day
+            multiplier, timespan = 1, "day"
+            days_back = 730
+        elif snap >= 3600:  # >= 1 hour
             multiplier, timespan = 1, "hour"
-        else:
-            multiplier, timespan = 4, "hour"
+            days_back = 60  # Match yfinance limit
+        elif snap >= 900:  # >= 15 min
+            multiplier, timespan = 15, "minute"
+            days_back = 60
+        elif snap >= 300:  # >= 5 min
+            multiplier, timespan = 5, "minute"
+            days_back = 60
+        else:  # < 5 min
+            multiplier, timespan = 1, "minute"
+            days_back = 7
         
         end_date = dt.datetime.now(pytz.UTC)
-        start_date = end_date - dt.timedelta(days=365)  # Get 1 year of data
+        start_date = end_date - dt.timedelta(days=days_back)
         
         url = (f"https://api.polygon.io/v2/aggs/ticker/{symbol}/range/"
                f"{multiplier}/{timespan}/{start_date.strftime('%Y-%m-%d')}/"
@@ -546,16 +569,23 @@ def fetch_closes(client, symbol: str, interval_seconds: int, limit_bars: int) ->
         # Retry with exponential backoff for 429 errors (best practice)
         max_retries = 3
         for attempt in range(max_retries):
-            resp = requests.get(url, params={"apiKey": polygon_key, "limit": fetch_bars}, timeout=15)
+            # Request more bars than needed, but accept partial results (free tier limitation)
+            resp = requests.get(url, params={"apiKey": polygon_key, "limit": 5000}, timeout=15)
             
             if resp.status_code == 200:
                 data = resp.json()
                 if data.get("results"):
                     closes = [float(r["c"]) for r in data["results"]]
-                    if len(closes) >= limit_bars:
-                        return closes[-limit_bars:]
-                    else:
-                        raise Exception(f"Polygon returned only {len(closes)}/{limit_bars} bars")
+                    # Accept ANY data we get (free tier may only have limited history)
+                    if len(closes) > 0:
+                        # Use what we have, even if less than requested
+                        if len(closes) >= limit_bars:
+                            return closes[-limit_bars:]
+                        else:
+                            # Not enough data, but log the actual amount
+                            raise Exception(f"Polygon returned only {len(closes)}/{limit_bars} bars (free tier limitation)")
+                else:
+                    raise Exception(f"Polygon returned no results for {symbol}")
                 break
             elif resp.status_code == 429:  # Rate limited
                 if attempt < max_retries - 1:
@@ -573,23 +603,24 @@ def fetch_closes(client, symbol: str, interval_seconds: int, limit_bars: int) ->
     # Final fallback to Alpaca (limited historical data, but better than nothing)
     try:
         from datetime import datetime, timedelta
+        # DYNAMIC: Match trading interval
         snap = snap_interval_to_supported_seconds(interval_seconds)
         
-        if snap == 60:
-            tf = TimeFrame(1, TimeFrameUnit.Minute)
-            days_back = 7  # 1min bars only available for ~7 days
-        elif snap == 300:
-            tf = TimeFrame(5, TimeFrameUnit.Minute)
-            days_back = 30  # 5min bars available for ~30 days
-        elif snap == 900:
-            tf = TimeFrame(15, TimeFrameUnit.Minute)
-            days_back = 60  # 15min bars available for ~60 days
-        elif snap == 3600:
+        if snap >= 86400:  # >= 1 day
+            tf = TimeFrame(1, TimeFrameUnit.Day)
+            days_back = 730
+        elif snap >= 3600:  # >= 1 hour
             tf = TimeFrame(1, TimeFrameUnit.Hour)
-            days_back = 180  # 1hr bars available for ~180 days
-        else:
-            tf = TimeFrame(4, TimeFrameUnit.Hour)
-            days_back = 365  # 4hr bars available for ~1 year
+            days_back = 60  # Match yfinance limit
+        elif snap >= 900:  # >= 15 min
+            tf = TimeFrame(15, TimeFrameUnit.Minute)
+            days_back = 60
+        elif snap >= 300:  # >= 5 min
+            tf = TimeFrame(5, TimeFrameUnit.Minute)
+            days_back = 30
+        else:  # < 5 min
+            tf = TimeFrame(1, TimeFrameUnit.Minute)
+            days_back = 7
         
         # Calculate start date to get enough historical data
         end_date = datetime.now()
@@ -630,30 +661,25 @@ def fetch_closes_with_volume(client, symbol: str, interval_seconds: int,
     try:
         import yfinance as yf
         
-        # Smart mapping: Same as fetch_closes (keep consistent!)
-        MARKET_HOURS_SECONDS = 23400  # 6.5 hours
-        
-        if interval_seconds >= MARKET_HOURS_SECONDS:
+        # DYNAMIC: Same mapping as fetch_closes - match trading interval
+        if interval_seconds >= 86400:
             yf_interval = "1d"
-            days = 365
-        elif interval_seconds >= 5400:
-            yf_interval = "90m"
-            days = 59
+            days = 730
         elif interval_seconds >= 3600:
             yf_interval = "1h"
-            days = 59
+            days = 60  # yfinance limit
         elif interval_seconds >= 1800:
             yf_interval = "30m"
-            days = 59
+            days = 60
         elif interval_seconds >= 900:
             yf_interval = "15m"
-            days = 59
+            days = 60
         elif interval_seconds >= 300:
             yf_interval = "5m"
-            days = 59
+            days = 60
         elif interval_seconds >= 120:
             yf_interval = "2m"
-            days = 59
+            days = 60
         else:
             yf_interval = "1m"
             days = 7
