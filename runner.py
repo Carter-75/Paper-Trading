@@ -2852,7 +2852,8 @@ def allocate_capital_smartly(
             risk_adjusted_return = expected_daily / max(volatility, 0.01)
             
             # Final score: risk-adjusted return + confidence boost
-            score = risk_adjusted_return + confidence * 100
+            # Best practice: Weight confidence significantly (300-500x) to favor high-probability trades
+            score = risk_adjusted_return + (confidence * config.CONFIDENCE_WEIGHT_MULTIPLIER)
             
             # Forced stocks get minimum viable score
             if symbol in forced_symbols:
@@ -2884,6 +2885,10 @@ def allocate_capital_smartly(
     
     log_info(f"Viable stocks: {len(stock_data)}/{len(symbols)}")
     
+    # Best practice: Keep reserve cash (20-30%) for opportunities and safety
+    effective_capital = total_capital * (1.0 - config.RESERVE_CASH_PERCENT / 100.0)
+    log_info(f"Capital allocation: ${effective_capital:.2f} active (${total_capital - effective_capital:.2f} reserve)")
+    
     # Apply concentration factor (makes winners get even MORE)
     # concentration=1.0: proportional
     # concentration=2.0: winners get 2× more than proportional
@@ -2895,10 +2900,10 @@ def allocate_capital_smartly(
     if total_score == 0:
         return {}
     
-    raw_allocations = {s: (scores[s] / total_score) * total_capital for s in scores}
+    raw_allocations = {s: (scores[s] / total_score) * effective_capital for s in scores}
     
-    # Safety limits
-    max_per_stock = total_capital * (config.MAX_SINGLE_STOCK_PERCENT / 100)
+    # Safety limits (best practice: max 15-25% per stock)
+    max_per_stock = effective_capital * (config.MAX_SINGLE_STOCK_PERCENT / 100)
     
     # Apply limits and enforce minimums
     for symbol in list(raw_allocations.keys()):
@@ -2916,10 +2921,10 @@ def allocate_capital_smartly(
                 raw_allocations[symbol] = min_cap_per_stock
                 log_info(f"  {symbol}: Boosted to ${min_cap_per_stock:.2f} minimum (diversification)")
     
-    # Normalize to stay within total_capital
+    # Normalize to stay within effective_capital (with reserve)
     total_allocated = sum(raw_allocations.values())
-    if total_allocated > total_capital:
-        scale_factor = total_capital / total_allocated
+    if total_allocated > effective_capital:
+        scale_factor = effective_capital / total_allocated
         for symbol in raw_allocations:
             raw_allocations[symbol] *= scale_factor
     
@@ -2931,7 +2936,9 @@ def allocate_capital_smartly(
         alloc_values = list(allocations.values())
         top_stock_pct = (max(alloc_values) / total_capital) * 100
         avg_per_stock = sum(alloc_values) / len(alloc_values)
-        log_info(f"Portfolio: {len(allocations)} stocks, top stock: {top_stock_pct:.1f}%, avg: ${avg_per_stock:.2f}")
+        total_used = sum(alloc_values)
+        reserve_actual = total_capital - total_used
+        log_info(f"Portfolio: {len(allocations)} stocks, top: {top_stock_pct:.1f}%, avg: ${avg_per_stock:.2f}, reserve: ${reserve_actual:.2f}")
     
     return allocations
 

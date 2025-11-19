@@ -175,11 +175,13 @@ REBALANCE_THRESHOLD_PERCENT: float = float(os.getenv("REBALANCE_THRESHOLD_PERCEN
 # Stock filtering
 MIN_AVG_VOLUME: int = int(os.getenv("MIN_AVG_VOLUME", "1000000"))  # 1M shares/day minimum
 
-# Dynamic Portfolio Allocation
-ALLOCATION_CONCENTRATION: float = float(os.getenv("ALLOCATION_CONCENTRATION", "2.0"))  # How much to favor winners (1.0=proportional, 3.0=aggressive)
-MIN_DIVERSIFICATION_STOCKS: int = int(os.getenv("MIN_DIVERSIFICATION_STOCKS", "3"))  # Minimum stocks for safety (unless only 1-2 are profitable)
-MAX_SINGLE_STOCK_PERCENT: float = float(os.getenv("MAX_SINGLE_STOCK_PERCENT", "50.0"))  # Max % in one stock (safety limit)
+# Dynamic Portfolio Allocation (Based on quantitative trading best practices)
+ALLOCATION_CONCENTRATION: float = float(os.getenv("ALLOCATION_CONCENTRATION", "2.0"))  # How much to favor winners (1.0=proportional, 2.0=optimal, 3.0=aggressive)
+MIN_DIVERSIFICATION_STOCKS: int = int(os.getenv("MIN_DIVERSIFICATION_STOCKS", "5"))  # Minimum stocks for safety (best practice: 5-10)
+MAX_SINGLE_STOCK_PERCENT: float = float(os.getenv("MAX_SINGLE_STOCK_PERCENT", "20.0"))  # Max % in one stock (best practice: 15-25%)
 MIN_ALLOCATION_USD: float = float(os.getenv("MIN_ALLOCATION_USD", "5.0"))  # Minimum $ per stock (below this, skip stock)
+CONFIDENCE_WEIGHT_MULTIPLIER: float = float(os.getenv("CONFIDENCE_WEIGHT_MULTIPLIER", "400.0"))  # How much confidence affects score (best practice: 300-500)
+RESERVE_CASH_PERCENT: float = float(os.getenv("RESERVE_CASH_PERCENT", "25.0"))  # Keep this % in reserve (best practice: 20-30%)
 
 # -------------------
 # Helpers
