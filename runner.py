@@ -473,33 +473,52 @@ def fetch_closes(client, symbol: str, interval_seconds: int, limit_bars: int) ->
                     except:
                         pass  # Don't fail if caching fails
                     return result
-    except Exception:
-        pass  # Fall back to Alpaca
+    except Exception as e:
+        # Log why yfinance failed (helps diagnose data issues)
+        log_warn(f"yfinance fetch failed for {symbol}: {e}")
     
-    # Fallback to Alpaca
+    # Fallback to Alpaca (with proper date range, not just limit)
     try:
+        from datetime import datetime, timedelta
         snap = snap_interval_to_supported_seconds(interval_seconds)
         
         if snap == 60:
             tf = TimeFrame(1, TimeFrameUnit.Minute)
+            days_back = 7  # 1min bars only available for ~7 days
         elif snap == 300:
             tf = TimeFrame(5, TimeFrameUnit.Minute)
+            days_back = 30  # 5min bars available for ~30 days
         elif snap == 900:
             tf = TimeFrame(15, TimeFrameUnit.Minute)
+            days_back = 60  # 15min bars available for ~60 days
         elif snap == 3600:
             tf = TimeFrame(1, TimeFrameUnit.Hour)
+            days_back = 180  # 1hr bars available for ~180 days
         else:
             tf = TimeFrame(4, TimeFrameUnit.Hour)
+            days_back = 365  # 4hr bars available for ~1 year
         
-        # Try to get data from Alpaca
-        bars = client.get_bars(symbol, tf, limit=limit_bars).df
+        # Calculate start date to get enough historical data
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=days_back)
+        
+        # Try to get data from Alpaca with date range
+        bars = client.get_bars(
+            symbol, 
+            tf, 
+            start=start_date.isoformat(),
+            end=end_date.isoformat(),
+            limit=None  # Get all bars in range
+        ).df
+        
         if not bars.empty:
             closes = list(bars['close'].values)
-            # Return whatever we got - don't require exact count
-            if len(closes) > 0:
-                return closes
-    except Exception:
-        pass
+            # Return most recent bars
+            result = closes[-limit_bars:] if len(closes) > limit_bars else closes
+            if len(result) > 0:
+                return result
+    except Exception as e:
+        log_warn(f"Alpaca fetch failed for {symbol}: {e}")
     
     # Fallback to Polygon
     try:
