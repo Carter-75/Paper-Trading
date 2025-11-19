@@ -8,6 +8,7 @@ import os
 import json
 import time
 import config
+import traceback
 from runner import (
     make_client,
     fetch_closes,
@@ -68,7 +69,9 @@ def is_market_open_today() -> bool:
         now = datetime.now(pytz.timezone('US/Eastern'))
         # Market opens at 9:30 AM ET
         return now.hour >= 9 and now.weekday() < 5  # Weekday and after 9 AM
-    except:
+    except Exception as e:
+        safe_print(f"is_market_open_today check failed: {e}")
+        safe_print(traceback.format_exc())
         return True  # Assume yes if check fails
 
 
@@ -110,8 +113,9 @@ def fetch_top_stocks_dynamic(limit: int = 100, force_refresh: bool = False) -> L
                         safe_print(f"New trading day detected - refreshing stock list...")
                     else:
                         safe_print(f"Cache expired ({cache_age_hours:.1f}h old) - refreshing stock list...")
-        except Exception:
-            pass
+        except Exception as e:
+            safe_print(f"Failed to read cache {CACHE_FILE}: {e}")
+            safe_print(traceback.format_exc())
     
     # Try to fetch dynamically using yfinance
     try:
@@ -150,7 +154,8 @@ def fetch_top_stocks_dynamic(limit: int = 100, force_refresh: bool = False) -> L
                     market_caps[symbol] = info['marketCap']
                 if i % 20 == 0:
                     safe_print(f"  Progress: {i}/200 stocks checked...")
-            except Exception:
+            except Exception as e:
+                safe_print(f"Market cap fetch failed for {symbol}: {e}")
                 continue
         
         # Sort by market cap and take top N
@@ -170,14 +175,16 @@ def fetch_top_stocks_dynamic(limit: int = 100, force_refresh: bool = False) -> L
                     'timestamp': time.time(),
                     'symbols': top_symbols
                 }, f)
-        except Exception:
-            pass
+        except Exception as e:
+            safe_print(f"Failed to write cache {CACHE_FILE}: {e}")
+            safe_print(traceback.format_exc())
         
         safe_print(f"[OK] Successfully fetched top {len(top_symbols)} stocks")
         return top_symbols[:limit]
         
     except Exception as e:
         safe_print(f"Warning: Could not fetch dynamic stock list ({e})")
+        safe_print(traceback.format_exc())
         safe_print("Using predefined top 100 stocks...")
         return DEFAULT_TOP_100_STOCKS[:limit]
 
@@ -198,8 +205,10 @@ def score_stock(symbol: str, interval_seconds: int, cap_per_stock: float, bars: 
                 if verbose:
                     safe_print(f" skipped (low volume: {avg_volume:,})")
                 return None
-        except:
-            pass  # If volume check fails, continue anyway
+        except Exception as e:
+            safe_print(f"Volume check failed for {symbol}: {e}")
+            safe_print(traceback.format_exc())
+            # If volume check fails, continue anyway
         
         client = make_client(allow_missing=False, go_live=False)
         closes = fetch_closes(client, symbol, interval_seconds, bars)
