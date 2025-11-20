@@ -334,11 +334,18 @@ switch ($cmd) {
         Start-Sleep -Seconds 1
         
         if (-not (Test-TaskRunning)) {
+            # Compute local time for 9:25 AM US/Eastern
+            $etZone = [System.TimeZoneInfo]::FindSystemTimeZoneById("Eastern Standard Time")
+            $localZone = [System.TimeZoneInfo]::Local
+            $etTime = [DateTime]::Parse("9:25 AM")
+            $etDateTime = [System.TimeZoneInfo]::ConvertTimeToUtc($etTime, $etZone)
+            $localTime = [System.TimeZoneInfo]::ConvertTimeFromUtc($etDateTime, $localZone)
+            $localTimeStr = $localTime.ToString("hh:mmtt")
             Write-Host "✅ Bot stopped."
             Write-Host "   Task still exists - will auto-start on:"
             Write-Host "   • System boot"
             Write-Host "   • User logon"
-            Write-Host "   • Daily at 9:25 AM"
+            Write-Host "   • Daily at 9:25 AM US/Eastern (your local: $localTimeStr)"
             Write-Host ""
             Write-Host "To start now:        .\botctl.ps1 restart"
             Write-Host "To remove forever:   .\botctl.ps1 stop-forever"

@@ -422,7 +422,7 @@ def fetch_closes(client, symbol: str, interval_seconds: int, limit_bars: int) ->
     """
     # Request enough bars for technical indicators (2x requested)
     # For 23 bars needed, request 46 (enough for 21-period MA + buffer)
-    fetch_bars = limit_bars * 2
+    fetch_bars = max(limit_bars * 2, 50)  # Always try for at least 50 for stability
     
     # Check cache first (80% faster and avoids rate limits!)
     try:
@@ -520,13 +520,14 @@ def fetch_closes(client, symbol: str, interval_seconds: int, limit_bars: int) ->
                 except Exception:
                     pass
             
-            # ACCEPT WHATEVER WE GET - even if less than requested
-            # During market open, might only have a few hours of data, that's OK
+            # Accept as many bars as possible, as long as hard minimum is met
+            min_bars = config.LONG_WINDOW + 2
             if len(closes) >= limit_bars:
                 return closes[-limit_bars:]
+            elif len(closes) >= min_bars:
+                return closes
             elif len(closes) > 0:
-                # Return what we have, even if insufficient
-                # Bot will skip this stock for now, but cache is building
+                # Not enough for even the minimum, but return for logging
                 return closes
             else:
                 raise Exception(f"No data returned (interval={yf_interval}, {days} days requested)")

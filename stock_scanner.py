@@ -125,6 +125,7 @@ def fetch_top_stocks_dynamic(limit: int = 100, force_refresh: bool = False) -> L
         from io import StringIO
         
         # Get S&P 500 components (with headers to avoid 403)
+
         sp500_url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
@@ -133,22 +134,37 @@ def fetch_top_stocks_dynamic(limit: int = 100, force_refresh: bool = False) -> L
         response.raise_for_status()
         tables = pd.read_html(StringIO(response.text))
         sp500_table = tables[0]
-        # Robustly find the symbol column
+
+        # Robustly find the symbol column (works for unnamed or integer columns)
         symbol_col = None
+        # Try string columns first
         for col in sp500_table.columns:
             if isinstance(col, str) and col.lower() in ('symbol', 'ticker'):
                 symbol_col = col
                 break
-        if not symbol_col:
-            raise Exception(f"Could not find symbol column in S&P 500 table. Columns: {sp500_table.columns}")
-        symbols = sp500_table[symbol_col].tolist()
+        # If not found, try integer columns by checking sample values
+        if symbol_col is None:
+            for col in sp500_table.columns:
+                # Check if the first few values look like stock symbols (all uppercase, short, no spaces)
+                sample = sp500_table[col].astype(str).head(10).tolist()
+                if all((s.isupper() or ('.' in s and s.replace('.', '').isupper())) and 1 <= len(s) <= 6 and ' ' not in s for s in sample):
+                    symbol_col = col
+                    break
+        if symbol_col is None:
+            # Fallback: just use the first column
+            symbol_col = sp500_table.columns[0]
+
+        symbols = sp500_table[symbol_col].astype(str).tolist()
 
         # Clean symbols (remove dots, special chars that cause issues)
         cleaned_symbols = []
         for sym in symbols:
             # Replace dots with hyphens (BRK.B -> BRK-B)
             clean_sym = sym.replace('.', '-')
-            cleaned_symbols.append(clean_sym)
+            # Remove any whitespace or stray characters
+            clean_sym = clean_sym.strip().upper()
+            if clean_sym and clean_sym.isalnum() or ('-' in clean_sym and clean_sym.replace('-', '').isalnum()):
+                cleaned_symbols.append(clean_sym)
         
         # Get market caps for top symbols
         market_caps = {}
@@ -219,13 +235,15 @@ def score_stock(symbol: str, interval_seconds: int, cap_per_stock: float, bars: 
         
         client = make_client(allow_missing=False, go_live=False)
         closes = fetch_closes(client, symbol, interval_seconds, bars)
-        
-        # Minimum bars needed
+        # Accept as many bars as possible, as long as hard minimum is met
         min_bars = config.LONG_WINDOW + 2
         if not closes or len(closes) < min_bars:
             if verbose:
-                safe_print(f" [skipped: insufficient data ({len(closes) if closes else 0}/{min_bars} bars)]")
+                safe_print(f" [skipped: insufficient data ({len(closes) if closes else 0}/{min_bars} bars, need at least {min_bars})]")
             return None
+        # If less than requested but above minimum, proceed and log
+        if verbose and len(closes) < bars:
+            safe_print(f" [using {len(closes)}/{bars} bars: partial data accepted]")
         
         # Calculate metrics
         confidence = compute_confidence(closes)

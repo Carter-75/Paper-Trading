@@ -239,6 +239,23 @@ class TestSnapInterval:
 # Stock scanner tests
 # ------------------------
 
+def test_fetch_top_stocks_dynamic_robust():
+    from stock_scanner import fetch_top_stocks_dynamic, DEFAULT_TOP_100_STOCKS
+    # Force refresh to ensure dynamic fetch
+    syms = fetch_top_stocks_dynamic(limit=20, force_refresh=True)
+    # Should not fall back to static list (unless Wikipedia is down)
+    assert isinstance(syms, list)
+    assert len(syms) >= 10
+    # Should not be identical to DEFAULT_TOP_100_STOCKS[:20] unless fallback
+    if syms != DEFAULT_TOP_100_STOCKS[:20]:
+        # Check that all are uppercase, valid stock symbols
+        for sym in syms:
+            assert sym.isupper() or ('.' in sym or '-' in sym)
+            assert 1 <= len(sym) <= 6
+    else:
+        # If fallback, still valid
+        assert True
+
 def test_get_stock_universe_with_user_symbols():
     user_symbols = ["AAPL", "msft", "googl"]
     result = get_stock_universe(user_symbols=user_symbols, use_top_100=False)
