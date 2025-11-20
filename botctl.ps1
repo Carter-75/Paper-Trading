@@ -49,7 +49,7 @@ function New-StartScript([string]$line) {
     Add-Content -Path $ScriptPS1 -Value '$env:BOT_TEE_LOG=''1'''
     Add-Content -Path $ScriptPS1 -Value ''
     Add-Content -Path $ScriptPS1 -Value '# Function to truncate log file to max lines'
-    Add-Content -Path $ScriptPS1 -Value 'function Limit-LogFile([string]$LogPath, [int]$MaxLines = 200) {'
+    Add-Content -Path $ScriptPS1 -Value 'function Limit-LogFile([string]$LogPath, [int]$MaxLines = 250) {'
     Add-Content -Path $ScriptPS1 -Value '  try {'
     Add-Content -Path $ScriptPS1 -Value '    if (-not (Test-Path $LogPath)) { return }'
     Add-Content -Path $ScriptPS1 -Value '    $lines = Get-Content $LogPath -ErrorAction SilentlyContinue'
@@ -63,7 +63,7 @@ function New-StartScript([string]$line) {
     Add-Content -Path $ScriptPS1 -Value '  } catch { }'
     Add-Content -Path $ScriptPS1 -Value '}'
     Add-Content -Path $ScriptPS1 -Value ''
-    Add-Content -Path $ScriptPS1 -Value 'function Start-LogTrimJob([string]$LogPath, [int]$MaxLines = 200) {'
+    Add-Content -Path $ScriptPS1 -Value 'function Start-LogTrimJob([string]$LogPath, [int]$MaxLines = 250) {'
     Add-Content -Path $ScriptPS1 -Value '  try {'
     Add-Content -Path $ScriptPS1 -Value '    return Start-Job -ScriptBlock { param($Path, $Max)'
     Add-Content -Path $ScriptPS1 -Value '      while ($true) {'
@@ -96,23 +96,23 @@ function New-StartScript([string]$line) {
     Add-Content -Path $ScriptPS1 -Value 'while ($true) {'
     Add-Content -Path $ScriptPS1 -Value '  $iterationCount++'
     Add-Content -Path $ScriptPS1 -Value '  # Continuous log trimming while bot is running'
-    Add-Content -Path $ScriptPS1 -Value '  $logTrimJob = Start-LogTrimJob ''.\bot.log'' 200'
+    Add-Content -Path $ScriptPS1 -Value '  $logTrimJob = Start-LogTrimJob ''.\bot.log'' 250'
     Add-Content -Path $ScriptPS1 -Value '  try {'
     Add-Content -Path $ScriptPS1 -Value "    $line 2>&1 | Tee-Object -FilePath '.\bot.log' -Append"
     Add-Content -Path $ScriptPS1 -Value '  } finally {'
     Add-Content -Path $ScriptPS1 -Value '    Stop-LogTrimJob $logTrimJob'
     Add-Content -Path $ScriptPS1 -Value '  }'
-    Add-Content -Path $ScriptPS1 -Value '  Limit-LogFile ''.\bot.log'' 200'
+    Add-Content -Path $ScriptPS1 -Value '  Limit-LogFile ''.\bot.log'' 250'
     Add-Content -Path $ScriptPS1 -Value '  $exitCode = $LASTEXITCODE'
     Add-Content -Path $ScriptPS1 -Value '  if ($exitCode -eq 0) {'
     Add-Content -Path $ScriptPS1 -Value '    # Exit code 0 = market closed cleanly, stop and let scheduled task handle next run'
     Add-Content -Path $ScriptPS1 -Value '    Add-Content -Path ''.\bot.log'' -Value "Market closed - task will restart automatically when market opens"'
-    Add-Content -Path $ScriptPS1 -Value '    Limit-LogFile ''.\bot.log'' 200'
+    Add-Content -Path $ScriptPS1 -Value '    Limit-LogFile ''.\bot.log'' 250'
     Add-Content -Path $ScriptPS1 -Value '    exit 0'
     Add-Content -Path $ScriptPS1 -Value '  } else {'
     Add-Content -Path $ScriptPS1 -Value '    # Non-zero exit = crash, restart quickly'
     Add-Content -Path $ScriptPS1 -Value '    Add-Content -Path ''.\bot.log'' -Value "Bot crashed (exit $exitCode) - restarting in 10s"'
-    Add-Content -Path $ScriptPS1 -Value '    Limit-LogFile ''.\bot.log'' 200'
+    Add-Content -Path $ScriptPS1 -Value '    Limit-LogFile ''.\bot.log'' 250'
     Add-Content -Path $ScriptPS1 -Value '    Start-Sleep -Seconds 10'
     Add-Content -Path $ScriptPS1 -Value '  }'
     Add-Content -Path $ScriptPS1 -Value '}'
@@ -329,7 +329,7 @@ switch ($cmd) {
             exit 0
         }
         
-        Write-Host "Stopping bot (task will remain and auto-start on boot/logon/9:25 AM)..."
+        Write-Host "Stopping bot (task will remain and auto-start on boot/logon/9:25 AM US/Eastern (your local: $localTimeStr))..."
         schtasks /End /TN $TaskName >$null 2>&1
         Start-Sleep -Seconds 1
         
@@ -394,7 +394,7 @@ switch ($cmd) {
             schtasks /End /TN $TaskName >$null 2>&1
             Start-Sleep -Seconds 1
         } elseif ($taskExists) {
-            Write-Host "Starting bot (was stopped)..."
+            Write-Host "Starting bot..."
         } else {
             Write-Host "Creating and starting bot (task didn't exist)..."
         }
