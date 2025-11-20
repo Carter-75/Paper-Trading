@@ -137,9 +137,10 @@ function Create-Task([string]$line) {
         $etDateTime = [System.TimeZoneInfo]::ConvertTimeToUtc($etTime, $etZone)
         $localTime = [System.TimeZoneInfo]::ConvertTimeFromUtc($etDateTime, $localZone)
         $localTimeStr = $localTime.ToString("hh:mmtt")
-        
-        Write-Host "   ℹ Market opens: 9:30 AM ET = $($localTime.AddMinutes(5).ToString('hh:mm tt')) your time"
-        Write-Host "   ℹ Bot will wake: 9:25 AM ET = $localTimeStr your time"
+        $localMarketOpen = $localTime.AddMinutes(5)
+        $localMarketOpenStr = $localMarketOpen.ToString('hh:mm tt')
+        Write-Host "   ℹ Market opens: 9:30 AM US/Eastern (your local: $localMarketOpenStr)"
+        Write-Host "   ℹ Bot will wake: 9:25 AM US/Eastern (your local: $localTimeStr)"
         
         $trgBoot = New-ScheduledTaskTrigger -AtStartup
         $trgLogon = New-ScheduledTaskTrigger -AtLogOn

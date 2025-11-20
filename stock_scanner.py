@@ -133,8 +133,16 @@ def fetch_top_stocks_dynamic(limit: int = 100, force_refresh: bool = False) -> L
         response.raise_for_status()
         tables = pd.read_html(StringIO(response.text))
         sp500_table = tables[0]
-        symbols = sp500_table['Symbol'].tolist()
-        
+        # Robustly find the symbol column
+        symbol_col = None
+        for col in sp500_table.columns:
+            if isinstance(col, str) and col.lower() in ('symbol', 'ticker'):
+                symbol_col = col
+                break
+        if not symbol_col:
+            raise Exception(f"Could not find symbol column in S&P 500 table. Columns: {sp500_table.columns}")
+        symbols = sp500_table[symbol_col].tolist()
+
         # Clean symbols (remove dots, special chars that cause issues)
         cleaned_symbols = []
         for sym in symbols:
@@ -156,6 +164,7 @@ def fetch_top_stocks_dynamic(limit: int = 100, force_refresh: bool = False) -> L
                     safe_print(f"  Progress: {i}/200 stocks checked...")
             except Exception as e:
                 safe_print(f"Market cap fetch failed for {symbol}: {e}")
+                # Do not print traceback for expected API errors
                 continue
         
         # Sort by market cap and take top N
@@ -184,7 +193,6 @@ def fetch_top_stocks_dynamic(limit: int = 100, force_refresh: bool = False) -> L
         
     except Exception as e:
         safe_print(f"Warning: Could not fetch dynamic stock list ({e})")
-        safe_print(traceback.format_exc())
         safe_print("Using predefined top 100 stocks...")
         return DEFAULT_TOP_100_STOCKS[:limit]
 
@@ -207,7 +215,6 @@ def score_stock(symbol: str, interval_seconds: int, cap_per_stock: float, bars: 
                 return None
         except Exception as e:
             safe_print(f"Volume check failed for {symbol}: {e}")
-            safe_print(traceback.format_exc())
             # If volume check fails, continue anyway
         
         client = make_client(allow_missing=False, go_live=False)
