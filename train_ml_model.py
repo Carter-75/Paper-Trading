@@ -12,7 +12,7 @@ import traceback
 # Import after loading config
 def get_runner_functions():
     """Import runner functions after config is loaded"""
-    from runner import make_client, fetch_closes_with_volume
+    from runner_data_utils import make_client, fetch_closes_with_volume
     return make_client, fetch_closes_with_volume
 
 def collect_training_data(symbols: list, interval_seconds: int, bars: int = 500):

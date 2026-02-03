@@ -1,0 +1,11 @@
+{
+  "timestamp": "2026-02-03T17:07:48.959584",
+  "equity": 100.0,
+  "virtual_account_size": 100.0,
+  "next_cycle_time": "2026-02-03T17:06:39.739558",
+  "last_symbol": "MA",
+  "last_action": "hold",
+  "last_confidence": 0.7,
+  "active_cycle": true,
+  "positions": {}
+}

@@ -51,6 +51,7 @@ class TradingBotConfig(BaseSettings):
     )
     fixed_trade_usd: float = Field(default=0.0, ge=0.0, description="Fixed trade size in USD (0=use fraction)")
     max_cap_usd: float = Field(default=100.0, ge=1.0, description="Maximum capital per symbol in USD")
+    virtual_account_size: Optional[float] = Field(default=None, description="Override actual account equity with this virtual amount")
     
     # =====================
     # Take Profit / Stop Loss
@@ -255,7 +256,15 @@ class TradingBotConfig(BaseSettings):
     enable_market_hours_only: bool = Field(default=True, description="Trade only during market hours")
     
     # =====================
-    # Slippage Simulation
+    # Dynamic Scheduling
+    # =====================
+    dynamic_intervals_enabled: bool = Field(default=True, description="Enable per-stock adaptive polling")
+    min_interval_seconds: int = Field(default=15, ge=5, description="Fastest polling rate (high volatility)")
+    max_interval_seconds: int = Field(default=120, ge=30, description="Slowest polling rate (calm market)")
+    max_api_calls_per_min: int = Field(default=120, le=200, description="Global API rate limit safety cap")
+
+    # =====================
+    # Paper Trading / Simulation
     # =====================
     simulate_slippage_enabled: bool = Field(default=True, description="Simulate slippage in paper trading")
     slippage_percent: float = Field(
@@ -264,6 +273,9 @@ class TradingBotConfig(BaseSettings):
         le=5.0,
         description="Slippage percentage"
     )
+    simulate_fees_enabled: bool = Field(default=True, description="Simulate trading fees")
+    fee_per_trade_usd: float = Field(default=0.0, ge=0.0, description="Fee per trade in USD (e.g. 1.00)")
+
     
     # =====================
     # Risky Mode

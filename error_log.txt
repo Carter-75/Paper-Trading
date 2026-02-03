@@ -1,0 +1,18 @@
+Traceback (most recent call last):
+  File "C:\Users\carte\OneDrive\Desktop\Code\Portfolio-Websites (Mostly)\Paper-Trading\runner.py", line 18, in <module>
+    from execution.orders import OrderExecutor
+  File "C:\Users\carte\OneDrive\Desktop\Code\Portfolio-Websites (Mostly)\Paper-Trading\execution\__init__.py", line 6, in <module>
+    from .orders import (
+  File "C:\Users\carte\OneDrive\Desktop\Code\Portfolio-Websites (Mostly)\Paper-Trading\execution\orders.py", line 5, in <module>
+    from alpaca_trade_api.rest import APIError
+  File "C:\Python311\Lib\site-packages\alpaca_trade_api\__init__.py", line 1, in <module>
+    from .rest import REST  # noqa
+    ^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python311\Lib\site-packages\alpaca_trade_api\rest.py", line 18, in <module>
+    from . import alpha_vantage
+  File "C:\Python311\Lib\site-packages\alpaca_trade_api\alpha_vantage\__init__.py", line 1, in <module>
+    from .rest import REST  # noqa
+    ^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python311\Lib\site-packages\alpaca_trade_api\alpha_vantage\rest.py", line 3, in <module>
+    from alpha_vantage.sectorperformance import SectorPerformances
+ModuleNotFoundError: No module named 'alpha_vantage.sectorperformance'

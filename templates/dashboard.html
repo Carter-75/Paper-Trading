@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trading Bot Mission Control</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background-color: #1e1e1e;
+            color: #e0e0e0;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid #333;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+
+        .card {
+            background-color: #2d2d2d;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        }
+
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+        }
+
+        .stat-value {
+            font-size: 2em;
+            font-weight: bold;
+        }
+
+        .stat-label {
+            color: #888;
+            font-size: 0.9em;
+        }
+
+        .log-box {
+            background-color: #000;
+            color: #0f0;
+            font-family: 'Consolas', monospace;
+            height: 300px;
+            overflow-y: scroll;
+            padding: 10px;
+            font-size: 0.9em;
+            border-radius: 4px;
+        }
+
+        .status-dot {
+            height: 12px;
+            width: 12px;
+            background-color: #bbb;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+        }
+
+        .status-active {
+            background-color: #0f0;
+            box-shadow: 0 0 8px #0f0;
+        }
+
+        .text-green {
+            color: #4caf50;
+        }
+
+        .text-red {
+            color: #f44336;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h1><span id="status-dot" class="status-dot"></span>Trading Bot Mission Control</h1>
+            <div id="timestamp">Loading...</div>
+        </div>
+
+        <div class="card">
+            <h3>Control Panel</h3>
+            <button onclick="controlBot('pause')"
+                style="background: #f39c12; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer;">PAUSE</button>
+            <button onclick="controlBot('resume')"
+                style="background: #27ae60; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer;">RESUME</button>
+            <button onclick="controlBot('stop')"
+                style="background: #c0392b; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer;">STOP
+                (Restart via BotCtl)</button>
+        </div>
+
+        <div class="stat-grid">
+            <div class="card">
+                <div class="stat-label">Total Equity</div>
+                <div class="stat-value" id="equity">$---</div>
+                <div class="stat-label" id="max-capital">Limit: $---</div>
+            </div>
+            <div class="card">
+                <div class="stat-label">Next Prediction</div>
+                <div class="stat-value" id="countdown">--s</div>
+                <div class="stat-label" id="next-cycle-time"></div>
+            </div>
+            <div class="card">
+                <div class="stat-label">Last Symbol</div>
+                <div class="stat-value" id="last-symbol">---</div>
+            </div>
+            <div class="card">
+                <div class="stat-label">Last Action</div>
+                <div class="stat-value" id="last-action">---</div>
+            </div>
+            <div class="card">
+                <div class="stat-label">Confidence</div>
+                <div class="stat-value" id="confidence">---</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>Active Portfolio</h3>
+            <table style="width: 100%; border-collapse: collapse;">
+                <thead>
+                    <tr style="border-bottom: 1px solid #444;">
+                        <th style="text-align: left; padding: 8px;">Symbol</th>
+                        <th style="text-align: right; padding: 8px;">Qty</th>
+                        <th style="text-align: right; padding: 8px;">Avg Cost</th>
+                        <th style="text-align: right; padding: 8px;">Last Price</th>
+                        <th style="text-align: right; padding: 8px;">Market Val</th>
+                        <th style="text-align: right; padding: 8px;">Unrealized P&L</th>
+                    </tr>
+                </thead>
+                <tbody id="portfolio-body">
+                    <tr>
+                        <td colspan="6" style="text-align: center; padding: 20px;">Loading positions...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="card">
+            <h3>Recent Trade History</h3>
+            <div style="max-height: 200px; overflow-y: auto;">
+                <table style="width: 100%; border-collapse: collapse;">
+                    <thead>
+                        <tr style="border-bottom: 1px solid #444;">
+                            <th style="text-align: left; padding: 8px;">Time</th>
+                            <th style="text-align: left; padding: 8px;">Symbol</th>
+                            <th style="text-align: right; padding: 8px;">PnL ($)</th>
+                            <th style="text-align: right; padding: 8px;">PnL (%)</th>
+                            <th style="text-align: left; padding: 8px;">Reason</th>
+                        </tr>
+                    </thead>
+                    <tbody id="history-body">
+                        <tr>
+                            <td colspan="5" style="text-align: center;">Loading history...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>Live Logs</h3>
+            <div class="log-box" id="log-box">
+                Loading logs...
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let nextCycleTarget = null;
+
+        function controlBot(action) {
+            if (confirm('Are you sure you want to ' + action + ' the bot?')) {
+                fetch('/api/control/' + action, { method: 'POST' })
+                    .then(r => r.json())
+                    .then(data => alert('Response: ' + (data.status || data.error)));
+            }
+        }
+
+        function updateCountdown() {
+            if (!nextCycleTarget) {
+                document.getElementById('countdown').textContent = "--s";
+                return;
+            }
+            const now = new Date();
+            const diff = Math.max(0, Math.floor((nextCycleTarget - now) / 1000));
+            document.getElementById('countdown').textContent = diff + "s";
+        }
+
+        function updateHistory() {
+            fetch('/api/history')
+                .then(response => response.json())
+                .then(data => {
+                    const tbody = document.getElementById('history-body');
+                    tbody.innerHTML = '';
+
+                    // Sort by timestamp desc (newest first)
+                    // Assuming data is array of objects
+                    if (Array.isArray(data) && data.length > 0) {
+                        // Reverse if append-only, or sort
+                        const sorted = data.slice().reverse();
+
+                        sorted.forEach(trade => {
+                            const tr = document.createElement('tr');
+                            const pnlColor = trade.pnl >= 0 ? '#4caf50' : '#f44336';
+                            const dateStr = new Date(trade.timestamp).toLocaleString();
+
+                            tr.innerHTML = `
+                               <td style="padding: 8px; font-size: 0.9em;">${dateStr}</td>
+                               <td style="padding: 8px;">${trade.symbol}</td>
+                               <td style="text-align: right; padding: 8px; color: ${pnlColor}">$${trade.pnl.toFixed(2)}</td>
+                               <td style="text-align: right; padding: 8px; color: ${pnlColor}">${(trade.pnl_pct * 100).toFixed(2)}%</td>
+                               <td style="padding: 8px; font-size: 0.9em;">${trade.reason}</td>
+                           `;
+                            tbody.appendChild(tr);
+                        });
+                    } else {
+                        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #888;">No trade history yet</td></tr>';
+                    }
+                })
+                .catch(err => console.error("History fetch error", err));
+        }
+
+        function updateState() {
+            fetch('/api/state')
+                .then(response => response.json())
+                .then(data => {
+                    const statusDot = document.getElementById('status-dot');
+                    if (data.active_cycle) {
+                        statusDot.className = 'status-dot status-active';
+                        statusDot.style.backgroundColor = '';
+                    } else if (data.last_symbol === "PAUSED") {
+                        statusDot.className = 'status-dot';
+                        statusDot.style.backgroundColor = 'orange';
+                    } else {
+                        statusDot.className = 'status-dot';
+                        statusDot.style.backgroundColor = 'gray';
+                    }
+
+                    if (data.equity !== undefined) {
+                        document.getElementById('equity').textContent = '$' + data.equity.toFixed(2);
+                        document.getElementById('max-capital').textContent = 'Limit: $' + (data.virtual_account_size || "---");
+                        document.getElementById('timestamp').textContent = new Date(data.timestamp).toLocaleString();
+
+                        // Parse next cycle
+                        if (data.next_cycle_time) {
+                            nextCycleTarget = new Date(data.next_cycle_time);
+                            document.getElementById('next-cycle-time').textContent = nextCycleTarget.toLocaleTimeString();
+                        }
+
+                        document.getElementById('last-symbol').textContent = data.last_symbol || "Scanning...";
+
+                        const actionEl = document.getElementById('last-action');
+                        actionEl.textContent = data.last_action.toUpperCase();
+                        actionEl.className = 'stat-value ' + (data.last_action === 'buy' ? 'text-green' : data.last_action === 'sell' ? 'text-red' : '');
+
+                        document.getElementById('confidence').textContent = (data.last_confidence * 100).toFixed(0) + '%';
+
+                        // Update Portfolio Table
+                        const tbody = document.getElementById('portfolio-body');
+                        tbody.innerHTML = '';
+                        if (data.positions && Object.keys(data.positions).length > 0) {
+                            for (const [sym, pos] of Object.entries(data.positions)) {
+                                const tr = document.createElement('tr');
+                                const marketVal = pos.market_value || 0;
+                                const pl = pos.unrealized_pl || 0;
+                                const plColor = pl >= 0 ? '#4caf50' : '#f44336';
+
+                                tr.innerHTML = `
+                                    <td style="padding: 8px;">${sym}</td>
+                                    <td style="text-align: right; padding: 8px;">${pos.qty}</td>
+                                    <td style="text-align: right; padding: 8px;">$${(pos.avg_entry || 0).toFixed(2)}</td>
+                                    <td style="text-align: right; padding: 8px;">---</td>
+                                    <td style="text-align: right; padding: 8px;">$${marketVal.toFixed(2)}</td>
+                                    <td style="text-align: right; padding: 8px; color: ${plColor}">$${pl.toFixed(2)}</td>
+                                `;
+                                tbody.appendChild(tr);
+                            }
+                        } else {
+                            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px; color: #888;">No active positions</td></tr>';
+                        }
+                    }
+                })
+                .catch(err => console.error(err));
+        }
+
+        function updateLogs() {
+            fetch('/api/logs')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.logs) {
+                        const logBox = document.getElementById('log-box');
+                        // Highlight errors
+                        const coloredLogs = data.logs.map(line => {
+                            if (line.includes('[ERROR]')) return `<span style="color: #f44336">${line}</span>`;
+                            if (line.includes('[WARNING]')) return `<span style="color: #f1c40f">${line}</span>`;
+                            if (line.includes('SIGNAL')) return `<span style="color: #3498db">${line}</span>`;
+                            return line;
+                        });
+                        logBox.innerHTML = coloredLogs.join('<br>').replace(/\n/g, '');
+                        // Auto scroll to bottom
+                        logBox.scrollTop = logBox.scrollHeight;
+                    }
+                });
+        }
+
+        // Update every 2 seconds
+        setInterval(updateState, 2000);
+        setInterval(updateLogs, 2000);
+        setInterval(updateHistory, 5000); // 5s for history
+        setInterval(updateCountdown, 1000);
+
+        updateState();
+        updateLogs();
+        updateHistory();
+    </script>
+</body>
+
+</html>

@@ -17,11 +17,11 @@ import argparse
 from typing import Dict, List, Tuple
 from datetime import datetime, timedelta
 import config
-from runner import (
+from runner_data_utils import (
     make_client,
-    fetch_closes,
-    simulate_signals_and_projection,
+    fetch_closes_with_volume,
 )
+from simulation import run_backtest_simulation
 
 # Historical crisis periods (start_date, end_date, name, description)
 CRISIS_PERIODS = [
@@ -63,7 +63,7 @@ CRISIS_PERIODS = [
 ]
 
 
-def fetch_crisis_data(symbol: str, start_date: str, end_date: str, interval_seconds: int) -> List[float]:
+def fetch_crisis_data(symbol: str, start_date: str, end_date: str, interval_seconds: int) -> Tuple[List[float], List[float]]:
     """
     Fetch historical price data for a specific crisis period.
     Uses yfinance since we need historical data from years ago.
@@ -101,7 +101,8 @@ def fetch_crisis_data(symbol: str, start_date: str, end_date: str, interval_seco
             return []
         
         closes = data['Close'].tolist()
-        return closes
+        volumes = data['Volume'].tolist()
+        return closes, volumes
     
     except Exception as e:
         print(f"Error fetching crisis data for {symbol}: {e}")
@@ -122,7 +123,7 @@ def run_stress_test_on_crisis(symbol: str, crisis: Dict, interval_seconds: int,
         print(f"{'='*70}")
     
     # Fetch data for crisis period
-    closes = fetch_crisis_data(symbol, crisis['start'], crisis['end'], interval_seconds)
+    closes, volumes = fetch_crisis_data(symbol, crisis['start'], crisis['end'], interval_seconds)
     
     if not closes or len(closes) < config.LONG_WINDOW + 10:
         if verbose:
@@ -141,10 +142,11 @@ def run_stress_test_on_crisis(symbol: str, crisis: Dict, interval_seconds: int,
     buy_hold_return = ((closes[-1] - closes[0]) / closes[0]) * 100
     
     # Run strategy simulation
-    sim_result = simulate_signals_and_projection(
-        closes, 
+    sim_result = run_backtest_simulation(
+        closes,
+        volumes, 
         interval_seconds,
-        override_cap_usd=capital
+        start_capital=capital
     )
     
     # Extract key metrics

@@ -15,7 +15,9 @@ class PortfolioManager:
     
     def __init__(self, portfolio_file: str = "portfolio.json"):
         self.portfolio_file = portfolio_file
+        self.history_file = "trade_history.json"
         self.positions: Dict[str, Dict[str, Any]] = {}  # symbol -> {qty, avg_entry, market_value, unrealized_pl, last_update}
+        self.history: List[Dict[str, Any]] = []
         self.load()
     
     def load(self):
@@ -35,6 +37,15 @@ class PortfolioManager:
                 self.positions = {}
         else:
             self.positions = {}
+            
+        if os.path.exists(self.history_file):
+            try:
+                with open(self.history_file, "r", encoding="utf-8") as f:
+                    self.history = json.load(f)
+            except Exception:
+                self.history = []
+        else:
+            self.history = []
     
     def save(self):
         """Save portfolio to file."""
@@ -45,6 +56,10 @@ class PortfolioManager:
             }
             with open(self.portfolio_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
+                
+            # Save history
+            with open(self.history_file, "w", encoding="utf-8") as f:
+                json.dump(self.history, f, indent=2)
         except Exception as e:
             print(f"Warning: Could not save portfolio: {e}")
             try:
@@ -54,7 +69,8 @@ class PortfolioManager:
                 pass
     
     def update_position(self, symbol: str, qty: float, avg_entry: float, 
-                       market_value: float, unrealized_pl: float):
+                       market_value: float, unrealized_pl: float, 
+                       confidence: float = 0.0, expected_return: float = 0.0):
         """Update or add a position."""
         # Preserve first_opened if position already exists
         first_opened = self.positions.get(symbol, {}).get("first_opened")
@@ -67,7 +83,9 @@ class PortfolioManager:
             "market_value": market_value,
             "unrealized_pl": unrealized_pl,
             "last_update": datetime.now(pytz.UTC).isoformat(),
-            "first_opened": first_opened  # Track when position was first opened
+            "first_opened": first_opened,
+            "confidence": confidence,
+            "expected_return": expected_return
         }
         self.save()
     
@@ -75,7 +93,37 @@ class PortfolioManager:
         """Remove a position (fully sold)."""
         if symbol in self.positions:
             del self.positions[symbol]
+            del self.positions[symbol]
             self.save()
+
+    def log_closed_trade(self, symbol: str, avg_entry: float, exit_price: float, qty: int, reason: str):
+        """Log a closed trade to history."""
+        pnl = (exit_price - avg_entry) * qty
+        pnl_pct = (exit_price - avg_entry) / avg_entry if avg_entry > 0 else 0
+        
+        trade_record = {
+            "timestamp": datetime.now(pytz.UTC).isoformat(),
+            "symbol": symbol,
+            "action": "SELL", # We mostly log sells for PnL
+            "qty": qty,
+            "entry_price": avg_entry,
+            "exit_price": exit_price,
+            "pnl": pnl,
+            "pnl_pct": pnl_pct,
+            "reason": reason
+        }
+        
+        self.history.append(trade_record)
+        
+        # Enforce Memory Limit (User Request: "Not too long")
+        # Keep last 500 trades
+        if len(self.history) > 500:
+            self.history = self.history[-500:]
+            
+        self.save()
+
+    def get_history(self) -> List[Dict[str, Any]]:
+        return self.history
     
     def get_position(self, symbol: str) -> Optional[Dict[str, Any]]:
         """Get position for a symbol."""
@@ -114,6 +162,29 @@ class PortfolioManager:
                     worst_symbol = symbol
         
         return (worst_symbol, worst_pct) if worst_symbol else None
+    
+    def get_lowest_confidence_position(self) -> Optional[Dict[str, Any]]:
+        """Get the position with the lowest confidence score."""
+        if not self.positions:
+            return None
+            
+        worst_pos = None
+        min_conf = float('inf')
+        worst_sym = None
+        
+        for sym, data in self.positions.items():
+            conf = data.get("confidence", 0.5) # Default to 0.5 if missing
+            if conf < min_conf:
+                min_conf = conf
+                worst_pos = data
+                worst_sym = sym
+                
+        if worst_pos:
+            # Return copy with symbol included
+            result = worst_pos.copy()
+            result['symbol'] = worst_sym
+            return result
+        return None
     
     def has_room_for_new_position(self, max_positions: int) -> bool:
         """Check if we can add a new position."""

@@ -9,13 +9,16 @@ import json
 import time
 import config
 import traceback
-from runner import (
+from runner_data_utils import (
     make_client,
-    fetch_closes,
-    simulate_signals_and_projection,
-    compute_confidence,
-    pct_stddev,
+    fetch_closes_with_volume,
 )
+from simulation import run_backtest_simulation
+import numpy as np
+
+def pct_stddev(data: List[float]) -> float:
+    if len(data) < 2: return 0.0
+    return float(np.std(data) / np.mean(data)) if np.mean(data) != 0 else 0.0
 
 # Safe print for scheduled task mode (no console attached)
 def safe_print(*args, **kwargs):
@@ -234,7 +237,7 @@ def score_stock(symbol: str, interval_seconds: int, cap_per_stock: float, bars: 
             # If volume check fails, continue anyway
         
         client = make_client(allow_missing=False, go_live=False)
-        closes = fetch_closes(client, symbol, interval_seconds, bars)
+        closes, volumes = fetch_closes_with_volume(client, symbol, interval_seconds, bars)
         # Accept as many bars as possible, as long as hard minimum is met
         min_bars = config.LONG_WINDOW + 2
         if not closes or len(closes) < min_bars:
@@ -246,16 +249,20 @@ def score_stock(symbol: str, interval_seconds: int, cap_per_stock: float, bars: 
             safe_print(f" [using {len(closes)}/{bars} bars: partial data accepted]")
         
         # Calculate metrics
-        confidence = compute_confidence(closes)
         vol_pct = pct_stddev(closes[-config.VOLATILITY_WINDOW:])
         
         # Run simulation with the provided capital
         # cap_per_stock is actually max_cap when called from runner.py
-        sim = simulate_signals_and_projection(
+        sim = run_backtest_simulation(
             closes,
+            volumes, # Need volumes!
             interval_seconds,
-            override_cap_usd=cap_per_stock  # This should match what allocation uses
+            start_capital=cap_per_stock
         )
+        # Use simple confidence placeholder or extract from sim if possible?
+        # DecisionEngine is complex, sim runs it.
+        # Let's say confidence is N/A or default 0.5 for scanner purposes right now
+        confidence = 0.5
         
         expected_daily = float(sim.get("expected_daily_usd", 0.0))
         trades_per_day = float(sim.get("expected_trades_per_day", 0.0))

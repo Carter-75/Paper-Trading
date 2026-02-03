@@ -19,16 +19,18 @@ import signal
 import platform
 import ctypes
 import traceback
-from runner import (
+from runner_data_utils import (
     make_client,
-    fetch_closes,
-    simulate_signals_and_projection,
-    snap_interval_to_supported_seconds,
+    fetch_closes_with_volume,
+)
+from simulation import (
+    run_backtest_simulation,
     monte_carlo_projection,
     calculate_overnight_gap_risk,
     calculate_market_beta,
     calculate_correlation_matrix,
 )
+from utils.helpers import snap_interval_to_supported_seconds
 from stock_scanner import get_stock_universe
 
 # Global result cache to avoid duplicate API calls
@@ -102,8 +104,8 @@ def evaluate_single_stock(symbol: str, max_cap: float, use_robustness: bool, com
         # Fetch detailed metrics
         try:
             # Use None as client - fetch_closes will use yfinance (no API rate limits!)
-            closes = fetch_closes(None, symbol, optimal_interval, 200)
-            detailed_sim = simulate_signals_and_projection(closes, optimal_interval, override_cap_usd=optimal_cap)
+            closes, volumes = fetch_closes_with_volume(None, symbol, optimal_interval, 200)
+            detailed_sim = run_backtest_simulation(closes, volumes, optimal_interval, start_capital=optimal_cap)
             sharpe = detailed_sim.get("sharpe_ratio", 0.0)
             sortino = detailed_sim.get("sortino_ratio", 0.0)
             expectancy = detailed_sim.get("expectancy", 0.0)
@@ -282,11 +284,11 @@ def evaluate_config(client, symbol: str, interval_seconds: int, cap_usd: float, 
         return _result_cache[cache_key]
     
     try:
-        closes = fetch_closes(client, symbol, interval_seconds, bars)
+        closes, volumes = fetch_closes_with_volume(client, symbol, interval_seconds, bars)
         if not closes or len(closes) < max(config.LONG_WINDOW + 10, 30):
             result = -999999.0
         else:
-            sim = simulate_signals_and_projection(closes, interval_seconds, override_cap_usd=cap_usd)
+            sim = run_backtest_simulation(closes, volumes, interval_seconds, start_capital=cap_usd)
             result = float(sim.get("expected_daily_usd", -999999.0))
     except Exception:
         result = -999999.0
@@ -305,71 +307,56 @@ def evaluate_robustness(client, symbol: str, interval_seconds: int, cap_usd: flo
     """
     Test strategy across multiple time periods to check robustness.
     Includes out-of-sample testing on most recent data.
-    
-    Returns:
-        (average_return, consistency_score, period_returns, out_of_sample_return)
-        
-    consistency_score: 0.0-1.0, higher = more consistent across periods
-    out_of_sample_return: Performance on held-out recent data (not used in optimization)
     """
     # Test on 3 different periods (last 200, 400, 600 bars)
-    # These are IN-SAMPLE (used for optimization)
-    period_bars = [200, 400, 600]  # ~50 days, 100 days, 150 days each
+    period_bars = [200, 400, 600]
     period_returns = []
     
     for bars in period_bars:
         ret = evaluate_config(client, symbol, interval_seconds, cap_usd, bars)
-        if ret > -999000:  # Valid result
+        if ret > -999000:
             period_returns.append(ret)
     
-    # OUT-OF-SAMPLE TEST: Fetch 750 bars, use last 150 bars (20%) as out-of-sample
-    # Train on bars 0-600, test on bars 600-750
     try:
-        all_closes = fetch_closes(client, symbol, interval_seconds, 750)
+        all_closes, all_volumes = fetch_closes_with_volume(client, symbol, interval_seconds, 750)
+        
         if all_closes and len(all_closes) >= 700:
-            # Split: 80% train (first 600 bars), 20% test (last 150 bars)
             train_size = 600
-            train_data = all_closes[:train_size]
-            test_data = all_closes[train_size:]  # Out-of-sample data
+            # train_data = all_closes[:train_size] # Unused here
+            test_data = all_closes[train_size:]
+            test_vols = all_volumes[train_size:]
             
-            # Evaluate on OUT-OF-SAMPLE data only
-            if len(test_data) >= 50:  # Need minimum data for testing
-                sim_test = simulate_signals_and_projection(test_data, interval_seconds, override_cap_usd=cap_usd)
+            if len(test_data) >= 50:
+                sim_test = run_backtest_simulation(test_data, test_vols, interval_seconds, start_capital=cap_usd)
                 out_of_sample_return = float(sim_test.get("expected_daily_usd", 0.0))
             else:
                 out_of_sample_return = 0.0
         else:
-            out_of_sample_return = 0.0  # Not enough data for out-of-sample test
+            out_of_sample_return = 0.0
     except Exception as e:
         out_of_sample_return = 0.0
         try:
-            print(f"evaluate_robustness: out_of_sample fetch failed: {e}\n" + traceback.format_exc())
+            print(f"evaluate_robustness error: {e}")
         except Exception:
             pass
     
     if len(period_returns) == 0:
         return -999999.0, 0.0, [], out_of_sample_return
     
-    # Calculate average and consistency (ONLY from in-sample periods)
     avg_return = sum(period_returns) / len(period_returns)
     
     if len(period_returns) >= 2:
-        # Consistency = how similar the returns are across periods
-        # BUT: consistent losses should still have LOW consistency
         import statistics
         std_dev = statistics.stdev(period_returns)
         mean_abs = abs(avg_return) if avg_return != 0 else 1.0
-        
-        # Base consistency on coefficient of variation
         raw_consistency = 1.0 - (std_dev / mean_abs)
         
-        # Penalty for negative returns - consistent losses = bad!
         if avg_return <= 0:
-            consistency = max(0.0, min(0.3, raw_consistency))  # Cap at 0.3 for losses
+            consistency = max(0.0, min(0.3, raw_consistency))
         else:
             consistency = max(0.0, min(1.0, raw_consistency))
     else:
-        consistency = 0.5  # Unknown consistency
+        consistency = 0.5
     
     return avg_return, consistency, period_returns, out_of_sample_return
 
@@ -377,19 +364,9 @@ def evaluate_robustness(client, symbol: str, interval_seconds: int, cap_usd: flo
 def walk_forward_test(client, symbol: str, interval_seconds: int, cap_usd: float, total_bars: int = 600) -> dict:
     """
     Walk-forward optimization: Rolling train/test windows to prevent look-ahead bias.
-    
-    Splits data into 3 periods:
-    - Period 1: Train on bars 0-200, test on bars 200-400
-    - Period 2: Train on bars 200-400, test on bars 400-600
-    
-    Returns:
-        dict with:
-            - avg_test_return: Average return on test periods
-            - test_returns: List of test period returns
-            - train_test_ratio: Test return / Train return (>0.5 = not overfit)
     """
     try:
-        all_closes = fetch_closes(client, symbol, interval_seconds, total_bars)
+        all_closes, all_volumes = fetch_closes_with_volume(client, symbol, interval_seconds, total_bars)
         if not all_closes or len(all_closes) < 400:
             return {"avg_test_return": 0.0, "test_returns": [], "train_test_ratio": 0.0}
         
@@ -397,23 +374,27 @@ def walk_forward_test(client, symbol: str, interval_seconds: int, cap_usd: float
         test_returns = []
         train_returns = []
         
-        # Period 1: Train on first 1/3, test on second 1/3
-        train_data_1 = all_closes[:period_size]
-        test_data_1 = all_closes[period_size:2*period_size]
+        # Period 1
+        train_d1 = all_closes[:period_size]
+        train_v1 = all_volumes[:period_size]
+        test_d1 = all_closes[period_size:2*period_size]
+        test_v1 = all_volumes[period_size:2*period_size]
         
-        if len(train_data_1) >= 50 and len(test_data_1) >= 50:
-            train_sim = simulate_signals_and_projection(train_data_1, interval_seconds, override_cap_usd=cap_usd)
-            test_sim = simulate_signals_and_projection(test_data_1, interval_seconds, override_cap_usd=cap_usd)
+        if len(train_d1) >= 50 and len(test_d1) >= 50:
+            train_sim = run_backtest_simulation(train_d1, train_v1, interval_seconds, start_capital=cap_usd)
+            test_sim = run_backtest_simulation(test_d1, test_v1, interval_seconds, start_capital=cap_usd)
             train_returns.append(train_sim.get("expected_daily_usd", 0.0))
             test_returns.append(test_sim.get("expected_daily_usd", 0.0))
         
-        # Period 2: Train on second 1/3, test on third 1/3
-        train_data_2 = all_closes[period_size:2*period_size]
-        test_data_2 = all_closes[2*period_size:]
+        # Period 2
+        train_d2 = all_closes[period_size:2*period_size]
+        train_v2 = all_volumes[period_size:2*period_size]
+        test_d2 = all_closes[2*period_size:]
+        test_v2 = all_volumes[2*period_size:]
         
-        if len(train_data_2) >= 50 and len(test_data_2) >= 50:
-            train_sim = simulate_signals_and_projection(train_data_2, interval_seconds, override_cap_usd=cap_usd)
-            test_sim = simulate_signals_and_projection(test_data_2, interval_seconds, override_cap_usd=cap_usd)
+        if len(train_d2) >= 50 and len(test_d2) >= 50:
+            train_sim = run_backtest_simulation(train_d2, train_v2, interval_seconds, start_capital=cap_usd)
+            test_sim = run_backtest_simulation(test_d2, test_v2, interval_seconds, start_capital=cap_usd)
             train_returns.append(train_sim.get("expected_daily_usd", 0.0))
             test_returns.append(test_sim.get("expected_daily_usd", 0.0))
         
@@ -423,8 +404,6 @@ def walk_forward_test(client, symbol: str, interval_seconds: int, cap_usd: float
         avg_test = sum(test_returns) / len(test_returns)
         avg_train = sum(train_returns) / len(train_returns) if train_returns else 1.0
         
-        # Train/Test ratio: If test << train, we're overfitting
-        # Good ratio: >0.5 (test returns at least 50% of train returns)
         ratio = avg_test / avg_train if avg_train > 0 else 0.0
         
         return {
@@ -434,7 +413,7 @@ def walk_forward_test(client, symbol: str, interval_seconds: int, cap_usd: float
         }
     except Exception as e:
         try:
-            print("walk_forward_test failed:\n" + traceback.format_exc())
+            print(f"walk_forward_test failed: {e}")
         except Exception:
             pass
         return {"avg_test_return": 0.0, "test_returns": [], "train_test_ratio": 0.0}
@@ -459,7 +438,7 @@ def binary_search_capital(client, symbol: str, interval_seconds: int,
     else:
         # Calculate real risk metrics once for this stock/interval
         try:
-            closes = fetch_closes(client, symbol, interval_seconds, 200)
+            closes, volumes = fetch_closes_with_volume(client, symbol, interval_seconds, 200)
             if not closes or len(closes) < 50:
                 # Not enough data - cache minimal metrics
                 risk_metrics = {
@@ -495,7 +474,7 @@ def binary_search_capital(client, symbol: str, interval_seconds: int,
                     max_dd_pct = dd
             
             # 3. Win rate and advanced metrics from simulation (at small capital to avoid bias)
-            sim = simulate_signals_and_projection(closes, interval_seconds, override_cap_usd=1000.0)
+            sim = run_backtest_simulation(closes, volumes, interval_seconds, start_capital=1000.0)
             win_rate = sim.get("win_rate", 0.5)
             profit_factor = sim.get("profit_factor", 1.5)
             max_consec_losses = sim.get("max_consecutive_losses", 3)

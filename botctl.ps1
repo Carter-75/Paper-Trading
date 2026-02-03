@@ -269,7 +269,8 @@ switch ($cmd) {
         
         if (-not $rest) {
             Write-Host "❌ ERROR: No command provided"
-            Write-Host "   Usage: .\botctl.ps1 start python -u runner.py -t 0.25 -s AAPL -m 100"
+            Write-Host "   Usage: .\botctl.ps1 start python -u runner.py"
+            Write-Host "   (Configure parameters in .env file)"
             exit 1
         }
         
@@ -376,7 +377,7 @@ switch ($cmd) {
         
         if (-not $line) {
             Write-Host "❌ ERROR: No command provided and no saved command found."
-            Write-Host "   Usage: .\botctl.ps1 restart python -u runner.py -t 0.25 -s AAPL -m 100"
+            Write-Host "   Usage: .\botctl.ps1 restart python -u runner.py"
             Write-Host "   Or run 'start' first to save a command."
             exit 1
         }

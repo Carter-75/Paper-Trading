@@ -179,6 +179,33 @@ class TradingMLPredictor:
                 return False
         return False
 
+    def check_and_retrain(self) -> bool:
+        """
+        Check if model is stale (>24h) and retrain if needed.
+        Returns True if retraining occurred.
+        """
+        if not os.path.exists(self.model_path):
+             # Model missing, try to train
+             from ml_predictor import auto_train_model_if_needed
+             return auto_train_model_if_needed(self)
+             
+        import time
+        try:
+            mod_time = os.path.getmtime(self.model_path)
+            age_hours = (time.time() - mod_time) / 3600
+            
+            if age_hours > 24:
+                print(f"[ML] Model is stale ({age_hours:.1f}h). Triggering Morning Retraining...")
+                # We need to call the global auto-train function
+                # Note: imports inside method to avoid circular dependency issues at top level
+                from ml_predictor import auto_train_model_if_needed
+                return auto_train_model_if_needed(self)
+                
+        except Exception as e:
+            print(f"[ML] Start check failed: {e}")
+            
+        return False
+
 
 # Global instance
 _ml_predictor = None
@@ -343,9 +370,26 @@ def get_ml_predictor() -> TradingMLPredictor:
     if _ml_predictor is None:
         _ml_predictor = TradingMLPredictor()
         
-        # Try to load existing model
-        if not _ml_predictor.load_model():
-            # Model doesn't exist - try auto-training
+        _ml_predictor = TradingMLPredictor()
+        
+        # Check if model exists and is fresh
+        need_training = True
+        if _ml_predictor.load_model():
+            # Check age
+            import time
+            try:
+                mod_time = os.path.getmtime(_ml_predictor.model_path)
+                age_hours = (time.time() - mod_time) / 3600
+                if age_hours < 24:
+                    need_training = False
+                    print(f"ML Model is fresh ({age_hours:.1f} hours old).")
+                else:
+                    print(f"ML Model is stale ({age_hours:.1f} hours old). Retraining...")
+            except Exception:
+                pass
+                
+        if need_training:
+            # Model doesn't exist or is old - try auto-training
             auto_train_model_if_needed(_ml_predictor)
     
     return _ml_predictor
