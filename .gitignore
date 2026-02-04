@@ -1,4 +1,4 @@
-.env
+﻿.env
 *.pyc
 __pycache__/
 .venv/
@@ -12,7 +12,6 @@ last_start_cmd.txt
 portfolio.json
 pnl_ledger.json
 top_stocks_cache.json
-start_bot.ps1
 ml_model.pkl
 price_cache.db
 price_cache.db-journal
@@ -31,3 +30,9 @@ dashboard_state.json
 # VS Code
 .vscode/
 
+
+# Backups / scratch
+*.bak
+*.bak_*
+*.before_*.bak
+*.pre_patch.bak

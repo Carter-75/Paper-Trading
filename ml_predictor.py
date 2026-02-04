@@ -364,33 +364,68 @@ def auto_train_model_if_needed(predictor: TradingMLPredictor) -> bool:
         print("")
         return False
 
+
 def get_ml_predictor() -> TradingMLPredictor:
-    """Get global ML predictor instance"""
+    """Get global ML predictor instance.
+
+    Startup behavior:
+    - If model is missing: BLOCK and auto-train immediately.
+    - If model is stale (>=24h): optionally retrain on startup by deleting and re-training.
+
+    If training fails, ML remains disabled (neutral predictions).
+    """
     global _ml_predictor
-    if _ml_predictor is None:
-        _ml_predictor = TradingMLPredictor()
-        
-        _ml_predictor = TradingMLPredictor()
-        
-        # Check if model exists and is fresh
-        need_training = True
-        if _ml_predictor.load_model():
-            # Check age
-            import time
-            try:
-                mod_time = os.path.getmtime(_ml_predictor.model_path)
-                age_hours = (time.time() - mod_time) / 3600
-                if age_hours < 24:
-                    need_training = False
-                    print(f"ML Model is fresh ({age_hours:.1f} hours old).")
+    if _ml_predictor is not None:
+        return _ml_predictor
+
+    _ml_predictor = TradingMLPredictor()
+
+    # Try load existing model
+    model_path = _ml_predictor.model_path
+    model_exists = os.path.exists(model_path)
+
+    if model_exists and _ml_predictor.load_model():
+        # Check age
+        try:
+            import time as _time
+            mod_time = os.path.getmtime(model_path)
+            age_hours = (_time.time() - mod_time) / 3600
+            if age_hours < 24:
+                print(f"ML Model is fresh ({age_hours:.1f} hours old).")
+                return _ml_predictor
+            else:
+                print(f"ML Model is stale ({age_hours:.1f} hours old).")
+                # Retrain on startup if enabled (default ON)
+                if os.environ.get('AUTO_RETRAIN_ON_STARTUP', '1') == '1':
+                    print("[ML] AUTO_RETRAIN_ON_STARTUP=1 -> deleting stale model and retraining now...")
+                    try:
+                        os.remove(model_path)
+                    except Exception as e:
+                        print(f"[ML] Could not delete stale model ({e}). Continuing with existing model.")
+                        return _ml_predictor
+                    # fallthrough to training
                 else:
-                    print(f"ML Model is stale ({age_hours:.1f} hours old). Retraining...")
-            except Exception:
-                pass
-                
-        if need_training:
-            # Model doesn't exist or is old - try auto-training
-            auto_train_model_if_needed(_ml_predictor)
-    
+                    print("[ML] AUTO_RETRAIN_ON_STARTUP=0 -> keeping stale model.")
+                    return _ml_predictor
+        except Exception:
+            # If age check fails, keep loaded model
+            return _ml_predictor
+
+    # If we reach here, we need to train (missing model or stale model deleted)
+    print("[ML] Model missing/unloaded -> AUTO-TRAINING ON STARTUP (blocking)...")
+    ok = False
+    try:
+        ok = auto_train_model_if_needed(_ml_predictor)
+    except Exception as e:
+        print(f"[ML] Auto-training threw exception: {e}")
+        print(traceback.format_exc())
+        ok = False
+
+    if not ok:
+        # Ensure ML disabled cleanly
+        _ml_predictor.model = None
+        _ml_predictor.is_trained = False
+        print("[ML] Auto-training failed or was skipped. ML prediction DISABLED (neutral outputs).")
+
     return _ml_predictor
 

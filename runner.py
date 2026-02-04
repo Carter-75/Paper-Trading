@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
 Smart Paper Trading Bot - Main Runner
 Orchestrates the Decision, Allocation, and Execution engines.
@@ -50,6 +50,9 @@ class SmartTradingBot:
         self.schedule = {}
         self.active_universe = [] # Dynamic List
         self.last_universe_refresh = 0
+        self._account_cache = None  # (ts, account)
+        self._account_cache_ttl = 60  # seconds
+        self._error_throttle = {}  # throttle noisy per-symbol exceptions
         
         # Initialize Universe immediatley
         self.refresh_universe()
@@ -59,10 +62,11 @@ class SmartTradingBot:
         # Lock check
         self.lock = ProcessLock()
         if not self.lock.acquire(force_kill=True):
-            log_error("Failed to acquire process lock (Unknown Error). Exiting.")
-            sys.exit(1)
+            log_warn("Another bot instance appears to be running (lock held). Exiting this instance.")
+            sys.exit(0)
             
         log_info(f"Starting Smart Trading Bot v17.1 (Highlander Details)")
+        log_info("RUNNER_PATCH=20260204_throttle_cache")
         
         # 1. Dynamic Stock Universe
         # Initial population of schedule based on the refreshed universe
@@ -108,7 +112,7 @@ class SmartTradingBot:
                     # To avoid spamming it every loop for 10 mins, we rely on check_and_retrain returning fast if fresh.
                     try:
                         if self.decision_engine.ml_predictor.check_and_retrain():
-                            log_info("Morning Training Complete! 🧠")
+                            log_info("Morning Training Complete! ????")
                     except Exception as e:
                         log_error(f"Morning Training check failed: {e}")
                 
@@ -181,7 +185,7 @@ class SmartTradingBot:
     def process_symbol_adaptive(self, symbol: str):
         # A. Account Update
         try:
-            account = self.api.get_account()
+            account = self._get_account_cached()
             equity = float(account.equity)
             if self.config.virtual_account_size:
                 equity = self.config.virtual_account_size
@@ -241,7 +245,7 @@ class SmartTradingBot:
                      reason = f"TAKE PROFIT HIT"
                 
                 if reason:
-                    log_warn(f"🛡️ BODYGUARD TRIGGER: {symbol} -> {reason}")
+                    log_warn(f"??????? BODYGUARD TRIGGER: {symbol} -> {reason}")
                     if self.order_executor.liquidate(symbol, reason):
                         self.pm.log_closed_trade(symbol, avg_entry, current_price, qty, reason)
                         self.pm.remove_position(symbol)
@@ -264,6 +268,7 @@ class SmartTradingBot:
                         
             # D. Determine Next Interval
             new_interval = self.config.default_interval_seconds
+            computed_interval = new_interval  # default; will be updated
             
             if self.pm.get_position(symbol):
                 new_interval = 30
@@ -279,8 +284,39 @@ class SmartTradingBot:
             self._dump_dashboard_state(equity, symbol, signal, next_updates=self.schedule)
             
         except Exception as e:
-            # log_error(f"Error adaptive processing {symbol}: {e}") # Silent error to avoid spam
+            # Throttled error logging so we can debug without log spam
+            if not hasattr(self, '_error_throttle'): self._error_throttle = {}
+            key = f"{symbol}:{type(e).__name__}:{str(e)[:80]}"
+            now_ts = time.time()
+            last_ts = self._error_throttle.get(key, 0)
+            if now_ts - last_ts > 300:
+                self._error_throttle[key] = now_ts
+                try:
+                    log_error(f"Error adaptive processing {symbol}: {e}")
+                    log_error(traceback.format_exc())
+                    try: log_error(f"Context {symbol}: len(closes)={len(closes) if closes else None} len(volumes)={len(volumes) if volumes else None}")
+                    except Exception: pass
+                except Exception: pass
             self.schedule[symbol] = time.time() + 60
+    def _get_account_cached(self):
+        """Return Alpaca account with a short TTL to avoid rate limits."""
+        now = time.time()
+        if self._account_cache and (now - self._account_cache[0]) < self._account_cache_ttl:
+            return self._account_cache[1]
+        try:
+            acct = self.api.get_account()
+        except Exception as e:
+            # If rate limited or transient error, keep running and reuse stale cache if present
+            try:
+                msg = str(e)
+                log_warn(f"Alpaca get_account failed: {msg}")
+            except Exception:
+                pass
+            if self._account_cache:
+                return self._account_cache[1]
+            raise
+        self._account_cache = (now, acct)
+        return acct
 
     def refresh_universe(self):
         """Phase 13: Update stock list from scanner"""
@@ -308,7 +344,7 @@ class SmartTradingBot:
             return
 
         # 1. Update Portfolio
-        account = self.api.get_account()
+        account = self._get_account_cached()
         equity = float(account.equity)
         cash = float(account.cash)
         
@@ -408,3 +444,10 @@ class SmartTradingBot:
 if __name__ == "__main__":
     bot = SmartTradingBot()
     bot.run()
+
+
+
+
+
+
+
