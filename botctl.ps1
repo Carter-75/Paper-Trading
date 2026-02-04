@@ -1,14 +1,14 @@
 param(
-  [Parameter(Mandatory=$true,Position=0)][ValidateSet("start","stop","restart","stop-forever","status")][string]$cmd,
-  [Parameter(ValueFromRemainingArguments=$true)][string[]]$rest
+    [Parameter(Mandatory = $true, Position = 0)][ValidateSet("start", "stop", "restart", "stop-forever", "status")][string]$cmd,
+    [Parameter(ValueFromRemainingArguments = $true)][string[]]$rest
 )
 
 $TaskName = 'PaperTradingBot'
-$WorkDir  = Split-Path -Parent $MyInvocation.MyCommand.Path
-$ScriptPS1= Join-Path $WorkDir 'start_bot.ps1'
-$Exe      = (Get-Command pwsh -ErrorAction SilentlyContinue).Source
+$WorkDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ScriptPS1 = Join-Path $WorkDir 'start_bot.ps1'
+$Exe = (Get-Command pwsh -ErrorAction SilentlyContinue).Source
 if (-not $Exe) { $Exe = 'C:\Program Files\PowerShell\7\pwsh.exe' }
-$CmdFile  = Join-Path $WorkDir 'last_start_cmd.txt'
+$CmdFile = Join-Path $WorkDir 'last_start_cmd.txt'
 
 # Auto-generated files to delete on stop-forever
 $AutoFiles = @(
@@ -161,12 +161,13 @@ function Create-Task([string]$line) {
         
         Register-ScheduledTask -TaskName $TaskName -Action $act -Trigger $trg -Principal $principal -Settings $set -Description 'Paper trading bot - auto-starts on boot/logon, wakes at 9:25 AM, keeps system awake during market hours' -ErrorAction Stop | Out-Null
         Write-Host "   ✓ Task created successfully (PowerShell method)"
-    } catch {
+    }
+    catch {
         Write-Host "   ⚠ PowerShell method failed, trying schtasks fallback..."
         Write-Host "   Error: $_"
         
         # Fallback: Use schtasks command with ALL triggers
-        $tr="`"$Exe`" -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ScriptPS1`""
+        $tr = "`"$Exe`" -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ScriptPS1`""
         
         # Create task with login trigger first
         $result = schtasks /Create /TN $TaskName /SC ONLOGON /TR $tr /RL HIGHEST /F 2>&1
@@ -189,7 +190,8 @@ function Create-Task([string]$line) {
     Start-Sleep -Milliseconds 500
     if (Test-TaskExists) {
         Write-Host "   ✓ Task verified: PaperTradingBot exists"
-    } else {
+    }
+    else {
         Write-Host "   ❌ ERROR: Task creation failed - task does not exist!"
         throw "Task verification failed"
     }
@@ -210,7 +212,8 @@ function Run-Simple([string]$line) {
     
     try {
         Invoke-Expression $line
-    } catch {
+    }
+    catch {
         Write-Host "Error: $_"
     }
 }
@@ -270,7 +273,7 @@ switch ($cmd) {
         if (-not $rest) {
             Write-Host "❌ ERROR: No command provided"
             Write-Host "   Usage: .\botctl.ps1 start python -u runner.py"
-            Write-Host "   (Configure parameters in .env file)"
+            Write-Host "   (All configuration is now in config.py / .env)"
             exit 1
         }
         
@@ -301,7 +304,8 @@ switch ($cmd) {
             Write-Host "Monitor: Get-Content bot.log -Wait -Tail 50"
             Write-Host "Status:  .\botctl.ps1 status"
             Write-Host "Stop:    .\botctl.ps1 stop"
-        } else {
+        }
+        else {
             Write-Host "⚠️  Task created but may not be running. Check: .\botctl.ps1 status"
         }
     }
@@ -350,7 +354,8 @@ switch ($cmd) {
             Write-Host ""
             Write-Host "To start now:        .\botctl.ps1 restart"
             Write-Host "To remove forever:   .\botctl.ps1 stop-forever"
-        } else {
+        }
+        else {
             Write-Host "⚠️  Bot may still be running. Check: .\botctl.ps1 status"
         }
     }
@@ -371,7 +376,8 @@ switch ($cmd) {
         $line = $null
         if ($rest -and $rest.Count -gt 0) {
             $line = ($rest -join ' ')
-        } elseif (Test-Path $CmdFile) {
+        }
+        elseif (Test-Path $CmdFile) {
             try { $line = (Get-Content -Path $CmdFile -Raw).Trim() } catch {}
         }
         
@@ -394,9 +400,11 @@ switch ($cmd) {
             Write-Host "Restarting bot..."
             schtasks /End /TN $TaskName >$null 2>&1
             Start-Sleep -Seconds 1
-        } elseif ($taskExists) {
+        }
+        elseif ($taskExists) {
             Write-Host "Starting bot..."
-        } else {
+        }
+        else {
             Write-Host "Creating and starting bot (task didn't exist)..."
         }
         
@@ -409,7 +417,8 @@ switch ($cmd) {
             Write-Host "✅ Bot restarted successfully!"
             Write-Host "   Command: $line"
             Write-Host "   Log: $WorkDir\bot.log"
-        } else {
+        }
+        else {
             Write-Host "⚠️  Task created but may not be running. Check: .\botctl.ps1 status"
         }
     }
@@ -440,22 +449,23 @@ switch ($cmd) {
         if ($taskExists) {
             Write-Host "  • Removing scheduled task..."
             schtasks /Delete /TN $TaskName /F >$null 2>&1
-        } else {
+        }
+        else {
             Write-Host "  • Task doesn't exist (skipping removal)"
         }
         
         Write-Host "  • Cleaning up processes..."
         Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue | 
-            Where-Object { $_.CommandLine -match 'runner\.py' } | 
-            ForEach-Object { 
-                Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue 
-            }
+        Where-Object { $_.CommandLine -match 'runner\.py' } | 
+        ForEach-Object { 
+            Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue 
+        }
         
         Get-CimInstance Win32_Process -Filter "Name='pwsh.exe'" -ErrorAction SilentlyContinue | 
-            Where-Object { $_.CommandLine -match 'start_bot\.ps1' } | 
-            ForEach-Object { 
-                Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue 
-            }
+        Where-Object { $_.CommandLine -match 'start_bot\.ps1' } | 
+        ForEach-Object { 
+            Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue 
+        }
         
         Write-Host "  • Deleting auto-generated files..."
         $deletedCount = 0
@@ -465,7 +475,8 @@ switch ($cmd) {
                     Remove-Item -Path $file -Force -ErrorAction SilentlyContinue
                     $deletedCount++
                     Write-Host "    ✓ Deleted: $(Split-Path -Leaf $file)"
-                } catch {
+                }
+                catch {
                     Write-Host "    ⚠ Could not delete: $(Split-Path -Leaf $file)"
                 }
             }
@@ -499,7 +510,8 @@ switch ($cmd) {
         if (-not $taskExists) {
             Write-Host "  Status:  ❌ NOT CREATED"
             Write-Host "  Task doesn't exist. Use 'start' to create it."
-        } elseif ($taskRunning) {
+        }
+        elseif ($taskRunning) {
             Write-Host "  Status:  ✅ RUNNING"
             
             $task = Get-ScheduledTask -TaskName $TaskName
@@ -516,7 +528,8 @@ switch ($cmd) {
                 try {
                     $cmdText = Get-Content -Path $CmdFile -Raw
                     Write-Host "  Command: $($cmdText.Trim())"
-                } catch {}
+                }
+                catch {}
             }
             
             $logPath = Join-Path $WorkDir 'bot.log'
@@ -530,9 +543,11 @@ switch ($cmd) {
                             Write-Host "    $line"
                         }
                     }
-                } catch {}
+                }
+                catch {}
             }
-        } else {
+        }
+        else {
             Write-Host "  Status:  ⏸️ STOPPED"
             Write-Host "  Task exists but is not running."
             Write-Host "  Will auto-start on: boot, logon, or 9:25 AM"

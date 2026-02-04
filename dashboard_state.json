@@ -1,11 +1,10 @@
 {
-  "timestamp": "2026-02-03T17:07:48.959584",
+  "timestamp": "2026-02-03T22:20:45.135412",
   "equity": 100.0,
-  "virtual_account_size": 100.0,
-  "next_cycle_time": "2026-02-03T17:06:39.739558",
-  "last_symbol": "MA",
-  "last_action": "hold",
-  "last_confidence": 0.7,
+  "virtual_account": true,
+  "last_symbol": "INTC",
+  "last_action": "sell",
+  "last_confidence": 0.8104172762170471,
   "active_cycle": true,
   "positions": {}
 }

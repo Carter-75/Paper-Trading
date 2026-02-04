@@ -161,7 +161,9 @@ def fetch_closes_with_volume(client, symbol: str, interval_seconds: int, limit_b
         if interval_seconds >= 86400: yf_interval = "1d"
         elif interval_seconds >= 3600: yf_interval = "1h"
         
-        ticker = yf.Ticker(symbol)
+        # Fix for BRK.B -> BRK-B
+        ticker_sym = symbol.replace('.', '-')
+        ticker = yf.Ticker(ticker_sym)
         hist = ticker.history(period="60d", interval=yf_interval, auto_adjust=True)
         
         if not hist.empty:

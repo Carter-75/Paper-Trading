@@ -15,8 +15,19 @@ top_stocks_cache.json
 start_bot.ps1
 ml_model.pkl
 price_cache.db
+price_cache.db-journal
+*.sqlite3
+*.db
 optimization_history.csv
 
 # Emergency controls
 KILL_SWITCH.flag
+bot.pause
+bot.lock
+
+# Web Dashboard
+dashboard_state.json
+
+# VS Code
+.vscode/
 

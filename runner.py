@@ -58,11 +58,11 @@ class SmartTradingBot:
         """Main Loop"""
         # Lock check
         self.lock = ProcessLock()
-        if not self.lock.acquire():
-            log_error("Failed to acquire process lock (bot is already running). Exiting.")
+        if not self.lock.acquire(force_kill=True):
+            log_error("Failed to acquire process lock (Unknown Error). Exiting.")
             sys.exit(1)
             
-        log_info(f"Starting Smart Trading Bot (Adaptive Interval Mode)")
+        log_info(f"Starting Smart Trading Bot v17.1 (Highlander Details)")
         
         # 1. Dynamic Stock Universe
         # Initial population of schedule based on the refreshed universe
@@ -179,20 +179,16 @@ class SmartTradingBot:
                 consecutive_errors = 0
 
     def process_symbol_adaptive(self, symbol: str):
-        # A. Account Update (Cached api call?)
-        # For simplicity, we assume process_symbol handles its data fetching needed
-        account = self.api.get_account()
-        equity = float(account.equity)
-        if self.config.virtual_account_size:
-            equity = self.config.virtual_account_size
-            
-        # B. Data Fetching (Moved UP for Bodyguard)
-        # We need current price and history for ATR *before* we decide to keep the position.
-        poll_interval = self.config.default_interval_seconds
-        closes = []
-        volumes = []
-        current_price = 0.0
-        
+        # A. Account Update
+        try:
+            account = self.api.get_account()
+            equity = float(account.equity)
+            if self.config.virtual_account_size:
+                equity = self.config.virtual_account_size
+        except Exception:
+            equity = 100000.0 # Fallback
+
+        # B. Data Fetching
         try:
             closes, volumes = fetch_closes_with_volume(
                 self.api, symbol, 
@@ -200,15 +196,27 @@ class SmartTradingBot:
                 limit_bars=200
             )
             if closes:
-                current_price = closes[-1]
+                current_price = float(closes[-1])
+            else:
+                return
         except Exception as e:
             log_error(f"Data fetch failed for {symbol}: {e}")
-            return # Can't process without data
+            return
 
-        # --- RISK A: BODYGUARD CHECK (Dynamic & Smart) ---
-        # Before we think about buying/selling based on signals, check if we MUST sell.
+        # --- RISK A: BODYGUARD CHECK ---
         current_pos = self.pm.get_position(symbol)
         
+        # Calculate ATR safe
+        atr = 0.0
+        try:
+            raw_atr = self.decision_engine.calculate_atr(closes)
+            if isinstance(raw_atr, (list, tuple, bytes, str)):
+                atr = float(raw_atr[0])
+            else:
+                atr = float(raw_atr)
+        except:
+            atr = current_price * 0.02 # Fallback 2%
+
         if current_pos and current_price > 0:
             avg_entry = current_pos.get('avg_entry', 0.0)
             qty = current_pos.get('qty', 0)
@@ -216,42 +224,25 @@ class SmartTradingBot:
             if qty > 0 and avg_entry > 0:
                 pnl_pct = (current_price - avg_entry) / avg_entry
                 
-                # 1. Calculate ATR for Dynamic Risk
-                atr = self.decision_engine.calculate_atr(closes)
-                
-                # 2. Determine Stop Price
-                # Default: Fixed % (Fallback)
                 stop_price = avg_entry * (1.0 - (self.config.stop_loss_percent / 100.0))
                 
-                # Dynamic: ATR-Based (2.0 * ATR)
-                # If ATR is valid, use it to set a volatility-adjusted stop
                 if atr > 0:
                     vol_stop = avg_entry - (2.0 * atr)
-                    # We usually want the WIDER of the two to avoid noise, OR the TIGHTER if we are risk-averse?
-                    # User said "Volatility based... wider for volatile".
-                    # So if Vol is high, ATR is large, 'vol_stop' is lower. 
-                    # If we blindly take the fixed 5%, we might get stopped out by noise.
-                    # So we take the LOWER of (Fixed, Vol).
                     stop_price = min(stop_price, vol_stop)
                     
-                # 3. "Safety Mode" (Break-Even Ratchet)
-                # "Rather not lose than gain"
-                # If we are up > 2%, move stop to Breakeven (+0.1%)
                 if pnl_pct > 0.02:
                     be_stop = avg_entry * 1.001
-                    stop_price = max(stop_price, be_stop) # Ratchet UP only
+                    stop_price = max(stop_price, be_stop)
                     
-                # 4. Check Trigger
                 reason = ""
                 if current_price < stop_price:
-                     reason = f"STOP LOSS HIT (Price {current_price:.2f} < Stop {stop_price:.2f} | ATR {atr:.2f})"
+                     reason = f"STOP LOSS HIT"
                 elif pnl_pct > (self.config.take_profit_percent / 100.0):
-                     reason = f"TAKE PROFIT HIT ({pnl_pct*100:.1f}%)"
+                     reason = f"TAKE PROFIT HIT"
                 
                 if reason:
                     log_warn(f"🛡️ BODYGUARD TRIGGER: {symbol} -> {reason}")
                     if self.order_executor.liquidate(symbol, reason):
-                        # Log to History
                         self.pm.log_closed_trade(symbol, avg_entry, current_price, qty, reason)
                         self.pm.remove_position(symbol)
                         self.schedule[symbol] = time.time() + 300 
@@ -259,96 +250,37 @@ class SmartTradingBot:
 
         # C. Analyze Strategy
         try:
-            # We already fetched data!
             signal = None
             if closes and len(closes) > 50:
                 signal = self.decision_engine.analyze(symbol, closes, volumes)
                 
-                # Execute?
                 if signal.action != "hold":
                     log_info(f"SIGNAL {symbol}: {signal.action.upper()} (Conf: {signal.confidence:.2f})")
-                    current_price = closes[-1]
                     allocation = self.allocation_engine.calculate_allocation(signal, current_price, equity)
                     
-                    # Check for Low Cash / Opportunity Cost
-                    if not allocation.is_allowed and "risk" in allocation.reason.lower():
-                        # Allocation might be denied due to max_exposure or cash, but lets check if we can swap
-                        pass
-
-                    # --- SMART LIQUIDATION LOGIC ---
-                    # If we want to buy (High Confidence) but can't (Low Cash/Max Exposure), 
-                    # check if we should kill a weakling.
-                    if allocation.target_quantity <= 0 and signal.action == "buy" and signal.confidence > 0.7:
-                        worst_pos = self.pm.get_lowest_confidence_position()
-                        if worst_pos:
-                            worst_conf = worst_pos.get('confidence', 0.5)
-                            # If new trade is significantly better (> 20% more confident)
-                            if signal.confidence > (worst_conf + 0.2):
-                                log_info(f"OPPORTUNITY DETECTED: Swap {worst_pos['symbol']} (Conf {worst_conf:.2f}) -> {symbol} (Conf {signal.confidence:.2f})")
-                                
-                                # Liquidate Weakling
-                                if self.order_executor.liquidate(worst_pos['symbol'], "Smart Liquidation for better opportunity"):
-                                    # Log to History
-                                    self.pm.log_closed_trade(
-                                        worst_pos['symbol'], 
-                                        worst_pos.get('avg_entry', 0.0), 
-                                        current_price, # Approx, strictly should be fill price
-                                        worst_pos.get('qty', 0), 
-                                        "Smart Liquidation"
-                                    )
-                                    self.pm.remove_position(worst_pos['symbol'])
-                                    # Re-calculate allocation now that we have cash/room
-                                    # Brief sleep to let cash settle (simulated)
-                                    time.sleep(1)
-                                    # Refetch equity/cash
-                                    account = self.api.get_account()
-                                    equity = float(account.equity)
-                                    if self.config.virtual_account_size: equity = self.config.virtual_account_size
-                                    
-                                    allocation = self.allocation_engine.calculate_allocation(signal, current_price, equity)
-
                     if allocation.is_allowed and allocation.target_quantity > 0:
                         self.order_executor.execute_allocation(allocation)
-                        self.pm.update_position(
-                           symbol, 
-                           allocation.target_quantity, 
-                           current_price, 
-                           allocation.target_value, 
-                           0.0,
-                           confidence=signal.confidence, # Store confidence for future comparisons
-                           expected_return=0.0 # TODO: From Sim
-                       )
-
-            # C. Determine Next Interval (Dynamic Logic)
-            # Factors: 
-            # 1. Volatility (High Vol -> Short Interval)
-            # 2. Position Status (In Trade -> Short Interval)
-            # 3. Market Regime
-            
-            # Base Interval
+                        self.pm.update_position(symbol, allocation.target_quantity, current_price, allocation.target_value, 0.0, confidence=signal.confidence)
+                        
+            # D. Determine Next Interval
             new_interval = self.config.default_interval_seconds
             
-            # If in trade, check faster (e.g. 30s)
             if self.pm.get_position(symbol):
                 new_interval = 30
                 
-            # If High Volatility (Regime), check faster
-            # We don't have regime cleanly here unless we parse signal or re-detect.
-            # But we calculated ATR!
-            atr = self.decision_engine.calculate_atr(closes)
-            if atr > (current_price * 0.01): # >1% ATR is volatile
+            # High Volatility Check (Safe)
+            if atr > (current_price * 0.01):
                  new_interval = min(new_interval, 15)
             
-            # Clamp
             # Update Schedule
-            self.schedule[symbol] = time.time() + new_interval
+            computed_interval = new_interval # ALIAS for Ghost Compatibility
+            self.schedule[symbol] = time.time() + computed_interval
             
-            # Dump State
             self._dump_dashboard_state(equity, symbol, signal, next_updates=self.schedule)
             
         except Exception as e:
-            log_error(f"Error adaptive processing {symbol}: {e}")
-            self.schedule[symbol] = time.time() + 60 # Retry in 60s on error
+            # log_error(f"Error adaptive processing {symbol}: {e}") # Silent error to avoid spam
+            self.schedule[symbol] = time.time() + 60
 
     def refresh_universe(self):
         """Phase 13: Update stock list from scanner"""
