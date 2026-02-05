@@ -19,6 +19,7 @@ class AllocationResult:
     symbol: str
     target_quantity: int
     target_value: float
+    target_notional: float
     reason: str
     is_allowed: bool
     limit_price: Optional[float] = None
@@ -62,10 +63,12 @@ class AllocationEngine:
         # 1. Base Capital Allocation
         # Start with a fixed fraction of equity (e.g., 20%)
         # But clamp it to MAX_CAP_USD
-        base_alloc = min(
-            total_equity * self.config.trade_size_frac_of_cap,
-            self.config.max_cap_usd
-        )
+        base_alloc = (total_equity * self.config.trade_size_frac_of_cap)
+        try:
+            if getattr(self.config, 'max_cap_usd', None):
+                base_alloc = min(base_alloc, float(self.config.max_cap_usd))
+        except Exception:
+            pass
         
         # 2. Confidence Scaling
         # If confidence is high (e.g. 0.9), use full base.
@@ -124,19 +127,19 @@ class AllocationEngine:
             if expected_gross_profit < (total_cost * 1.5):
                 return AllocationResult(signal.symbol, 0, 0.0, f"Fees too high ({total_cost:.2f} > profit {expected_gross_profit:.2f})", False)
 
-        # Final Quantity
-        qty = int(alloc_value // current_price)
-        
-        if qty < 1:
-            return AllocationResult(signal.symbol, 0, 0.0, "Calculated qty < 1", False)
-            
+        # Final Allocation (FRACTIONAL / NOTIONAL ONLY)
+        min_notional = float(getattr(self.config, 'min_notional_usd', 1.0))
+        if alloc_value < min_notional:
+            return AllocationResult(signal.symbol, 0, 0.0, "Notional below minimum", False)
+
         return AllocationResult(
             symbol=signal.symbol,
-            target_quantity=qty,
-            target_value=qty * current_price,
-            reason=f"Conf:{signal.confidence:.2f}, Kelly:{self.config.enable_kelly_sizing}, Vol:{signal.regime}",
+            target_quantity=0,
+            target_value=0.0,
+            target_notional=float(alloc_value),
+            reason=f"NOTIONAL ${alloc_value:.2f} | Conf:{signal.confidence:.2f}, Kelly:{self.config.enable_kelly_sizing}, Vol:{signal.regime}",
             is_allowed=True,
-            limit_price=current_price * (1 - (self.config.limit_order_offset_percent/100.0)) if self.config.use_limit_orders else None
+            limit_price=None
         )
 
     def _calculate_kelly_fraction(self) -> float:

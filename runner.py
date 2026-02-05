@@ -31,7 +31,7 @@ import pytz
 
 class SmartTradingBot:
     def __init__(self):
-        self.config = get_config()
+        self.config = get_config(reload=True)
         self.pm = PortfolioManager()
         
         # Initialize Engines
@@ -56,6 +56,34 @@ class SmartTradingBot:
         
         # Initialize Universe immediatley
         self.refresh_universe()
+
+    def _market_is_open(self) -> bool:
+        """Return True if market is open.
+
+        Prefer Alpaca clock (handles holidays/half-days). If Alpaca fails,
+        fall back to a simple 9:30-16:00 ET weekday window.
+        """
+        # 1) Alpaca clock (best)
+        try:
+            clock = self.api.get_clock()
+            return bool(getattr(clock, 'is_open', False))
+        except Exception:
+            pass
+
+        # 2) Fallback time window (ET)
+        try:
+            tz = pytz.timezone('US/Eastern')
+            now_et = datetime.datetime.now(tz)
+            # weekday: Mon=0 .. Sun=6
+            if now_et.weekday() >= 5:
+                return False
+            open_min = 9 * 60 + 30
+            close_min = 16 * 60
+            now_min = now_et.hour * 60 + now_et.minute
+            return open_min <= now_min < close_min
+        except Exception:
+            # If even fallback fails, be safe: treat as closed.
+            return False
 
     def run(self):
         """Main Loop"""
@@ -86,7 +114,34 @@ class SmartTradingBot:
                     continue
 
                 now = time.time()
-                
+
+                # Hard gate: if configured for market-hours-only and market is closed, idle until open.
+                # Exiting here leaves the dashboard stuck on MARKET_CLOSED until the *scheduled task* runs again.
+                # Idling fixes that and keeps the bot ready to resume as soon as Alpaca reports open.
+                if getattr(self.config, 'enable_market_hours_only', True):
+                    if not self._market_is_open():
+                        log_info('Market closed - idling until open (still updating dashboard state).')
+                        try:
+                            self._dump_dashboard_state(0, 'MARKET_CLOSED', None)
+                        except Exception:
+                            pass
+
+                        # Sleep smart: use Alpaca clock.next_open when available; otherwise default to 60s.
+                        sleep_s = 60
+                        try:
+                            clock = self.api.get_clock()
+                            ts = getattr(clock, 'timestamp', None)
+                            nxt = getattr(clock, 'next_open', None)
+                            if ts and nxt:
+                                delta = (nxt - ts).total_seconds()
+                                # Wake up more frequently as we approach open.
+                                sleep_s = int(max(15, min(delta, 300)))
+                        except Exception:
+                            pass
+
+                        time.sleep(sleep_s)
+                        continue
+
                 # Check Market Hours
                 if not self.config.wants_live_mode():
                      # Paper trading: We can simulate hours or just run 24/7.
@@ -199,6 +254,15 @@ class SmartTradingBot:
                 interval_seconds=60, 
                 limit_bars=200
             )
+            # Defensive: ensure closes and volumes are aligned
+            try:
+                if closes is not None and volumes is not None and len(closes) != len(volumes):
+                    n = min(len(closes), len(volumes))
+                    closes = closes[-n:]
+                    volumes = volumes[-n:]
+            except Exception:
+                pass
+
             if closes:
                 current_price = float(closes[-1])
             else:
@@ -257,15 +321,79 @@ class SmartTradingBot:
             signal = None
             if closes and len(closes) > 50:
                 signal = self.decision_engine.analyze(symbol, closes, volumes)
-                
                 if signal.action != "hold":
-                    log_info(f"SIGNAL {symbol}: {signal.action.upper()} (Conf: {signal.confidence:.2f})")
                     allocation = self.allocation_engine.calculate_allocation(signal, current_price, equity)
-                    
-                    if allocation.is_allowed and allocation.target_quantity > 0:
-                        self.order_executor.execute_allocation(allocation)
-                        self.pm.update_position(symbol, allocation.target_quantity, current_price, allocation.target_value, 0.0, confidence=signal.confidence)
-                        
+
+                    # Track desired vs executed action for dashboard/UI
+                    try:
+                        self._desired_action = str(getattr(signal, 'action', '')).lower()
+                    except Exception:
+                        self._desired_action = ''
+                    self._executed_action = ''
+                    self._blocked_reason = ''
+
+
+                    # Always log allocation decision; prevents misleading BUY logs
+                    try:
+                        notional = float(getattr(allocation, "target_notional", 0.0) or 0.0)
+                        log_info(
+                            f"ALLOCATION {symbol}: desired_action={signal.action.upper()} "
+                            f"allowed={allocation.is_allowed} qty={allocation.target_quantity} notional=${notional:.2f} "
+                            f"value=${allocation.target_value:.2f} reason={allocation.reason}"
+                        )
+                    except Exception:
+                        notional = 0.0
+
+                    can_trade = bool(
+                        allocation.is_allowed
+                        and ((allocation.target_quantity and allocation.target_quantity > 0) or (notional and notional > 0.0))
+                    )
+
+                    if not can_trade:
+                        try:
+                            # Final pre-exec decision is HOLD (blocked by fees/risk/constraints)
+                            self._desired_action = "hold"
+                            self._executed_action = "hold"
+                            self._blocked_reason = getattr(allocation, "reason", "")
+                        except Exception:
+                            pass
+                        # Treat as HOLD so dashboard/logs don't claim we bought when fees/constraints blocked it
+                        signal.action = "hold"
+                    else:
+                        log_info(f"SIGNAL {symbol}: {signal.action.upper()} (Conf: {signal.confidence:.2f})")
+                        try:
+                            self._desired_action = str(getattr(signal, 'action', '')).lower()
+                            self._executed_action = self._desired_action
+                            self._blocked_reason = ''
+                        except Exception:
+                            pass
+                        try:
+                            self._executed_action = str(getattr(signal, "action", "")).lower()
+                        except Exception:
+                            pass
+                        placed = self.order_executor.execute_allocation(allocation)
+                        if placed:
+                            # Update portfolio from Alpaca position if available (avoid assuming instant fills)
+                            try:
+                                pos = self.api.get_position(symbol)
+                                qty = float(pos.qty)
+                                avg_entry = float(getattr(pos, 'avg_entry_price', current_price))
+                                mv = float(getattr(pos, 'market_value', allocation.target_value))
+                                upl = float(getattr(pos, 'unrealized_pl', 0.0))
+                                self.pm.update_position(symbol, qty, avg_entry, mv, upl, confidence=signal.confidence)
+                            except Exception:
+                                # If position isn't visible yet, record intended allocation
+                                intended_value = allocation.target_value if allocation.target_value else notional
+                                intended_qty = allocation.target_quantity if allocation.target_quantity else (notional / current_price if current_price else 0.0)
+                                self.pm.update_position(symbol, intended_qty, current_price, intended_value, 0.0, confidence=signal.confidence)
+                        else:
+                            log_warn(f"ORDER NOT PLACED for {symbol} (see earlier warnings).")
+                            try:
+                                self._executed_action = "hold"
+                                self._blocked_reason = "order_not_placed"
+                            except Exception:
+                                pass
+
             # D. Determine Next Interval
             new_interval = self.config.default_interval_seconds
             computed_interval = new_interval  # default; will be updated
@@ -281,7 +409,13 @@ class SmartTradingBot:
             computed_interval = new_interval # ALIAS for Ghost Compatibility
             self.schedule[symbol] = time.time() + computed_interval
             
+            try:
+                self._desired_action = str(getattr(signal, "action", "")).lower()
+                self._executed_action = self._desired_action
+            except Exception:
+                pass
             self._dump_dashboard_state(equity, symbol, signal, next_updates=self.schedule)
+            
             
         except Exception as e:
             # Throttled error logging so we can debug without log spam
@@ -352,6 +486,21 @@ class SmartTradingBot:
             log_info(f"Using Virtual Account Size: ${self.config.virtual_account_size:.2f} (Real: ${equity:.2f})")
             equity = self.config.virtual_account_size
             
+
+        # Kill switch: stop bot if equity drops below configured floor (max_cap_usd).
+        try:
+            floor = float(getattr(self.config, 'max_cap_usd', 0.0) or 0.0)
+            if floor > 0 and equity < floor:
+                log_error(f"KILL SWITCH TRIGGERED: equity ${equity:.2f} < floor ${floor:.2f}. Exiting.")
+                try:
+                    self._dump_dashboard_state(equity, 'KILL_SWITCH', None)
+                except Exception:
+                    pass
+                raise SystemExit(2)
+        except SystemExit:
+            raise
+        except Exception:
+            pass
         log_info(f"Account Equity: ${equity:.2f} (Cash: ${cash:.2f})")
         
         # 2. Get Universe
@@ -427,8 +576,10 @@ class SmartTradingBot:
             
             state = {
                 "timestamp": datetime.datetime.now().isoformat(),
+                "runner_patch": "RUNNER_PATCH_20260205_103716",
                 "equity": equity,
                 "virtual_account_size": self.config.virtual_account_size,
+                "kill_switch_floor_usd": float(getattr(self.config, "max_cap_usd", 0.0) or 0.0),
                 "next_cycle_time": next_time_iso,
                 "last_symbol": last_symbol,
                 "last_action": last_signal.action if last_signal else "idle",
@@ -444,6 +595,12 @@ class SmartTradingBot:
 if __name__ == "__main__":
     bot = SmartTradingBot()
     bot.run()
+
+
+
+
+
+
 
 
 

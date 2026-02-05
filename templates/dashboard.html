@@ -254,7 +254,7 @@
 
                     if (data.equity !== undefined) {
                         document.getElementById('equity').textContent = '$' + data.equity.toFixed(2);
-                        document.getElementById('max-capital').textContent = 'Limit: $' + (data.virtual_account_size || "---");
+                        document.getElementById('max-capital').textContent = 'Kill floor: $' + ((data.kill_switch_floor_usd !== undefined) ? Number(data.kill_switch_floor_usd).toFixed(2) : '---');
                         document.getElementById('timestamp').textContent = new Date(data.timestamp).toLocaleString();
 
                         // Parse next cycle

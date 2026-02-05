@@ -6,6 +6,7 @@ import os
 import requests
 import sqlite3
 import random
+import math
 import traceback
 import datetime as dt
 from typing import List, Tuple
@@ -101,8 +102,16 @@ class PriceCache:
         with sqlite3.connect(self.db_path) as conn:
             data = []
             for i, close_price in enumerate(closes):
+                # Skip null/NaN/inf closes (SQLite schema requires NOT NULL)
+                try:
+                    cp = float(close_price)
+                    if not math.isfinite(cp):
+                        continue
+                except Exception:
+                    continue
+
                 timestamp = start_timestamp + (i * interval_seconds)
-                data.append((symbol, interval_seconds, timestamp, close_price))
+                data.append((symbol, interval_seconds, timestamp, cp))
             
             conn.executemany("""
                 INSERT OR REPLACE INTO price_history (symbol, interval_seconds, timestamp, close_price)
@@ -141,6 +150,12 @@ def fetch_closes(client, symbol: str, interval_seconds: int, limit_bars: int) ->
         ticker = yf.Ticker(symbol)
         hist = ticker.history(period="60d", interval=yf_interval, auto_adjust=True)
         
+
+        # Drop rows with missing Close/Volume (common around market-closed/illiquid bars)
+        try:
+            hist = hist.dropna(subset=['Close', 'Volume'])
+        except Exception:
+            pass
         if not hist.empty and 'Close' in hist.columns:
             closes = list(hist['Close'].values)
             # Store to cache

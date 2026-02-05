@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
 Portfolio Manager - Tracks and manages multiple stock positions.
 """
@@ -92,7 +92,6 @@ class PortfolioManager:
     def remove_position(self, symbol: str):
         """Remove a position (fully sold)."""
         if symbol in self.positions:
-            del self.positions[symbol]
             del self.positions[symbol]
             self.save()
 
@@ -193,4 +192,5 @@ class PortfolioManager:
     def get_symbols(self) -> List[str]:
         """Get list of symbols currently held."""
         return list(self.positions.keys())
+
 
