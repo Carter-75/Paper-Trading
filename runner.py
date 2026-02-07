@@ -53,6 +53,12 @@ class SmartTradingBot:
         self._account_cache = None  # (ts, account)
         self._account_cache_ttl = 60  # seconds
         self._error_throttle = {}  # throttle noisy per-symbol exceptions
+
+        # --- Equity cache for market-closed hours (keeps last known total on dashboard) ---
+        self._equity_cache_path = 'equity_cache.json'
+        self._last_equity = 0.0
+        self._last_equity_ts = ''
+        self._load_equity_cache()
         
         # Initialize Universe immediatley
         self.refresh_universe()
@@ -85,6 +91,44 @@ class SmartTradingBot:
             # If even fallback fails, be safe: treat as closed.
             return False
 
+    def _load_equity_cache(self):
+        try:
+            if os.path.exists(self._equity_cache_path):
+                data = json.load(open(self._equity_cache_path, 'r'))
+                self._last_equity = float(data.get('equity', 0.0) or 0.0)
+                self._last_equity_ts = str(data.get('timestamp', '') or '')
+        except Exception:
+            pass
+
+    def _save_equity_cache(self, equity: float):
+        try:
+            self._last_equity = float(equity or 0.0)
+            self._last_equity_ts = datetime.datetime.now().isoformat()
+            with open(self._equity_cache_path, 'w') as f:
+                json.dump({'timestamp': self._last_equity_ts, 'equity': self._last_equity}, f, indent=2)
+        except Exception:
+            pass
+
+    def _get_equity_for_dashboard(self) -> float:
+        """Best-effort equity for display.
+
+        When market is closed, Alpaca quotes may not update, but account equity is still valid.
+        If API fails, fall back to last cached equity.
+        """
+        try:
+            account = self._get_account_cached()
+            equity = float(account.equity)
+            if self.config.virtual_account_size:
+                equity = float(self.config.virtual_account_size)
+            self._save_equity_cache(equity)
+            return float(equity)
+        except Exception:
+            try:
+                return float(self._last_equity or 0.0)
+            except Exception:
+                return 0.0
+
+
     def run(self):
         """Main Loop"""
         # Lock check
@@ -109,7 +153,11 @@ class SmartTradingBot:
                 # 0. Check Pause
                 if os.path.exists("bot.pause"):
                     log_info("Bot is PAUSED. (Waiting for resume...)")
-                    self._dump_dashboard_state(0, "PAUSED", None)
+                    try:
+                        eq = self._get_equity_for_dashboard()
+                    except Exception:
+                        eq = 0.0
+                    self._dump_dashboard_state(eq, "PAUSED", None)
                     time.sleep(5)
                     continue
 
@@ -122,7 +170,8 @@ class SmartTradingBot:
                     if not self._market_is_open():
                         log_info('Market closed - idling until open (still updating dashboard state).')
                         try:
-                            self._dump_dashboard_state(0, 'MARKET_CLOSED', None)
+                            eq = self._get_equity_for_dashboard()
+                            self._dump_dashboard_state(eq, 'MARKET_CLOSED', None)
                         except Exception:
                             pass
 
@@ -240,12 +289,9 @@ class SmartTradingBot:
     def process_symbol_adaptive(self, symbol: str):
         # A. Account Update
         try:
-            account = self._get_account_cached()
-            equity = float(account.equity)
-            if self.config.virtual_account_size:
-                equity = self.config.virtual_account_size
+            equity = self._get_equity_for_dashboard()
         except Exception:
-            equity = 100000.0 # Fallback
+            equity = 100000.0  # Fallback
 
         # B. Data Fetching
         try:
@@ -578,6 +624,7 @@ class SmartTradingBot:
                 "timestamp": datetime.datetime.now().isoformat(),
                 "runner_patch": "RUNNER_PATCH_20260205_103716",
                 "equity": equity,
+                "last_equity_timestamp": getattr(self, "_last_equity_ts", ""),
                 "virtual_account_size": self.config.virtual_account_size,
                 "kill_switch_floor_usd": float(getattr(self.config, "max_cap_usd", 0.0) or 0.0),
                 "next_cycle_time": next_time_iso,

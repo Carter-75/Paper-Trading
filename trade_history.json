@@ -1,1 +1,200 @@
-[]
+[
+  {
+    "timestamp": "2026-02-05T18:23:28.555135+00:00",
+    "symbol": "BMY",
+    "action": "SELL",
+    "qty": 48.109066911,
+    "entry_price": 58.239334,
+    "exit_price": 59.724998474121094,
+    "pnl": 71.47393159278735,
+    "pnl_pct": 0.02550964051410846,
+    "reason": "TAKE PROFIT HIT"
+  },
+  {
+    "timestamp": "2026-02-05T19:28:29.369455+00:00",
+    "symbol": "AVGO",
+    "action": "SELL",
+    "qty": 19.269219858,
+    "entry_price": 319.458183,
+    "exit_price": 315.2699890136719,
+    "pnl": -80.70323073051046,
+    "pnl_pct": -0.013110304287707491,
+    "reason": "STOP LOSS HIT"
+  },
+  {
+    "timestamp": "2026-02-05T20:52:47.531827+00:00",
+    "symbol": "ANET",
+    "action": "SELL",
+    "qty": 2.088926506,
+    "entry_price": 129.4732,
+    "exit_price": 127.80500030517578,
+    "pnl": -3.4847465598194036,
+    "pnl_pct": -0.0128845173736666,
+    "reason": "STOP LOSS HIT"
+  },
+  {
+    "timestamp": "2026-02-06T15:36:03.713921+00:00",
+    "symbol": "CAT",
+    "action": "SELL",
+    "qty": 0.513458267,
+    "entry_price": 681.515949,
+    "exit_price": 709.89501953125,
+    "pnl": 14.571468374046406,
+    "pnl_pct": 0.04164109522732538,
+    "reason": "TAKE PROFIT HIT"
+  },
+  {
+    "timestamp": "2026-02-06T15:36:05.487030+00:00",
+    "symbol": "AMAT",
+    "action": "SELL",
+    "qty": 30.304066916,
+    "entry_price": 299.090878,
+    "exit_price": 319.760009765625,
+    "pnl": 626.3587521211219,
+    "pnl_pct": 0.06910652676483509,
+    "reason": "TAKE PROFIT HIT"
+  },
+  {
+    "timestamp": "2026-02-06T15:36:25.173426+00:00",
+    "symbol": "GLW",
+    "action": "SELL",
+    "qty": 0.636114417,
+    "entry_price": 110.892,
+    "exit_price": 115.81999969482422,
+    "pnl": 3.1347716528492886,
+    "pnl_pct": 0.04443963220813244,
+    "reason": "TAKE PROFIT HIT"
+  },
+  {
+    "timestamp": "2026-02-06T15:36:28.164084+00:00",
+    "symbol": "CEG",
+    "action": "SELL",
+    "qty": 0.404831542,
+    "entry_price": 246.966922,
+    "exit_price": 258.75,
+    "pnl": 4.7701616362462715,
+    "pnl_pct": 0.04771115866277828,
+    "reason": "TAKE PROFIT HIT"
+  },
+  {
+    "timestamp": "2026-02-06T15:38:36.348478+00:00",
+    "symbol": "ABBV",
+    "action": "SELL",
+    "qty": 5.82050871,
+    "entry_price": 218.2524,
+    "exit_price": 224.0,
+    "pnl": 33.453955861596036,
+    "pnl_pct": 0.02633464740823013,
+    "reason": "TAKE PROFIT HIT"
+  },
+  {
+    "timestamp": "2026-02-06T15:38:42.365872+00:00",
+    "symbol": "BA",
+    "action": "SELL",
+    "qty": 8.67662261,
+    "entry_price": 236.451449,
+    "exit_price": 242.5406951904297,
+    "pnl": 52.83409117373863,
+    "pnl_pct": 0.025752627933481986,
+    "reason": "TAKE PROFIT HIT"
+  },
+  {
+    "timestamp": "2026-02-06T15:51:34.748857+00:00",
+    "symbol": "ADI",
+    "action": "SELL",
+    "qty": 10.094111582,
+    "entry_price": 322.741626,
+    "exit_price": 318.2699890136719,
+    "pnl": -45.137202694194265,
+    "pnl_pct": -0.013855160370073,
+    "reason": "STOP LOSS HIT"
+  },
+  {
+    "timestamp": "2026-02-06T16:12:19.466600+00:00",
+    "symbol": "AVGO",
+    "action": "SELL",
+    "qty": 1.867958487,
+    "entry_price": 320.183243,
+    "exit_price": 329.07000732421875,
+    "pnl": 16.600106841393224,
+    "pnl_pct": 0.027755244905863938,
+    "reason": "TAKE PROFIT HIT"
+  },
+  {
+    "timestamp": "2026-02-06T16:17:15.345889+00:00",
+    "symbol": "CVS",
+    "action": "SELL",
+    "qty": 80.223197773,
+    "entry_price": 76.303615,
+    "exit_price": 78.26499938964844,
+    "pnl": 157.348527799642,
+    "pnl_pct": 0.0257049995553742,
+    "reason": "TAKE PROFIT HIT"
+  },
+  {
+    "timestamp": "2026-02-06T16:39:34.834429+00:00",
+    "symbol": "DUK",
+    "action": "SELL",
+    "qty": 41.994804431,
+    "entry_price": 122.995453,
+    "exit_price": 121.4260025024414,
+    "pnl": -65.90876670910869,
+    "pnl_pct": -0.012760231856364572,
+    "reason": "STOP LOSS HIT"
+  },
+  {
+    "timestamp": "2026-02-06T17:07:12.025856+00:00",
+    "symbol": "BSX",
+    "action": "SELL",
+    "qty": 20.001983653,
+    "entry_price": 77.924771,
+    "exit_price": 76.9000015258789,
+    "pnl": -20.497422269463662,
+    "pnl_pct": -0.013150753745828789,
+    "reason": "STOP LOSS HIT"
+  },
+  {
+    "timestamp": "2026-02-06T17:11:17.012557+00:00",
+    "symbol": "CEG",
+    "action": "SELL",
+    "qty": 0.653286641,
+    "entry_price": 256.855091,
+    "exit_price": 263.6499938964844,
+    "pnl": 4.439019289165437,
+    "pnl_pct": 0.026454227050864094,
+    "reason": "TAKE PROFIT HIT"
+  },
+  {
+    "timestamp": "2026-02-06T18:25:24.674447+00:00",
+    "symbol": "AMGN",
+    "action": "SELL",
+    "qty": 20.348375035,
+    "entry_price": 368.957225,
+    "exit_price": 378.2449951171875,
+    "pnl": 188.99102958339728,
+    "pnl_pct": 0.02517302681140749,
+    "reason": "TAKE PROFIT HIT"
+  },
+  {
+    "timestamp": "2026-02-06T18:30:50.836577+00:00",
+    "symbol": "C",
+    "action": "SELL",
+    "qty": 1.283564688,
+    "entry_price": 116.823095,
+    "exit_price": 122.4749984741211,
+    "pnl": 7.254583719366364,
+    "pnl_pct": 0.048380018301356416,
+    "reason": "TAKE PROFIT HIT"
+  },
+  {
+    "timestamp": "2026-02-06T20:51:44.780348+00:00",
+    "symbol": "CSCO",
+    "action": "SELL",
+    "qty": 152.388923601,
+    "entry_price": 82.748009,
+    "exit_price": 84.87000274658203,
+    "pnl": 323.36834292968945,
+    "pnl_pct": 0.02564404596830886,
+    "reason": "TAKE PROFIT HIT"
+  }
+]
