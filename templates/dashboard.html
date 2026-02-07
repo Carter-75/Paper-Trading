@@ -109,7 +109,10 @@
             <div class="card">
                 <div class="stat-label">Total Equity</div>
                 <div class="stat-value" id="equity">$---</div>
-                <div class="stat-label" id="max-capital">Limit: $---</div>
+                <div class="stat-label" id="max-capital">Hard Kill 1 (Fixed): $---</div>
+                <div class="stat-label" id="hard-kill-2" style="color: #f44336; font-size: 0.8em;">Hard Kill 2 (15%): $---</div>
+                <div class="stat-label" id="soft-kill" style="color: #ff9800; font-size: 0.8em;">Soft Kill (10%): $---</div>
+                <div class="stat-label" id="hwm" style="color: #2196f3; font-size: 0.8em;">HWM: $---</div>
             </div>
             <div class="card">
                 <div class="stat-label">Next Prediction</div>
@@ -242,19 +245,43 @@
                 .then(data => {
                     const statusDot = document.getElementById('status-dot');
                     if (data.active_cycle) {
-                        statusDot.className = 'status-dot status-active';
-                        statusDot.style.backgroundColor = '';
+                        if (data.restricted_mode) {
+                             statusDot.className = 'status-dot';
+                             statusDot.style.backgroundColor = 'orange'; // Restricted
+                             statusDot.title = "Restricted Mode (Soft Kill Recovery)";
+                        } else {
+                             statusDot.className = 'status-dot status-active';
+                             statusDot.style.backgroundColor = '';
+                             statusDot.title = "Active";
+                        }
                     } else if (data.last_symbol === "PAUSED") {
                         statusDot.className = 'status-dot';
-                        statusDot.style.backgroundColor = 'orange';
+                        statusDot.style.backgroundColor = 'purple';
+                        statusDot.title = "Paused";
+                    } else if (data.last_symbol && data.last_symbol.includes("KILL_SWITCH")) {
+                        statusDot.className = 'status-dot';
+                        statusDot.style.backgroundColor = 'red';
+                        statusDot.title = "KILLED";
                     } else {
                         statusDot.className = 'status-dot';
                         statusDot.style.backgroundColor = 'gray';
+                        statusDot.title = "Offline / Unknown";
                     }
 
                     if (data.equity !== undefined) {
                         document.getElementById('equity').textContent = '$' + data.equity.toFixed(2);
-                        document.getElementById('max-capital').textContent = 'Kill floor: $' + ((data.kill_switch_floor_usd !== undefined) ? Number(data.kill_switch_floor_usd).toFixed(2) : '---');
+                        document.getElementById('max-capital').textContent = 'Hard Kill 1: $' + ((data.kill_switch_floor_usd !== undefined) ? Number(data.kill_switch_floor_usd).toFixed(2) : '---');
+                        
+                        if (data.hard_kill_2_level !== undefined) {
+                            document.getElementById('hard-kill-2').textContent = 'Hard Kill 2 (15%): $' + data.hard_kill_2_level.toFixed(2);
+                        }
+                        if (data.dynamic_floor_level !== undefined) {
+                            document.getElementById('soft-kill').textContent = 'Soft Kill (10%): $' + data.dynamic_floor_level.toFixed(2);
+                        }
+                        if (data.high_water_mark !== undefined) {
+                            document.getElementById('hwm').textContent = 'HWM: $' + data.high_water_mark.toFixed(2);
+                        }
+
                         document.getElementById('timestamp').textContent = new Date(data.timestamp).toLocaleString();
 
                         // Parse next cycle

@@ -58,6 +58,9 @@ class SmartTradingBot:
         self._equity_cache_path = 'equity_cache.json'
         self._last_equity = 0.0
         self._last_equity_ts = ''
+        self._high_water_mark = 0.0 # Track max equity seen
+        self._restricted_mode = False
+        self._restricted_mode_start = 0.0
         self._load_equity_cache()
         
         # Initialize Universe immediatley
@@ -97,6 +100,9 @@ class SmartTradingBot:
                 data = json.load(open(self._equity_cache_path, 'r'))
                 self._last_equity = float(data.get('equity', 0.0) or 0.0)
                 self._last_equity_ts = str(data.get('timestamp', '') or '')
+                self._high_water_mark = float(data.get('high_water_mark', 0.0) or 0.0)
+                self._restricted_mode = bool(data.get('restricted_mode', False))
+                self._restricted_mode_start = float(data.get('restricted_mode_start', 0.0) or 0.0)
         except Exception:
             pass
 
@@ -104,8 +110,18 @@ class SmartTradingBot:
         try:
             self._last_equity = float(equity or 0.0)
             self._last_equity_ts = datetime.datetime.now().isoformat()
+            
+            # Simple persistence of HWM/restricted state along with equity
+            state = {
+                'timestamp': self._last_equity_ts,
+                'equity': self._last_equity,
+                'high_water_mark': self._high_water_mark,
+                'restricted_mode': self._restricted_mode,
+                'restricted_mode_start': self._restricted_mode_start
+            }
+            
             with open(self._equity_cache_path, 'w') as f:
-                json.dump({'timestamp': self._last_equity_ts, 'equity': self._last_equity}, f, indent=2)
+                json.dump(state, f, indent=2)
         except Exception:
             pass
 
@@ -128,6 +144,19 @@ class SmartTradingBot:
             except Exception:
                 return 0.0
 
+    def liquidate_all(self, reason: str):
+        """Emergency: Close all positions immediately."""
+        log_error(f"!!! LIQUIDATE ALL TRIGGERED: {reason} !!!")
+        try:
+            # Check market open? For kill switch, we try regardless.
+            positions = self.pm.get_all_positions()
+            for symbol in list(positions.keys()): # Copy keys
+                log_warn(f"Liquidating {symbol}...")
+                self.order_executor.liquidate(symbol, reason)
+                self.pm.remove_position(symbol)
+                time.sleep(0.5) # Avoid rate limits slightly
+        except Exception as e:
+            log_error(f"Failed to fully liquidate: {e}")
 
     def run(self):
         """Main Loop"""
@@ -533,21 +562,67 @@ class SmartTradingBot:
             equity = self.config.virtual_account_size
             
 
-        # Kill switch: stop bot if equity drops below configured floor (max_cap_usd).
+        # Track High Water Mark (only goes up)
+        if equity > self._high_water_mark:
+            self._high_water_mark = equity
+            # If we were in restricted mode and recovered, check resumption
+        
+        # Define Kill Levels based on HWM (15% Hard, 10% Soft)
+        # Assuming HWM starts at initial capital (e.g. 100k) or grows.
+        if self._high_water_mark <= 0.1:
+             self._high_water_mark = equity # Initialize if 0
+             
+        hard_kill_2_level = self._high_water_mark * 0.85 # 15% Drawdown
+        dynamic_floor = self._high_water_mark * 0.90 # 10% Drawdown
+        
+        # Kill switch logic
         try:
-            floor = float(getattr(self.config, 'max_cap_usd', 0.0) or 0.0)
-            if floor > 0 and equity < floor:
-                log_error(f"KILL SWITCH TRIGGERED: equity ${equity:.2f} < floor ${floor:.2f}. Exiting.")
-                try:
-                    self._dump_dashboard_state(equity, 'KILL_SWITCH', None)
-                except Exception:
-                    pass
+            # 1. Hard Kill 1: Fixed Floor (Original)
+            fixed_floor = float(getattr(self.config, 'max_cap_usd', 0.0) or 0.0)
+            if fixed_floor > 0 and equity < fixed_floor:
+                self.liquidate_all(f"Hard Kill 1: Equity ${equity:.2f} < Fixed Floor ${fixed_floor:.2f}")
+                self._dump_dashboard_state(equity, 'KILL_SWITCH_FIXED', None)
                 raise SystemExit(2)
+
+            # 2. Hard Kill 2: 15% Drawdown (Dynamic)
+            if equity < hard_kill_2_level:
+                self.liquidate_all(f"Hard Kill 2: Equity ${equity:.2f} < 15% Drawdown (Limit: ${hard_kill_2_level:.2f})")
+                self._dump_dashboard_state(equity, 'KILL_SWITCH_DYNAMIC', None)
+                raise SystemExit(2)
+
+            # 3. Soft Kill: 10% Drawdown -> Restricted Mode
+            if equity < dynamic_floor and not self._restricted_mode:
+                self.liquidate_all(f"Soft Kill: Equity ${equity:.2f} < 10% Drawdown (Limit: ${dynamic_floor:.2f})")
+                self._restricted_mode = True
+                self._restricted_mode_start = time.time()
+                log_warn("ENTERING RESTRICTED MODE. Pausing for 5 minutes.")
+                self._save_equity_cache(equity) # Save state immediately
+                
+            # 4. Restricted Mode Logic
+            if self._restricted_mode:
+                # Check for recovery (must be > floor + 25 buffer to avoid oscillation)
+                # Note: "floor" here refers to the 10% drawdown level.
+                if equity > (dynamic_floor + 25.0):
+                    self._restricted_mode = False
+                    log_info("Restricted Mode: RECOVERED! Resuming normal operation.")
+                    self._save_equity_cache(equity)
+                else:
+                    # Cooldown check
+                    elapsed = time.time() - self._restricted_mode_start
+                    if elapsed < 300: # 5 minutes
+                         log_info(f"Restricted Mode: Warming up... {300 - elapsed:.0f}s remaining.")
+                         self._dump_dashboard_state(equity, "RESTRICTED_COOLDOWN", None)
+                         return # Skip trading cycle
+                    
+                    # If cooldown done, we proceed but with Max Exposure Cap
+                    log_warn(f"Restricted Mode Active: Trading capped at 10% of Equity (${equity * 0.10:.2f})")
+
         except SystemExit:
             raise
-        except Exception:
-            pass
-        log_info(f"Account Equity: ${equity:.2f} (Cash: ${cash:.2f})")
+        except Exception as e:
+            log_error(f"Kill switch error: {e}")
+            
+        log_info(f"Account Equity: ${equity:.2f} (Cash: ${cash:.2f}) | HWM: ${self._high_water_mark:.2f}")
         
         # 2. Get Universe
         # Phase 13: Use Dynamic Active Universe
@@ -557,13 +632,18 @@ class SmartTradingBot:
         universe = self.active_universe
         
         # 3. Process Each Symbol
+        # Calculate restricted cap if needed
+        max_exposure_cap = None
+        if self._restricted_mode:
+            max_exposure_cap = equity * 0.10 # 10% of current equity
+
         for symbol in universe:
             try:
-                self.process_symbol(symbol, equity)
+                self.process_symbol(symbol, equity, max_exposure_cap)
             except Exception as e:
                 log_error(f"Error processing {symbol}: {e}")
     
-    def process_symbol(self, symbol: str, total_equity: float):
+    def process_symbol(self, symbol: str, total_equity: float, max_exposure_cap: float = None):
         # A. Fetch Data
         # We need ~150 bars for good technicals + ML
         closes, volumes = fetch_closes_with_volume(
@@ -589,7 +669,7 @@ class SmartTradingBot:
 
         # C. Calculate Allocation (The "Banker")
         current_price = closes[-1]
-        allocation = self.allocation_engine.calculate_allocation(signal, current_price, total_equity)
+        allocation = self.allocation_engine.calculate_allocation(signal, current_price, total_equity, max_exposure_cap=max_exposure_cap)
         
         if not allocation.is_allowed:
             log_info(f"  Allocation denied: {allocation.reason}")
@@ -632,7 +712,12 @@ class SmartTradingBot:
                 "last_action": last_signal.action if last_signal else "idle",
                 "last_confidence": last_signal.confidence if last_signal else 0.0,
                 "active_cycle": not os.path.exists("bot.pause"), # Real status
-                "positions": self.pm.get_all_positions()
+                "positions": self.pm.get_all_positions(),
+                "high_water_mark": self._high_water_mark,
+                "dynamic_floor_level": self._high_water_mark * 0.90,
+                "hard_kill_2_level": self._high_water_mark * 0.85,
+                "restricted_mode": self._restricted_mode,
+                "restricted_mode_start": self._restricted_mode_start
             }
             with open("dashboard_state.json", "w") as f:
                 json.dump(state, f, indent=2)

@@ -44,7 +44,7 @@ class AllocationEngine:
         self.win_rate = 0.55 # Conservative initial estimate
         self.avg_win_loss_ratio = 1.5
     
-    def calculate_allocation(self, signal: TradeSignal, current_price: float, total_equity: float) -> AllocationResult:
+    def calculate_allocation(self, signal: TradeSignal, current_price: float, total_equity: float, max_exposure_cap: Optional[float] = None) -> AllocationResult:
         """
         Calculate the optimal position size.
         """
@@ -66,7 +66,11 @@ class AllocationEngine:
         base_alloc = (total_equity * self.config.trade_size_frac_of_cap)
         try:
             if getattr(self.config, 'max_cap_usd', None):
-                base_alloc = min(base_alloc, float(self.config.max_cap_usd))
+                # If restricted mode is active (max_exposure_cap passed), ignore the fixed floor for sizing
+                # The fixed floor is now a Hard Kill level, not a position sizer.
+                # However, we keep this logic if no cap is passed to respect original intent if any.
+                if max_exposure_cap is None:
+                     base_alloc = min(base_alloc, float(self.config.max_cap_usd))
         except Exception:
             pass
         
@@ -99,7 +103,21 @@ class AllocationEngine:
         if (current_exposure + alloc_value) > (total_equity * (self.config.max_exposure_pct / 100.0)):
              reduction = (total_equity * (self.config.max_exposure_pct / 100.0)) - current_exposure
              if reduction < 0: reduction = 0
+             if reduction < 0: reduction = 0
              alloc_value = min(alloc_value, reduction)
+             
+        # 5.1.5 Restricted Mode Cap (Soft Kill Recovery)
+        if max_exposure_cap is not None:
+            # We must not exceed this total portfolio value
+            current_total_val = self.pm.get_total_market_value()
+            remaining_cap = max(0.0, max_exposure_cap - current_total_val)
+            
+            if alloc_value > remaining_cap:
+                alloc_value = remaining_cap
+                # If we are already over, alloc becomes 0
+            
+            if alloc_value <= 0:
+                 return AllocationResult(signal.symbol, 0, 0.0, f"Restricted Mode: Max Exposure Cap ${max_exposure_cap:.2f} reached", False)
              
         # 5.2 Max Loss per Trade (Stop Loss Risk)
         # Risk = Value * StopLoss%

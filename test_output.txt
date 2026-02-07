@@ -1,0 +1,64 @@
+============================= test session starts =============================
+platform win32 -- Python 3.11.9, pytest-9.0.2, pluggy-1.6.0 -- C:\Python311\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\carte\OneDrive\Desktop\Code\Portfolio-Websites (Mostly)\Paper-Trading
+configfile: pytest.ini
+plugins: anyio-4.12.1
+collecting ... collected 6 items
+
+tests/test_new_kill_switch.py::TestKillSwitch::test_update_hwm PASSED    [ 16%]
+tests/test_new_kill_switch.py::TestKillSwitch::test_hard_kill_1_fixed FAILED [ 33%]
+tests/test_new_kill_switch.py::TestKillSwitch::test_hard_kill_2_dynamic FAILED [ 50%]
+tests/test_new_kill_switch.py::TestKillSwitch::test_soft_kill_trigger FAILED [ 66%]
+tests/test_new_kill_switch.py::TestKillSwitch::test_restricted_mode_cooldown PASSED [ 83%]
+tests/test_new_kill_switch.py::TestKillSwitch::test_restricted_mode_cap FAILED [100%]
+
+================================== FAILURES ===================================
+____________________ TestKillSwitch.test_hard_kill_1_fixed ____________________
+tests\test_new_kill_switch.py:60: in test_hard_kill_1_fixed
+    bot.order_executor.liquidate.assert_called()
+C:\Python311\Lib\unittest\mock.py:908: in assert_called
+    raise AssertionError(msg)
+E   AssertionError: Expected 'liquidate' to have been called.
+---------------------------- Captured stdout setup ----------------------------
+[OK] Using cached top 100 stocks (age: 16.4h)
+------------------------------ Captured log call ------------------------------
+ERROR    root:helpers.py:33 !!! LIQUIDATE ALL TRIGGERED: Hard Kill 1 !!!
+ERROR    root:helpers.py:33 Failed to fully liquidate: 'Mock' object is not iterable
+___________________ TestKillSwitch.test_hard_kill_2_dynamic ___________________
+tests\test_new_kill_switch.py:71: in test_hard_kill_2_dynamic
+    bot.order_executor.liquidate.assert_called()
+C:\Python311\Lib\unittest\mock.py:908: in assert_called
+    raise AssertionError(msg)
+E   AssertionError: Expected 'liquidate' to have been called.
+---------------------------- Captured stdout setup ----------------------------
+[OK] Using cached top 100 stocks (age: 16.4h)
+------------------------------ Captured log call ------------------------------
+ERROR    root:helpers.py:33 !!! LIQUIDATE ALL TRIGGERED: Hard Kill 2 !!!
+ERROR    root:helpers.py:33 Failed to fully liquidate: 'Mock' object is not iterable
+____________________ TestKillSwitch.test_soft_kill_trigger ____________________
+tests\test_new_kill_switch.py:82: in test_soft_kill_trigger
+    bot.order_executor.liquidate.assert_called()
+C:\Python311\Lib\unittest\mock.py:908: in assert_called
+    raise AssertionError(msg)
+E   AssertionError: Expected 'liquidate' to have been called.
+---------------------------- Captured stdout setup ----------------------------
+[OK] Using cached top 100 stocks (age: 16.4h)
+------------------------------ Captured log call ------------------------------
+ERROR    root:helpers.py:33 !!! LIQUIDATE ALL TRIGGERED: Soft Kill !!!
+ERROR    root:helpers.py:33 Failed to fully liquidate: 'Mock' object is not iterable
+___________________ TestKillSwitch.test_restricted_mode_cap ___________________
+tests\test_new_kill_switch.py:119: in test_restricted_mode_cap
+    bot.process_symbol('AAPL', equity, max_exposure_cap)
+runner.py:666: in process_symbol
+    log_info(f"SIGNAL {symbol}: {signal.action.upper()} (Conf: {signal.confidence:.2f})")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   TypeError: unsupported format string passed to MagicMock.__format__
+---------------------------- Captured stdout setup ----------------------------
+[OK] Using cached top 100 stocks (age: 16.4h)
+=========================== short test summary info ===========================
+FAILED tests/test_new_kill_switch.py::TestKillSwitch::test_hard_kill_1_fixed - AssertionError: Expected 'liquidate' to have been called.
+FAILED tests/test_new_kill_switch.py::TestKillSwitch::test_hard_kill_2_dynamic - AssertionError: Expected 'liquidate' to have been called.
+FAILED tests/test_new_kill_switch.py::TestKillSwitch::test_soft_kill_trigger - AssertionError: Expected 'liquidate' to have been called.
+FAILED tests/test_new_kill_switch.py::TestKillSwitch::test_restricted_mode_cap - TypeError: unsupported format string passed to MagicMock.__format__
+=================== 4 failed, 2 passed, 1 warning in 2.30s ====================

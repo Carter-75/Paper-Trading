@@ -1,0 +1,16 @@
+============================= test session starts =============================
+platform win32 -- Python 3.11.9, pytest-9.0.2, pluggy-1.6.0 -- C:\Python311\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\carte\OneDrive\Desktop\Code\Portfolio-Websites (Mostly)\Paper-Trading
+configfile: pytest.ini
+plugins: anyio-4.12.1
+collecting ... collected 6 items
+
+tests/test_new_kill_switch.py::TestKillSwitch::test_update_hwm PASSED    [ 16%]
+tests/test_new_kill_switch.py::TestKillSwitch::test_hard_kill_1_fixed PASSED [ 33%]
+tests/test_new_kill_switch.py::TestKillSwitch::test_hard_kill_2_dynamic PASSED [ 50%]
+tests/test_new_kill_switch.py::TestKillSwitch::test_soft_kill_trigger PASSED [ 66%]
+tests/test_new_kill_switch.py::TestKillSwitch::test_restricted_mode_cooldown PASSED [ 83%]
+tests/test_new_kill_switch.py::TestKillSwitch::test_restricted_mode_cap PASSED [100%]
+
+======================== 6 passed, 1 warning in 3.51s =========================
