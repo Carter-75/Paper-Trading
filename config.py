@@ -195,8 +195,9 @@ def validate_config(allow_missing_api_keys: bool = False) -> Optional[str]:
         return f"Missing configuration: {', '.join(missing)}. Set env vars or enable debug override."
     return None
 
-def wants_live_mode(cli_flag_go_live: bool = False) -> bool:
-    return bool(cli_flag_go_live and CONFIRM_GO_LIVE == "YES")
+def wants_live_mode() -> bool:
+    """Check if live trading mode is enabled"""
+    return os.getenv("CONFIRM_GO_LIVE") == "YES"
 
 def validate_risk_config() -> Optional[str]:
     """

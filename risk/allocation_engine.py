@@ -123,7 +123,15 @@ class AllocationEngine:
         # Risk = Value * StopLoss%
         # We want Risk < Equity * MaxRisk%
         max_risk_dollars = total_equity * (self.config.max_loss_per_trade_pct / 100.0)
-        implied_risk_dollars = alloc_value * (self.config.stop_loss_percent / 100.0)
+        
+        # [MOD] Live mode optimization: Use ATR for risk if available, instead of estimating with stop_loss_percent
+        sl_pct = self.config.stop_loss_percent
+        if self.config.wants_live_mode() and getattr(signal, 'atr', 0) > 0 and current_price > 0:
+            # implied_sl_pct = (2 * atr / price) * 100
+            sl_pct = (2.0 * float(signal.atr) / current_price) * 100.0
+            self.logger.info(f"Using ATR-based stop loss risk: {sl_pct:.2f}% for {signal.symbol}")
+
+        implied_risk_dollars = alloc_value * (sl_pct / 100.0)
         
         if implied_risk_dollars > max_risk_dollars:
             # Scale down to fit risk budget

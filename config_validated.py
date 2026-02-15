@@ -458,9 +458,9 @@ class TradingBotConfig(BaseSettings):
                 )
         return self
     
-    def wants_live_mode(self, cli_flag_go_live: bool = False) -> bool:
+    def wants_live_mode(self) -> bool:
         """Check if live trading mode is enabled"""
-        return bool(cli_flag_go_live and self.confirm_go_live == "YES")
+        return self.confirm_go_live == "YES"
 
 
 # Global config instance
