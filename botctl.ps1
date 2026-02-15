@@ -1,21 +1,21 @@
 ﻿# botctl.ps1 (patched v2 - bot + 24/7 dashboard)
 
 param(
-  [Parameter(Mandatory=$true,Position=0)]
-  [ValidateSet('start','restart','stop','status','remove')]
+  [Parameter(Mandatory = $true, Position = 0)]
+  [ValidateSet('start', 'restart', 'stop', 'status', 'remove')]
   [string]$cmd,
 
-  [Parameter(ValueFromRemainingArguments=$true)]
+  [Parameter(ValueFromRemainingArguments = $true)]
   [string[]]$rest
 )
 
 $ErrorActionPreference = 'Stop'
 
 $TaskName = 'PaperTradingBot'
-$WorkDir   = Split-Path -Parent $MyInvocation.MyCommand.Path
+$WorkDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $BotScript = Join-Path $WorkDir 'start_bot.ps1'
 $DashScript = Join-Path $WorkDir 'start_dashboard.ps1'
-$CmdFile  = Join-Path $WorkDir 'last_start_cmd.txt'
+$CmdFile = Join-Path $WorkDir 'last_start_cmd.txt'
 
 $Pwsh = (Get-Command pwsh -ErrorAction SilentlyContinue).Source
 if (-not $Pwsh) { $Pwsh = 'C:\\Program Files\\PowerShell\\7\\pwsh.exe' }
@@ -60,6 +60,29 @@ function Get-LocalTimeStringForEastern925 {
   return $todayLocal.ToString('HH:mm')
 }
 
+function Get-PythonProcess([string]$match) {
+  # Try CIM first (best detail)
+  try {
+    $proc = Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -match $match }
+    if ($proc) { return $proc }
+  }
+  catch { }
+
+  # Fallback: tasklist /V (less detail, but often works without admin)
+  try {
+    $tasks = tasklist /FI "IMAGENAME eq python.exe" /V /FO CSV | ConvertFrom-Csv
+    foreach ($t in $tasks) {
+      if ($t.'Window Title' -match $match) {
+        return [PSCustomObject]@{ ProcessId = [int]$t.PID; CommandLine = $t.'Window Title' }
+      }
+    }
+  }
+  catch { }
+  
+  return $null
+}
+
 function Write-BotStartScript([string]$BotCommand) {
   $content = @()
   $content += '$ErrorActionPreference = "Continue"'
@@ -94,15 +117,17 @@ function Write-BotStartScript([string]$BotCommand) {
   Set-Content -Path $CmdFile -Value $BotCommand -Encoding UTF8
 }
 
-function CreateOrUpdateTask([string]$Name,[string]$Trigger,[string]$TimeOpt,[string]$ScriptPath) {
+function CreateOrUpdateTask([string]$Name, [string]$Trigger, [string]$TimeOpt, [string]$ScriptPath) {
   $tr = '"' + $Pwsh + '" -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $ScriptPath + '"'
   if (Task-Exists $Name) { Task-Delete $Name }
 
   if ($Trigger -eq 'DAILY') {
     schtasks /Create /TN $Name /SC DAILY /ST $TimeOpt /TR $tr /RL HIGHEST /RU SYSTEM /F | Out-Null
-  } elseif ($Trigger -eq 'ONLOGON') {
+  }
+  elseif ($Trigger -eq 'ONLOGON') {
     schtasks /Create /TN $Name /SC ONLOGON /TR $tr /RL HIGHEST /RU SYSTEM /F | Out-Null
-  } elseif ($Trigger -eq 'ONSTART') {
+  }
+  elseif ($Trigger -eq 'ONSTART') {
     schtasks /Create /TN $Name /SC ONSTART /TR $tr /RL HIGHEST /RU SYSTEM /F | Out-Null
   }
 }
@@ -122,6 +147,40 @@ function Ensure-Tasks([string]$BotCommand) {
   CreateOrUpdateTask ($TaskName + '-Daily925ET') 'DAILY' $dailyTime $BotScript
 
   return $dailyTime
+}
+
+function Status {
+  Require-Admin
+  Write-Host "--- Paper-Trading Status ---" -ForegroundColor Cyan
+  
+  $botProc = Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
+  Where-Object { $_.CommandLine -match 'runner.py' }
+  if ($botProc) {
+    Write-Host "Bot: RUNNING (PID: $($botProc.ProcessId))" -ForegroundColor Green
+  }
+  else {
+    Write-Host "Bot: NOT RUNNING" -ForegroundColor Red
+  }
+
+  $dashProc = Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
+  Where-Object { $_.CommandLine -match 'dashboard.py' }
+  if ($dashProc) {
+    Write-Host "Dashboard: RUNNING (PID: $($dashProc.ProcessId))" -ForegroundColor Green
+  }
+  else {
+    Write-Host "Dashboard: NOT RUNNING" -ForegroundColor Red
+  }
+
+  Write-Host "`n--- Scheduled Tasks ---" -ForegroundColor Cyan
+  foreach ($n in @($TaskName, $TaskName + '-Startup', $TaskName + '-Daily925ET', 'PaperTradingDashboard')) {
+    if (Task-Exists $n) {
+      $info = schtasks /Query /TN $n /FO LIST /V | Select-String "Status:" | ForEach-Object { $_.ToString().Trim() }
+      Write-Host "Task $($n): $info"
+    }
+    else {
+      Write-Host "Task $($n): NOT FOUND" -ForegroundColor Gray
+    }
+  }
 }
 
 switch ($cmd) {
@@ -165,18 +224,14 @@ switch ($cmd) {
 
   'remove' {
     Require-Admin
-    foreach($n in @($TaskName, $TaskName+'-Startup', $TaskName+'-Daily925ET', 'PaperTradingDashboard')) {
+    foreach ($n in @($TaskName, $TaskName + '-Startup', $TaskName + '-Daily925ET', 'PaperTradingDashboard')) {
       if (Task-Exists $n) { Task-Delete $n }
     }
     "OK: removed bot+dashboard tasks"
   }
 
   'status' {
-    Require-Admin
-    foreach($n in @($TaskName, $TaskName+'-Startup', $TaskName+'-Daily925ET', 'PaperTradingDashboard')) {
-      "--- $n ---"
-      if (Task-Exists $n) { schtasks /Query /TN $n /FO LIST /V } else { "(not found)" }
-    }
+    Status
   }
 }
 

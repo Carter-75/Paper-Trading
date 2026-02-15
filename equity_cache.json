@@ -1,4 +1,7 @@
 {
-  "timestamp": "2026-02-07T17:43:52.792843",
-  "equity": 101803.31
+  "timestamp": "2026-02-15T12:22:15.505927",
+  "equity": 101306.12,
+  "high_water_mark": 0.0,
+  "restricted_mode": false,
+  "restricted_mode_start": 0.0
 }

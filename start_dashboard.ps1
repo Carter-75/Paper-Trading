@@ -42,11 +42,26 @@ function Kill-DashboardPy {
 }
 
 while ($true) {
+  # --- LOG TRUNCATION (Safety) ---
+  try {
+    if (Test-Path $logPath) {
+      $logInfo = Get-Item $logPath
+      if ($logInfo.Length -gt 1MB) {
+        # Keep last 1000 lines, truncate the rest
+        $tail = Get-Content $logPath -Tail 1000
+        $tail | Set-Content $logPath
+        Add-Content -Path $logPath -Value ("DASH_LOG_ROTATED " + (Get-Date).ToString('s') + " (Old size: " + $logInfo.Length + ")")
+      }
+    }
+  } catch { }
+
   # Take over port 5000 no matter what is holding it
   $pids = Get-ListeningPids5000
   if ($pids.Count -gt 0) {
     Add-Content -Path $logPath -Value ("DASH_TAKEOVER killing port 5000 occupant pids=" + ($pids -join ',') + " " + (Get-Date).ToString('s'))
-    $pids | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
+    foreach ($pid in $pids) {
+      try { Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue } catch { }
+    }
     Start-Sleep -Seconds 2
   }
 
