@@ -145,13 +145,16 @@ class AllocationEngine:
             slippage_cost = alloc_value * (self.config.slippage_percent / 100.0) if self.config.simulate_slippage_enabled else 0
             total_cost = fee + slippage_cost
             
-            # Simple heuristic: Expected profit should safely cover costs (e.g. 2x costs)
-            # If expected movement is ~1% (typical daily vol), profit = value * 0.01
-            # We assume a conservative 0.5% move for this check
-            expected_gross_profit = alloc_value * 0.005 
+            # [MOD] Live mode optimization: Use ATR as proxy for expected move instead of hardcoded 0.5%
+            # This ensures we don't 'double check' ourselves into rejection when live stop-losses are also ATR-based.
+            expected_move_pct = 0.005 # 0.5% fallback
+            if self.config.wants_live_mode() and getattr(signal, 'atr', 0) > 0 and current_price > 0:
+                expected_move_pct = float(signal.atr) / current_price
+            
+            expected_gross_profit = alloc_value * expected_move_pct
             
             if expected_gross_profit < (total_cost * 1.5):
-                return AllocationResult(signal.symbol, 0, 0.0, f"Fees too high ({total_cost:.2f} > profit {expected_gross_profit:.2f})", False)
+                return AllocationResult(signal.symbol, 0, 0.0, f"Fees too high ({total_cost:.2f} > profit {expected_gross_profit:.2f}, move {expected_move_pct:.2%})", False)
 
         # Final Allocation (FRACTIONAL / NOTIONAL ONLY)
         min_notional = float(getattr(self.config, 'min_notional_usd', 1.0))
