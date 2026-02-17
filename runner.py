@@ -432,7 +432,12 @@ class SmartTradingBot:
             if closes and len(closes) > 50:
                 signal = self.decision_engine.analyze(symbol, closes, volumes)
                 if signal.action != "hold":
-                    allocation = self.allocation_engine.calculate_allocation(signal, current_price, equity)
+                    # Check for restricted mode cap
+                    max_exposure_cap = None
+                    if self._restricted_mode:
+                        max_exposure_cap = equity * 0.10
+
+                    allocation = self.allocation_engine.calculate_allocation(signal, current_price, equity, max_exposure_cap=max_exposure_cap)
 
                     # Track desired vs executed action for dashboard/UI
                     try:

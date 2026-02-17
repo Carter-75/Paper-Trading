@@ -208,7 +208,33 @@ switch ($cmd) {
     Task-Stop $TaskName
     Task-Stop ($TaskName + '-Startup')
     Task-Stop ($TaskName + '-Daily925ET')
-    Start-Sleep -Seconds 1
+    
+    Write-Host "NUCLEAR: Force killing bot-related python processes..." -ForegroundColor Yellow
+    
+    # Target specific scripts to avoid collateral damage
+    $targets = @('runner.py', 'dashboard.py', 'start_dashboard.ps1', 'start_bot.ps1')
+    
+    Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue | 
+    ForEach-Object {
+      $p = $_
+      $procCmdLimit = $p.CommandLine
+      if ($null -eq $procCmdLimit) { return }
+        
+      $matchFound = $false
+      foreach ($t in $targets) {
+        if ($procCmdLimit -match $t) { 
+          $matchFound = $true 
+          break 
+        }
+      }
+        
+      if ($matchFound) {
+        Write-Host "Killing PID $($p.ProcessId): $procCmdLimit" -ForegroundColor Gray
+        Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue 
+      }
+    }
+    
+    Start-Sleep -Seconds 2
 
     Task-Run 'PaperTradingDashboard'
     Task-Run $TaskName
