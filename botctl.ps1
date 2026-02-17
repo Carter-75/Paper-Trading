@@ -102,7 +102,7 @@ function Write-BotStartScript([string]$BotCommand) {
   $content += '$mutexName = "Global\\PaperTradingBotLauncher"'
   $content += '$createdNew = $false'
   $content += 'try {'
-  $content += '  $mutex = New-Object System.Threading.Mutex($true, $mutexName, [ref]$createdNew)'
+  $content += '  $mutex = New-Object -TypeName System.Threading.Mutex -ArgumentList $true, $mutexName, ([ref]$createdNew)'
   $content += '  if (-not $createdNew) {'
   $content += '    $msg = "BOT_LAUNCHER_BLOCKED: Another instance is already running. Exiting. " + (Get-Date).ToString("s")'
   $content += '    Write-Host $msg -ForegroundColor Yellow'

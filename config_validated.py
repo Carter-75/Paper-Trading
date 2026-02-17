@@ -518,3 +518,6 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"[X] Configuration validation failed:\n{e}")
 
+    def wants_live_mode(self) -> bool:
+        """Helper to check if live mode is enabled via confirm_go_live"""
+        return self.confirm_go_live.upper() == "YES"

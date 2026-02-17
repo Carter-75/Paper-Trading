@@ -11,6 +11,23 @@ Add-Type -Namespace Win32 -Name Power -MemberDefinition @"
 function Acquire-AwakeLock { [void][Win32.Power]::SetThreadExecutionState(0x80000001) }
 function Release-AwakeLock { [void][Win32.Power]::SetThreadExecutionState(0x80000000) }
 
+# --- Singleton guard ---
+$mutexName = "Global\\PaperTradingBotLauncher"
+$createdNew = $false
+try {
+  $mutex = New-Object -TypeName System.Threading.Mutex -ArgumentList $true, $mutexName, ([ref]$createdNew)
+  if (-not $createdNew) {
+    $msg = "BOT_LAUNCHER_BLOCKED: Another instance is already running. Exiting. " + (Get-Date).ToString("s")
+    Write-Host $msg -ForegroundColor Yellow
+    Add-Content -Path .\\bot.log -Value $msg
+    exit 0
+  }
+} catch {
+  $err = $_.Exception.Message
+  Add-Content -Path .\\bot.log -Value ("MUTEX_ERROR: " + $err + " " + (Get-Date).ToString("s"))
+  Write-Host ("MUTEX_ERROR: " + $err) -ForegroundColor Red
+}
+
 Add-Content -Path .\\bot.log -Value ("BOT_INIT " + (Get-Date).ToString("s") + " user=" + [System.Security.Principal.WindowsIdentity]::GetCurrent().Name)
 Acquire-AwakeLock
 try {
