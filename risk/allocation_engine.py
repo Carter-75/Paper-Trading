@@ -49,14 +49,14 @@ class AllocationEngine:
         Calculate the optimal position size.
         """
         if signal.action == "hold":
-             return AllocationResult(signal.symbol, 0, 0.0, "Hold signal", False)
+             return AllocationResult(signal.symbol, 0, 0.0, 0.0, "Hold signal", False)
 
         if signal.action == "sell":
             # Liquidation logic
             # For now, simplistic full sell. Smart logic could scale out.
             pos = self.pm.get_position(signal.symbol)
             qty = pos['qty'] if pos else 0
-            return AllocationResult(signal.symbol, 0, 0.0, "Sell Signal", True)
+            return AllocationResult(signal.symbol, 0, 0.0, 0.0, "Sell Signal", True)
 
         # --- BUY ALLOCATION LOGIC ---
         
@@ -117,7 +117,7 @@ class AllocationEngine:
                 # If we are already over, alloc becomes 0
             
             if alloc_value <= 0:
-                 return AllocationResult(signal.symbol, 0, 0.0, f"Restricted Mode: Max Exposure Cap ${max_exposure_cap:.2f} reached", False)
+                 return AllocationResult(signal.symbol, 0, 0.0, 0.0, f"Restricted Mode: Max Exposure Cap ${max_exposure_cap:.2f} reached", False)
              
         # 5.2 Max Loss per Trade (Stop Loss Risk)
         # Risk = Value * StopLoss%
@@ -154,12 +154,12 @@ class AllocationEngine:
             expected_gross_profit = alloc_value * expected_move_pct
             
             if expected_gross_profit < (total_cost * 1.5):
-                return AllocationResult(signal.symbol, 0, 0.0, f"Fees too high ({total_cost:.2f} > profit {expected_gross_profit:.2f}, move {expected_move_pct:.2%})", False)
+                return AllocationResult(signal.symbol, 0, 0.0, 0.0, f"Fees too high ({total_cost:.2f} > profit {expected_gross_profit:.2f}, move {expected_move_pct:.2%})", False)
 
         # Final Allocation (FRACTIONAL / NOTIONAL ONLY)
         min_notional = float(getattr(self.config, 'min_notional_usd', 1.0))
         if alloc_value < min_notional:
-            return AllocationResult(signal.symbol, 0, 0.0, "Notional below minimum", False)
+            return AllocationResult(signal.symbol, 0, 0.0, 0.0, "Notional below minimum", False)
 
         return AllocationResult(
             symbol=signal.symbol,
