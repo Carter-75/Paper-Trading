@@ -20,6 +20,7 @@ from risk.allocation_engine import AllocationEngine
 from execution.orders import OrderExecutor
 from portfolio_manager import PortfolioManager
 from utils.helpers import log_info, log_error, log_warn
+from utils.market_schedule import MarketSchedule
 
 # Import data fetching and cache from the old runner logic (preserved here for simplicity)
 # In a full refactor, these would go to utils/market_data.py
@@ -66,33 +67,7 @@ class SmartTradingBot:
         # Initialize Universe immediatley
         self.refresh_universe()
 
-    def _market_is_open(self) -> bool:
-        """Return True if market is open.
-
-        Prefer Alpaca clock (handles holidays/half-days). If Alpaca fails,
-        fall back to a simple 9:30-16:00 ET weekday window.
-        """
-        # 1) Alpaca clock (best)
-        try:
-            clock = self.api.get_clock()
-            return bool(getattr(clock, 'is_open', False))
-        except Exception:
-            pass
-
-        # 2) Fallback time window (ET)
-        try:
-            tz = pytz.timezone('US/Eastern')
-            now_et = datetime.datetime.now(tz)
-            # weekday: Mon=0 .. Sun=6
-            if now_et.weekday() >= 5:
-                return False
-            open_min = 9 * 60 + 30
-            close_min = 16 * 60
-            now_min = now_et.hour * 60 + now_et.minute
-            return open_min <= now_min < close_min
-        except Exception:
-            # If even fallback fails, be safe: treat as closed.
-            return False
+    # _market_is_open removed (moved to utils.market_schedule)
 
     def _load_equity_cache(self):
         try:
@@ -196,7 +171,7 @@ class SmartTradingBot:
                 # Exiting here leaves the dashboard stuck on MARKET_CLOSED until the *scheduled task* runs again.
                 # Idling fixes that and keeps the bot ready to resume as soon as Alpaca reports open.
                 if getattr(self.config, 'enable_market_hours_only', True):
-                    if not self._market_is_open():
+                    if not MarketSchedule.is_market_open(self.api):
                         log_info('Market closed - idling until open (still updating dashboard state).')
                         try:
                             eq = self._get_equity_for_dashboard()

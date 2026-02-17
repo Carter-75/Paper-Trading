@@ -9,6 +9,10 @@ import json
 import time
 import config
 import traceback
+try:
+    from utils.market_schedule import MarketSchedule
+except ImportError:
+    from utils.market_schedule import MarketSchedule
 from runner_data_utils import (
     make_client,
     fetch_closes_with_volume,
@@ -66,16 +70,13 @@ DEFAULT_TOP_100_STOCKS = [
 
 def is_market_open_today() -> bool:
     """Check if market opened today (used to trigger daily refresh)."""
+    # Use centralized logic from utils/market_schedule.py
+    # We pass None for client, so it falls back to time check, which is fine for scanner context
     try:
-        from datetime import datetime
-        import pytz
-        now = datetime.now(pytz.timezone('US/Eastern'))
-        # Market opens at 9:30 AM ET
-        return now.hour >= 9 and now.weekday() < 5  # Weekday and after 9 AM
+        return MarketSchedule.is_market_open(api_client=None)
     except Exception as e:
         safe_print(f"is_market_open_today check failed: {e}")
-        safe_print(traceback.format_exc())
-        return True  # Assume yes if check fails
+        return True
 
 
 def fetch_top_stocks_dynamic(limit: int = 100, force_refresh: bool = False) -> List[str]:

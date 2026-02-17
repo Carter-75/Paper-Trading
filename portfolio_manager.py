@@ -3,11 +3,19 @@
 Portfolio Manager - Tracks and manages multiple stock positions.
 """
 
+
 import json
 import os
 from typing import Dict, List, Optional, Tuple, Any
 from datetime import datetime
 import pytz
+
+try:
+    from utils.file_lock import FileLock
+except ImportError:
+    import sys
+    sys.path.append("..")
+    from utils.file_lock import FileLock
 
 
 class PortfolioManager:
@@ -24,9 +32,11 @@ class PortfolioManager:
         """Load portfolio from file."""
         if os.path.exists(self.portfolio_file):
             try:
-                with open(self.portfolio_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    self.positions = data.get("positions", {})
+                # [MOD] Lock file for safe read
+                with FileLock(self.portfolio_file):
+                    with open(self.portfolio_file, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                        self.positions = data.get("positions", {})
             except Exception as e:
                 print(f"Warning: Could not load portfolio: {e}")
                 try:
@@ -40,8 +50,9 @@ class PortfolioManager:
             
         if os.path.exists(self.history_file):
             try:
-                with open(self.history_file, "r", encoding="utf-8") as f:
-                    self.history = json.load(f)
+                with FileLock(self.history_file):
+                    with open(self.history_file, "r", encoding="utf-8") as f:
+                        self.history = json.load(f)
             except Exception:
                 self.history = []
         else:
@@ -54,12 +65,16 @@ class PortfolioManager:
                 "positions": self.positions,
                 "last_updated": datetime.now(pytz.UTC).isoformat()
             }
-            with open(self.portfolio_file, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2)
+            
+            # [MOD] Lock portfolio file for safe write
+            with FileLock(self.portfolio_file):
+                with open(self.portfolio_file, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2)
                 
-            # Save history
-            with open(self.history_file, "w", encoding="utf-8") as f:
-                json.dump(self.history, f, indent=2)
+            # Save history (lock separate file)
+            with FileLock(self.history_file):
+                with open(self.history_file, "w", encoding="utf-8") as f:
+                    json.dump(self.history, f, indent=2)
         except Exception as e:
             print(f"Warning: Could not save portfolio: {e}")
             try:

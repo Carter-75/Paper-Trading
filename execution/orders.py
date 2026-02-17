@@ -10,11 +10,13 @@ from alpaca_trade_api import REST
 try:
     from config_validated import get_config
     from utils.helpers import log_info, log_error, log_warn
+    from utils.market_schedule import MarketSchedule
 except ImportError:
     import sys
     sys.path.append("..")
     from config_validated import get_config
     from utils.helpers import log_info, log_error, log_warn
+    from utils.market_schedule import MarketSchedule
 
 class OrderExecutor:
     """
@@ -30,33 +32,12 @@ class OrderExecutor:
         self.api = api_client
         self.logger = logging.getLogger("OrderExecutor")
         
-    def _market_is_open(self) -> bool:
-        """Best-effort market open check.
-
-        Uses Alpaca clock when available; falls back to 9:30-16:00 ET weekdays.
-        """
-        try:
-            clock = self.api.get_clock()
-            return bool(getattr(clock, 'is_open', False))
-        except Exception:
-            pass
-
-        try:
-            tz = pytz.timezone('US/Eastern')
-            now_et = datetime.datetime.now(tz)
-            if now_et.weekday() >= 5:
-                return False
-            open_min = 9 * 60 + 30
-            close_min = 16 * 60
-            now_min = now_et.hour * 60 + now_et.minute
-            return open_min <= now_min < close_min
-        except Exception:
-            return False
+    # _market_is_open removed (moved to utils.market_schedule)
 
     def _block_if_market_closed(self, action: str, symbol: str) -> bool:
         """Return True if caller should skip because market is closed."""
         try:
-            if getattr(self.config, 'enable_market_hours_only', True) and not self._market_is_open():
+            if getattr(self.config, 'enable_market_hours_only', True) and not MarketSchedule.is_market_open(self.api):
                 log_warn(f"Market closed - skipping {action} for {symbol}.")
                 return True
         except Exception:
