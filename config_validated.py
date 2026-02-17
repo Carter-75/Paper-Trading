@@ -50,7 +50,7 @@ class TradingBotConfig(BaseSettings):
         description="Trade size as fraction of capital"
     )
     fixed_trade_usd: float = Field(default=0.0, ge=0.0, description="Fixed trade size in USD (0=use fraction)")
-    max_cap_usd: float = Field(default=100.0, ge=0.0, validation_alias="KILL_SWITCH_EQUITY_FLOOR_USD", description="KILL SWITCH: if account equity drops below this USD, stop bot (0 disables)")
+    kill_switch_equity_floor_usd: float = Field(default=125.0, ge=0.0, validation_alias=AliasChoices("KILL_SWITCH_EQUITY_FLOOR_USD", "MAX_CAP_USD"), description="KILL SWITCH: if account equity drops below this USD, stop bot (0 disables)")
     virtual_account_size: Optional[float] = Field(default=None, description="Override actual account equity with this virtual amount")
     
     # =====================

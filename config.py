@@ -38,7 +38,7 @@ TRADE_SIZE_FRAC_OF_CAP: float = float(os.getenv("TRADE_SIZE_FRAC_OF_CAP", "0.70"
 FIXED_TRADE_USD: float = float(os.getenv("FIXED_TRADE_USD", "0.0"))
 
 # per-symbol cap (USD)
-MAX_CAP_USD: float = float(os.getenv("MAX_CAP_USD", "100.0"))
+KILL_SWITCH_EQUITY_FLOOR_USD: float = float(os.getenv("KILL_SWITCH_EQUITY_FLOOR_USD", "125.0"))
 
 # TP/SL base percents
 TAKE_PROFIT_PERCENT: float = float(os.getenv("TAKE_PROFIT_PERCENT", "3.0") or 0.0)

@@ -133,6 +133,60 @@ class SmartTradingBot:
         except Exception as e:
             log_error(f"Failed to fully liquidate: {e}")
 
+    def _check_kill_switches(self, equity: float) -> bool:
+        """
+        Check and enforce risk limits (Hard/Soft Kill Switches).
+        Returns True if trading should be skipped (e.g. cooldown).
+        """
+        # 1. Update HWM
+        if equity > self._high_water_mark:
+            self._high_water_mark = equity
+        
+        # Initialize HWM if 0 (first run)
+        if self._high_water_mark <= 0.1:
+             self._high_water_mark = equity 
+
+        # 2. Calculate Thresholds
+        hard_kill_2_level = self._high_water_mark * 0.85 # 15% Drawdown
+        dynamic_floor = self._high_water_mark * 0.90 # 10% Drawdown
+        
+        # 3. Check Triggers
+        # Hard Kill 1: Fixed Floor
+        fixed_floor = float(getattr(self.config, 'kill_switch_equity_floor_usd', 0.0) or 0.0)
+        if fixed_floor > 0 and equity < fixed_floor:
+            self.liquidate_all(f"Hard Kill 1: Equity ${equity:.2f} < Fixed Floor ${fixed_floor:.2f}")
+            self._dump_dashboard_state(equity, 'KILL_SWITCH_FIXED', None)
+            raise SystemExit(2)
+
+        # Hard Kill 2: 15% Drawdown
+        if equity < hard_kill_2_level:
+            self.liquidate_all(f"Hard Kill 2: Equity ${equity:.2f} < 15% Drawdown (Limit: ${hard_kill_2_level:.2f})")
+            self._dump_dashboard_state(equity, 'KILL_SWITCH_DYNAMIC', None)
+            raise SystemExit(2)
+
+        # Soft Kill: 10% Drawdown -> Restricted Mode
+        if equity < dynamic_floor and not self._restricted_mode:
+            self.liquidate_all(f"Soft Kill: Equity ${equity:.2f} < 10% Drawdown (Limit: ${dynamic_floor:.2f})")
+            self._restricted_mode = True
+            self._restricted_mode_start = time.time()
+            log_warn("ENTERING RESTRICTED MODE. Pausing for 5 minutes.")
+            self._save_equity_cache(equity)
+            
+        # Restricted Mode Logic
+        if self._restricted_mode:
+            if equity > (dynamic_floor + 25.0):
+                self._restricted_mode = False
+                log_info("Restricted Mode: RECOVERED! Resuming normal operation.")
+                self._save_equity_cache(equity)
+            else:
+                elapsed = time.time() - self._restricted_mode_start
+                if elapsed < 300: # 5 minutes
+                        log_info(f"Restricted Mode: Warming up... {300 - elapsed:.0f}s remaining.")
+                        self._dump_dashboard_state(equity, "RESTRICTED_COOLDOWN", None)
+                        return True # Signal to skip trading
+                log_warn(f"Restricted Mode Active: Trading capped at 10% of Equity (${equity * 0.10:.2f})")
+        return False
+
     def run(self):
         """Main Loop"""
         # Lock check
@@ -296,6 +350,12 @@ class SmartTradingBot:
             equity = self._get_equity_for_dashboard()
         except Exception:
             equity = 100000.0  # Fallback
+
+        # --- CHECK KILL SWITCHES ---
+        if self._check_kill_switches(equity):
+            self.schedule[symbol] = time.time() + 60
+            return
+        # ---------------------------
 
         # B. Data Fetching
         try:
@@ -681,7 +741,7 @@ class SmartTradingBot:
                 "equity": equity,
                 "last_equity_timestamp": getattr(self, "_last_equity_ts", ""),
                 "virtual_account_size": self.config.virtual_account_size,
-                "kill_switch_floor_usd": float(getattr(self.config, "max_cap_usd", 0.0) or 0.0),
+                "kill_switch_floor_usd": float(getattr(self.config, "kill_switch_equity_floor_usd", 0.0) or 0.0),
                 "next_cycle_time": next_time_iso,
                 "last_symbol": last_symbol,
                 "last_action": last_signal.action if last_signal else "idle",
