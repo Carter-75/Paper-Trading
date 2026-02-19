@@ -813,20 +813,9 @@ class SmartTradingBot:
                     else:
                          log_info(f"Skipping Rotation: New {symbol} ({signal.confidence:.2f}) not better than {rotate_candidate} ({rotate_conf:.2f})")
                          return # Abort buy
-                else:
-                    log_warn("Portfolio full but could not find candidate to rotate. Skipping buy.")
-                    return
         # --- ROTATION LOGIC END ---
 
-                else:
-                    log_warn("Portfolio full but could not find candidate to rotate. Skipping buy.")
-                    return
-        
-        # --- CASH-POOR ROTATION LOGIC START ---
-        # Scenario: Portfolio count < Max, but we have NO CASH (e.g. 1 position = 100% equity).
-        # OR Scenario: We just want to upgrade a weak position to a strong one even if not full.
-        
-        elif signal.action == "buy":
+        if signal.action == "buy":
              # We need to know if we are "Cash Poor". 
              # Since we don't have 'cash' easily available here without an API call (expensive),
              # We can infer it: If we have positions, and we haven't hit max count... why not just ALWAYS look for an upgrade?
