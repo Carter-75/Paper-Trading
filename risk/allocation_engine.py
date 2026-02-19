@@ -74,12 +74,24 @@ class AllocationEngine:
         except Exception:
             pass
         
-        # 2. Confidence Scaling
-        # If confidence is high (e.g. 0.9), use full base.
-        # If confidence is low (e.g. 0.6), scale down.
-        # Linear scaling: 0.5 conf -> 0.5 alloc
-        confidence_mult = max(0.5, signal.confidence) # Floor at 0.5
-        alloc_value = base_alloc * confidence_mult
+        # 2. Confidence Scaling (Dynamic Sizing)
+        # Scaled Logic:
+        # Conf 0.5 -> 1.0x Base (Normal trade)
+        # Conf 1.0 -> 2.0x Base (High conviction)
+        # Conf 0.0 -> 0.0x Base (No trade)
+        
+        # We want "Base" to be the average trade size.
+        # If signal.confidence is usually 0.5-0.8.
+        # dynamic_factor = 1 + (signal.confidence - 0.5) * 2
+        # Example: Conf 0.8 -> 1 + (0.3)*2 = 1.6x Base.
+        
+        dynamic_factor = 1.0 + (max(0.0, signal.confidence - 0.5) * 2.0)
+        
+        # User requested aggressive dynamic sizing.
+        # If confidence is exceptionally high (>0.8), boost further?
+        # Let's stick to the 2x cap for safety unless Config says otherwise.
+        
+        alloc_value = base_alloc * dynamic_factor
         
         # 3. Volatility Scaling (Risk Parity-lite)
         # If stock is very volatile, reduce size.

@@ -34,7 +34,7 @@ SHORT_WINDOW: int = int(os.getenv("SHORT_WINDOW", "9"))
 LONG_WINDOW: int = int(os.getenv("LONG_WINDOW", "21"))
 
 # sizing (best practice: 60-70% for balanced risk/reward)
-TRADE_SIZE_FRAC_OF_CAP: float = float(os.getenv("TRADE_SIZE_FRAC_OF_CAP", "0.70"))  # 70% allows risky mode to reach 84% (under 95% limit)
+TRADE_SIZE_FRAC_OF_CAP: float = float(os.getenv("TRADE_SIZE_FRAC_OF_CAP", "0.06"))  # 6% allows ~15 positions
 FIXED_TRADE_USD: float = float(os.getenv("FIXED_TRADE_USD", "0.0"))
 
 # per-symbol cap (USD)
@@ -268,5 +268,10 @@ PRESET_MODE = os.getenv("PRESET_MODE", "").upper()
 if PRESET_MODE == "CONSERVATIVE":
     apply_conservative_preset()
 elif PRESET_MODE == "AGGRESSIVE":
-    apply_aggressive_preset()
+    # Modified Aggressive: High risk but still respects diversification
+    TRADE_SIZE_FRAC_OF_CAP = 0.08 # 8% per trade (approx 12 positions max)
+    RISKY_MODE_ENABLED = True
+    TAKE_PROFIT_PERCENT = 3.0
+    # STOP_LOSS_PERCENT = 1.5
+    print("[!]  Applied AGGRESSIVE diversification preset")
 

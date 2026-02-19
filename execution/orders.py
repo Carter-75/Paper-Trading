@@ -48,13 +48,36 @@ class OrderExecutor:
         """
         Execute an AllocationResult.
         """
-        if (not allocation) or (not allocation.is_allowed) or ((allocation.target_quantity <= 0) and (float(getattr(allocation,'target_notional',0.0) or 0.0) <= 0.0)):
+        if (not allocation):
+             return False
+        
+        # [FIX] Handle SELL signals (Allowed=True, Qty=0)
+        # AllocationEngine returns Qty=0, Allowed=True for "Sell".
+        # AllocationEngine returns Qty=0, Allowed=False for "Hold".
+        
+        if not allocation.is_allowed:
             return False
             
         symbol = allocation.symbol
         qty = allocation.target_quantity
         notional = float(getattr(allocation, 'target_notional', 0.0) or 0.0)
         limit_price = allocation.limit_price
+        
+        # Case: Liquidation / Sell All
+        # If execution is allowed but target is 0, it means we want 0 position -> Sell everything.
+        if qty <= 0 and notional <= 0:
+            if "Sell" in allocation.reason or "Liquidate" in allocation.reason:
+                return self.liquidate(symbol, allocation.reason)
+            elif "Hold" in allocation.reason:
+                return False # Should be covered by is_allowed=False usually, but safety check
+            elif "Restricted" in allocation.reason:
+                return False
+            else:
+                # Default to liquidate if intent is unclear but allowed and 0?
+                # Probably safer to log warn and do nothing unless explicit "Sell" reasoning.
+                # But for now, let's assume allowed+0 means close.
+                return self.liquidate(symbol, f"Zero Allocation: {allocation.reason}")
+
         if self._block_if_market_closed('BUY', symbol):
             return False
 

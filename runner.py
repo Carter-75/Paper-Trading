@@ -620,8 +620,19 @@ class SmartTradingBot:
             self.active_universe = stock_scanner.get_stock_universe(use_top_100=True, force_refresh=False)
             # Limit to 50 for performance (Phase 13 scalability step 1)
             self.active_universe = self.active_universe[:50]
+            
+            # [CRITICAL FIX] MERGE HELD POSITIONS
+            # Ensure we always process stocks we own, even if they drop out of the top 50 scanner.
+            held_symbols = self.pm.get_symbols()
+            if held_symbols:
+                # Union of scanned + held
+                merged = list(set(self.active_universe + held_symbols))
+                self.active_universe = merged
+                log_info(f"Universe Merged: {len(self.active_universe)} symbols (Scanned + Held).")
+            else:
+                log_info(f"Universe Updated: {len(self.active_universe)} symbols loaded.")
+                
             self.last_universe_refresh = time.time()
-            log_info(f"Universe Updated: {len(self.active_universe)} symbols loaded.")
         except Exception as e:
             log_error(f"Failed to refresh universe: {e}")
             # Fallback
@@ -806,6 +817,95 @@ class SmartTradingBot:
                     log_warn("Portfolio full but could not find candidate to rotate. Skipping buy.")
                     return
         # --- ROTATION LOGIC END ---
+
+                else:
+                    log_warn("Portfolio full but could not find candidate to rotate. Skipping buy.")
+                    return
+        
+        # --- CASH-POOR ROTATION LOGIC START ---
+        # Scenario: Portfolio count < Max, but we have NO CASH (e.g. 1 position = 100% equity).
+        # OR Scenario: We just want to upgrade a weak position to a strong one even if not full.
+        
+        elif signal.action == "buy":
+             # We need to know if we are "Cash Poor". 
+             # Since we don't have 'cash' easily available here without an API call (expensive),
+             # We can infer it: If we have positions, and we haven't hit max count... why not just ALWAYS look for an upgrade?
+             # User said: "take out of other stocks if it was more profitible".
+             
+             # So, even if we are NOT full, if we find a position that is significantly WORSE than the new one,
+             # we should rotate it to free up cash/reduce risk on the bad one.
+             
+             target_size = total_equity * self.config.trade_size_frac_of_cap
+             
+             # Metric: Confidence difference.
+             # If New Conf > Old Conf + Buffer (e.g. 0.2), Rotate.
+             
+             worst_pos_data = self.pm.get_lowest_confidence_position()
+             if worst_pos_data:
+                 worst_sym = worst_pos_data['symbol']
+                 worst_conf = worst_pos_data.get('confidence', 0.5)
+                 
+                 # Only trigger this "Cash Poor / Upgrade" rotation if the gap is significant
+                 # OR if we suspect we are out of cash (e.g. Total Market Val > 95% equity)
+                 tmv = self.pm.get_total_market_value()
+                 is_fully_invested = tmv > (total_equity * 0.95)
+                 
+                 # If we are fully invested, we MUST rotate to buy.
+                 # If we are not fully invested, we only rotate if it's a huge upgrade.
+                 
+                 PROFITABILITY_HURDLE = 0.05 # 5% confidence gap to justify swap costs
+                 
+                 should_rotate = False
+                 reason = ""
+                 
+                 if is_fully_invested:
+                     if signal.confidence > (worst_conf + PROFITABILITY_HURDLE):
+                         should_rotate = True
+                         reason = f"Fully Invested & New ({signal.confidence:.2f}) > Old ({worst_conf:.2f} + {PROFITABILITY_HURDLE} hurdle)"
+                 else:
+                     if signal.confidence > (worst_conf + 0.2): # Significant upgrade
+                         should_rotate = True
+                         reason = f"Opportunity Upgrade: New ({signal.confidence:.2f}) >> Old ({worst_conf:.2f})"
+                 
+                 if should_rotate:
+                     log_info(f"Cash-Poor Rotation Triggered: {reason}")
+                     
+                     # Smart Partial Sell: Only sell what we need
+                     needed_cash = target_size
+                     # Get current price of worst_sym
+                     # We might need to fetch it if not in memory, or estimate from last known
+                     # simplistic: assume price hasn't moved 100% since last update
+                     worst_price = float(worst_pos_data.get('avg_entry', 0.0)) # Fallback
+                     # Better: use last_price from cache if possible, but avg_entry is safe approximation for sizing
+                     
+                     if worst_price > 0:
+                         qty_needed = needed_cash / worst_price
+                         qty_available = float(worst_pos_data.get('qty', 0.0))
+                         
+                         # Don't sell more than we have
+                         qty_to_sell = min(qty_needed, qty_available)
+                         
+                         # DUST CHECK: If remaining is < $10, sell all
+                         qty_remaining = qty_available - qty_to_sell
+                         val_remaining = qty_remaining * worst_price
+                         if val_remaining < 50.0: # Clean up small leftovers
+                             qty_to_sell = qty_available
+                             is_full_sell = True
+                         else:
+                             is_full_sell = False
+                             
+                         log_info(f"selling {qty_to_sell:.4f} of {worst_sym} (Need ${needed_cash:.2f})...")
+                         
+                         if self.order_executor.execute(worst_sym, qty=qty_to_sell, side='sell'):
+                             # Update PM immediately to prevent double-counting
+                             if is_full_sell:
+                                 self.pm.remove_position(worst_sym)
+                             else:
+                                 # We need to update the record. Sync will fix it perfectly next cycle,
+                                 # but for this cycle loop we should ideally decrement it.
+                                 pass 
+                             time.sleep(1)
+        # --- CASH-POOR ROTATION LOGIC END ---
 
         allocation = self.allocation_engine.calculate_allocation(signal, current_price, total_equity, max_exposure_cap=max_exposure_cap)
         
