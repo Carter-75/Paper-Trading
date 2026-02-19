@@ -64,6 +64,7 @@ MAX_DAILY_LOSS_PERCENT: float = float(os.getenv("MAX_DAILY_LOSS_PERCENT", "5.0")
 
 # Exposure limits - prevent going all-in on one idea
 MAX_EXPOSURE_PCT: float = float(os.getenv("MAX_EXPOSURE_PCT", "75.0"))  # Keep 25% in cash for opportunities
+MAX_OPEN_POSITIONS: int = int(os.getenv("MAX_OPEN_POSITIONS", "15"))
 
 # Kill Switch - emergency stop mechanism
 KILL_SWITCH_FILE: str = os.getenv("KILL_SWITCH_FILE", "KILL_SWITCH.flag")

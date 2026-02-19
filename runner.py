@@ -67,7 +67,52 @@ class SmartTradingBot:
         # Initialize Universe immediatley
         self.refresh_universe()
 
+        # Force Sync on Startup
+        self.sync_portfolio_with_alpaca()
+
     # _market_is_open removed (moved to utils.market_schedule)
+
+    def sync_portfolio_with_alpaca(self):
+        """
+        Synchronize local PortfolioManager with actual Alpaca positions.
+        Removes 'ghost' positions not found in Alpaca.
+        Updates qty/entry_price for positions that do exist.
+        """
+        try:
+            log_info("Synchronizing portfolio with Alpaca...")
+            alpaca_positions = self.api.list_positions()
+            
+            # 1. Map Alpaca positions by symbol
+            real_positions = {}
+            for p in alpaca_positions:
+                real_positions[p.symbol] = p
+            
+            # 2. Update/Add real positions to PM
+            for symbol, p in real_positions.items():
+                qty = float(p.qty)
+                avg_entry = float(p.avg_entry_price)
+                market_value = float(p.market_value)
+                unrealized_pl = float(p.unrealized_pl)
+                
+                # Keep existing confidence if we have it, else 0.5 default
+                existing = self.pm.get_position(symbol)
+                confidence = existing.get('confidence', 0.5) if existing else 0.5
+                
+                self.pm.update_position(
+                    symbol, qty, avg_entry, market_value, unrealized_pl, confidence
+                )
+             
+            # 3. Remove Ghost Positions (Local but not in Alpaca)
+            local_symbols = self.pm.get_symbols()
+            for sym in local_symbols:
+                if sym not in real_positions:
+                    log_warn(f"Removing GHOST position: {sym} (Found locally but not in Alpaca)")
+                    self.pm.remove_position(sym)
+            
+            log_info("Portfolio sync complete.")
+            
+        except Exception as e:
+            log_error(f"Failed to sync portfolio: {e}")
 
     def _load_equity_cache(self):
         try:
@@ -709,6 +754,59 @@ class SmartTradingBot:
 
         # C. Calculate Allocation (The "Banker")
         current_price = closes[-1]
+        
+        # --- ROTATION LOGIC START ---
+        # If we are at capacity and want to BUY, check if we should upgrade.
+        if signal.action == "buy":
+            max_pos = getattr(self.config, 'MAX_OPEN_POSITIONS', 15)
+            if self.pm.get_position_count() >= max_pos and not self.pm.get_position(symbol):
+                # Portfolio Full. Check for rotation opportunity.
+                worst_result = self.pm.get_worst_performer() # returns (symbol, pct)
+                worst_pos_data = self.pm.get_lowest_confidence_position() # Better metric: Confidence vs Confidence
+                
+                # Default to PnL based if no confidence data
+                rotate_candidate = None
+                rotate_conf = 0.0
+                
+                if worst_pos_data:
+                    rotate_candidate = worst_pos_data['symbol']
+                    rotate_conf = worst_pos_data.get('confidence', 0.0)
+                elif worst_result:
+                    rotate_candidate = worst_result[0]
+                    rotate_conf = 0.0 # Assume low if no data
+                
+                if rotate_candidate:
+                    # COMPARATIVE CHECK: Only rotate if New > Old
+                    if signal.confidence > rotate_conf:
+                        log_info(f"ROTATION OPPORTUNITY: New {symbol} ({signal.confidence:.2f}) > Old {rotate_candidate} ({rotate_conf:.2f})")
+                        
+                        # Calculate needed cash for new trade
+                        # We need to ask AllocationEngine how much it WANTS first, but strictly it needs cash to answer.
+                        # So we estimate: Trade Size Frac * Equity
+                        target_size = total_equity * self.config.trade_size_frac_of_cap
+                        if self.config.fixed_trade_usd > 0:
+                            target_size = self.config.fixed_trade_usd
+                            
+                        # Liquidate enough of the old position
+                        # For simplicity and speed in this version, we sell the *entire* bad position to clear a "Slot".
+                        # Partial rotation is complex to track "Slots". User asked for "15 positions".
+                        # Selling 1 full old position frees 1 full slot.
+                        
+                        log_info(f"Rotating out {rotate_candidate} to fund {symbol}...")
+                        if self.order_executor.liquidate(rotate_candidate, f"Rotated for {symbol}"):
+                             self.pm.remove_position(rotate_candidate)
+                             # Pause slightly to let Alpaca update cash? 
+                             # Actually AllocationEngine uses 'total_equity' usually, so strictly cash isn't the blocker,
+                             # the BLOCKER is the 'Max positions' check which we are handling here.
+                             time.sleep(1)
+                    else:
+                         log_info(f"Skipping Rotation: New {symbol} ({signal.confidence:.2f}) not better than {rotate_candidate} ({rotate_conf:.2f})")
+                         return # Abort buy
+                else:
+                    log_warn("Portfolio full but could not find candidate to rotate. Skipping buy.")
+                    return
+        # --- ROTATION LOGIC END ---
+
         allocation = self.allocation_engine.calculate_allocation(signal, current_price, total_equity, max_exposure_cap=max_exposure_cap)
         
         if not allocation.is_allowed:
