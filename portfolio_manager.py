@@ -83,15 +83,24 @@ class PortfolioManager:
             except Exception:
                 pass
     
-    def update_position(self, symbol: str, qty: float, avg_entry: float, 
-                       market_value: float, unrealized_pl: float, 
-                       confidence: float = 0.0, expected_return: float = 0.0):
+    def update_position(self, symbol: str, qty: float, avg_entry: float,
+                       market_value: float, unrealized_pl: float,
+                       confidence: float = 0.0, expected_return: float = 0.0,
+                       is_locked: bool = False):
         """Update or add a position."""
+        existing = self.positions.get(symbol, {})
+
         # Preserve first_opened if position already exists
-        first_opened = self.positions.get(symbol, {}).get("first_opened")
+        first_opened = existing.get("first_opened")
         if first_opened is None:
             first_opened = datetime.now(pytz.UTC).isoformat()
-        
+
+        # Preserve is_locked if caller passes False (default) and position is already locked.
+        # Callers that explicitly want to unlock must pass is_locked=False AND the position
+        # must not have been locked by a different code path (use set_locked() for that).
+        preserved_lock = existing.get("is_locked", False)
+        effective_lock = is_locked or preserved_lock
+
         self.positions[symbol] = {
             "qty": qty,
             "avg_entry": avg_entry,
@@ -100,7 +109,8 @@ class PortfolioManager:
             "last_update": datetime.now(pytz.UTC).isoformat(),
             "first_opened": first_opened,
             "confidence": confidence,
-            "expected_return": expected_return
+            "expected_return": expected_return,
+            "is_locked": effective_lock,
         }
         self.save()
     
@@ -207,5 +217,15 @@ class PortfolioManager:
     def get_symbols(self) -> List[str]:
         """Get list of symbols currently held."""
         return list(self.positions.keys())
+
+    def set_locked(self, symbol: str, locked: bool):
+        """Explicitly set or clear the lock flag on an existing position."""
+        if symbol in self.positions:
+            self.positions[symbol]["is_locked"] = locked
+            self.save()
+
+    def is_locked(self, symbol: str) -> bool:
+        """Return True if the position is marked as locked."""
+        return bool(self.positions.get(symbol, {}).get("is_locked", False))
 
 

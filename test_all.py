@@ -707,5 +707,151 @@ def test_model_prediction_confidence_bounds(predictor: TradingMLPredictor):
         assert 0.0 <= confidence <= 1.0
 
 
+# ------------------------
+# TSLA 80% floor enforcement tests
+# ------------------------
+
+class TestTslaFloorEnforcement:
+    """Unit tests for AllocationEngine.enforce_tsla_floor()."""
+
+    def _make_pm(self, tmp_path, positions: dict):
+        import tempfile, os
+        fname = os.path.join(str(tmp_path), "portfolio.json")
+        pm = PortfolioManager(fname)
+        for sym, d in positions.items():
+            pm.update_position(
+                sym,
+                d.get("qty", 1.0),
+                d.get("avg_entry", 100.0),
+                d.get("market_value", 100.0),
+                d.get("unrealized_pl", 0.0),
+                confidence=d.get("confidence", 0.5),
+                is_locked=d.get("is_locked", False),
+            )
+        return pm
+
+    def _make_engine(self, pm):
+        from risk.allocation_engine import AllocationEngine
+        return AllocationEngine(pm)
+
+    def _make_executor(self):
+        ex = Mock()
+        ex.liquidate.return_value = True
+        ex._submit_notional_market_order.return_value = Mock(id="test_order")
+        return ex
+
+    def test_floor_already_met_no_action(self, tmp_path):
+        """TSLA at 85% → no buy, no sell."""
+        equity = 10_000.0
+        pm = self._make_pm(tmp_path, {
+            "TSLA": {"market_value": 8_500.0, "unrealized_pl": 0.0},
+            "AAPL": {"market_value": 1_000.0, "unrealized_pl": 0.0},
+        })
+        engine = self._make_engine(pm)
+        ex = self._make_executor()
+        engine.enforce_tsla_floor(tsla_price=200.0, equity=equity, order_executor=ex, api=None)
+        ex.liquidate.assert_not_called()
+        ex._submit_notional_market_order.assert_not_called()
+
+    def test_floor_met_by_cash_no_sell(self, tmp_path):
+        """TSLA at 50%, deficit covered by free cash → only TSLA buy, no sells."""
+        equity = 10_000.0
+        pm = self._make_pm(tmp_path, {
+            "TSLA": {"market_value": 5_000.0, "unrealized_pl": 0.0},
+            # the other 5_000 is untracked cash (not in positions)
+        })
+        engine = self._make_engine(pm)
+        ex = self._make_executor()
+        engine.enforce_tsla_floor(tsla_price=200.0, equity=equity, order_executor=ex, api=None)
+        ex.liquidate.assert_not_called()
+        # Should buy TSLA for the 3_000 deficit
+        ex._submit_notional_market_order.assert_called_once_with("TSLA", 3_000.0, "buy")
+
+    def test_floor_not_met_sell_worst_performer(self, tmp_path):
+        """TSLA at 40%, no cash → worst non-TSLA sold first."""
+        equity = 10_000.0
+        pm = self._make_pm(tmp_path, {
+            "TSLA": {"market_value": 4_000.0, "unrealized_pl": 0.0},
+            "LOSER": {"market_value": 2_000.0, "unrealized_pl": -500.0},  # worst PnL
+            "WINNER": {"market_value": 4_000.0, "unrealized_pl": 500.0},
+        })
+        engine = self._make_engine(pm)
+        ex = self._make_executor()
+        engine.enforce_tsla_floor(tsla_price=200.0, equity=equity, order_executor=ex, api=None)
+        # LOSER should be sold (worst performer)
+        calls = [c.args[0] for c in ex.liquidate.call_args_list]
+        assert "LOSER" in calls, f"Expected LOSER to be sold, got {calls}"
+        # TSLA buy submitted
+        tsla_buy_calls = [
+            c for c in ex._submit_notional_market_order.call_args_list
+            if c.args[0] == "TSLA" and c.args[2] == "buy"
+        ]
+        assert len(tsla_buy_calls) >= 1
+
+    def test_locked_position_protected_when_not_needed(self, tmp_path):
+        """Locked non-TSLA not sold when unlocked positions cover deficit."""
+        equity = 10_000.0
+        pm = self._make_pm(tmp_path, {
+            "TSLA": {"market_value": 4_000.0, "unrealized_pl": 0.0},
+            "LOCKED": {"market_value": 3_000.0, "unrealized_pl": 0.0, "is_locked": True},
+            "UNLOCKED": {"market_value": 3_000.0, "unrealized_pl": -200.0},
+        })
+        engine = self._make_engine(pm)
+        ex = self._make_executor()
+        engine.enforce_tsla_floor(tsla_price=200.0, equity=equity, order_executor=ex, api=None)
+        # LOCKED must not be liquidated (UNLOCKED covers the gap)
+        liquidated = [c.args[0] for c in ex.liquidate.call_args_list]
+        assert "LOCKED" not in liquidated, f"Locked position should not be sold: {liquidated}"
+
+    def test_locked_position_overridden_when_necessary(self, tmp_path):
+        """Lock is overridden when only locked positions can cover the deficit."""
+        equity = 10_000.0
+        # TSLA at 10%, everything else locked — floor requires 80%
+        pm = self._make_pm(tmp_path, {
+            "TSLA": {"market_value": 1_000.0, "unrealized_pl": 0.0},
+            "LOCKED": {"market_value": 9_000.0, "unrealized_pl": 0.0, "is_locked": True},
+        })
+        engine = self._make_engine(pm)
+        ex = self._make_executor()
+        engine.enforce_tsla_floor(tsla_price=200.0, equity=equity, order_executor=ex, api=None)
+        liquidated = [c.args[0] for c in ex.liquidate.call_args_list]
+        notional_sells = [
+            c.args[0] for c in ex._submit_notional_market_order.call_args_list
+            if c.args[2] == "sell"
+        ]
+        # Either LOCKED was liquidated or partially sold to cover the deficit
+        assert "LOCKED" in liquidated or "LOCKED" in notional_sells, (
+            "Lock must be overridden when it is the only option"
+        )
+
+    def test_tsla_itself_never_sold(self, tmp_path):
+        """TSLA is never added to the sell candidate list."""
+        equity = 10_000.0
+        pm = self._make_pm(tmp_path, {
+            "TSLA": {"market_value": 4_000.0, "unrealized_pl": 0.0},
+            "OTHER": {"market_value": 6_000.0, "unrealized_pl": -100.0},
+        })
+        engine = self._make_engine(pm)
+        ex = self._make_executor()
+        engine.enforce_tsla_floor(tsla_price=200.0, equity=equity, order_executor=ex, api=None)
+        liquidated = [c.args[0] for c in ex.liquidate.call_args_list]
+        notional_sells = [
+            c.args[0] for c in ex._submit_notional_market_order.call_args_list
+            if c.args[2] == "sell"
+        ]
+        assert "TSLA" not in liquidated
+        assert "TSLA" not in notional_sells
+
+
+def test_is_locked_flag_persists(tmp_path):
+    """is_locked=True survives a save/reload cycle."""
+    import os
+    fname = os.path.join(str(tmp_path), "portfolio.json")
+    pm1 = PortfolioManager(fname)
+    pm1.update_position("AAPL", 10.0, 150.0, 1500.0, 50.0, is_locked=True)
+    pm2 = PortfolioManager(fname)
+    assert pm2.positions["AAPL"]["is_locked"] is True
+
+
 if __name__ == "__main__":
-    pytest.main([__file__, "-q"]) 
+    pytest.main([__file__, "-q"])

@@ -206,7 +206,7 @@
         }
 
         function updateHistory() {
-            fetch('/api/history')
+            fetch('/api/history?_=' + new Date().getTime())
                 .then(response => response.json())
                 .then(data => {
                     const tbody = document.getElementById('history-body');
@@ -240,7 +240,7 @@
         }
 
         function updateState() {
-            fetch('/api/state')
+            fetch('/api/state?_=' + new Date().getTime())
                 .then(response => response.json())
                 .then(data => {
                     const statusDot = document.getElementById('status-dot');
@@ -327,7 +327,7 @@
         }
 
         function updateLogs() {
-            fetch('/api/logs')
+            fetch('/api/logs?_=' + new Date().getTime())
                 .then(response => response.json())
                 .then(data => {
                     if (data.logs) {

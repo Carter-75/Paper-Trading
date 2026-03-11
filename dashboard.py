@@ -1,4 +1,4 @@
-﻿from flask import Flask, render_template, jsonify
+from flask import Flask, render_template, jsonify
 import json
 import os
 import time
@@ -89,6 +89,14 @@ def get_logs():
     except Exception as e:
         return jsonify({"error": str(e)})
     return jsonify({"logs": []})
+
+
+@app.after_request
+def add_header(response):
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
 
 
 if __name__ == '__main__':

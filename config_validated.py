@@ -483,23 +483,6 @@ def get_config(reload: bool = False) -> TradingBotConfig:
     return _config
 
 
-# Convenience function for backward compatibility
-def validate_config(allow_missing_api_keys: bool = False) -> Optional[str]:
-    """
-    Validate configuration (backward compatible with old config.py).
-    
-    Args:
-        allow_missing_api_keys: Allow missing API keys for debug
-    
-    Returns:
-        Error message if validation fails, None if OK
-    """
-    try:
-        config = TradingBotConfig(allow_missing_keys_for_debug=allow_missing_api_keys)
-        return None
-    except Exception as e:
-        return f"Configuration validation failed: {str(e)}"
-
 
 if __name__ == "__main__":
     # Test config validation

@@ -322,7 +322,7 @@ def evaluate_robustness(client, symbol: str, interval_seconds: int, cap_usd: flo
         
         if all_closes and len(all_closes) >= 700:
             train_size = 600
-            # train_data = all_closes[:train_size] # Unused here
+
             test_data = all_closes[train_size:]
             test_vols = all_volumes[train_size:]
             

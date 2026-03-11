@@ -8,12 +8,11 @@ import sqlite3
 import random
 import math
 import traceback
-import datetime as dt
+import traceback
 from typing import List, Tuple
 from dotenv import load_dotenv
 import pytz
 from alpaca_trade_api import REST
-from alpaca_trade_api.rest import TimeFrame, TimeFrameUnit
 
 try:
     import config_validated as config

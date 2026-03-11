@@ -187,14 +187,6 @@ RESERVE_CASH_PERCENT: float = float(os.getenv("RESERVE_CASH_PERCENT", "25.0"))  
 # -------------------
 # Helpers
 # -------------------
-def validate_config(allow_missing_api_keys: bool = False) -> Optional[str]:
-    missing = []
-    if not ALPACA_API_KEY or not ALPACA_SECRET_KEY:
-        if not allow_missing_api_keys and not ALLOW_MISSING_KEYS_FOR_DEBUG:
-            missing.append("ALPACA_API_KEY and/or ALPACA_SECRET_KEY")
-    if missing:
-        return f"Missing configuration: {', '.join(missing)}. Set env vars or enable debug override."
-    return None
 
 def wants_live_mode() -> bool:
     """Check if live trading mode is enabled"""
@@ -254,15 +246,6 @@ def apply_conservative_preset():
     STOP_LOSS_PERCENT = 1.0
     print("[OK] Applied CONSERVATIVE preset (recommended for beginners)")
 
-def apply_aggressive_preset():
-    """Apply maximum profit settings (high risk!)"""
-    global TRADE_SIZE_FRAC_OF_CAP, RISKY_MODE_ENABLED, TAKE_PROFIT_PERCENT, STOP_LOSS_PERCENT
-    TRADE_SIZE_FRAC_OF_CAP = 0.75
-    RISKY_MODE_ENABLED = True
-    TAKE_PROFIT_PERCENT = 3.0
-    STOP_LOSS_PERCENT = 1.5
-    print("[!]  Applied AGGRESSIVE preset (high risk, experienced users only)")
-
 # Auto-apply based on environment variable
 PRESET_MODE = os.getenv("PRESET_MODE", "").upper()
 if PRESET_MODE == "CONSERVATIVE":
@@ -271,7 +254,5 @@ elif PRESET_MODE == "AGGRESSIVE":
     # Modified Aggressive: High risk but still respects diversification
     TRADE_SIZE_FRAC_OF_CAP = 0.08 # 8% per trade (approx 12 positions max)
     RISKY_MODE_ENABLED = True
-    TAKE_PROFIT_PERCENT = 3.0
-    # STOP_LOSS_PERCENT = 1.5
     print("[!]  Applied AGGRESSIVE diversification preset")
 

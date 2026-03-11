@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 Smart Paper Trading Bot - Main Runner
 Orchestrates the Decision, Allocation, and Execution engines.
@@ -120,7 +120,9 @@ class SmartTradingBot:
                 data = json.load(open(self._equity_cache_path, 'r'))
                 self._last_equity = float(data.get('equity', 0.0) or 0.0)
                 self._last_equity_ts = str(data.get('timestamp', '') or '')
-                self._high_water_mark = float(data.get('high_water_mark', 0.0) or 0.0)
+                loaded_hwm = float(data.get('high_water_mark', 0.0) or 0.0)
+                if loaded_hwm > self._high_water_mark:
+                    self._high_water_mark = loaded_hwm
                 self._restricted_mode = bool(data.get('restricted_mode', False))
                 self._restricted_mode_start = float(data.get('restricted_mode_start', 0.0) or 0.0)
         except Exception:
@@ -186,10 +188,6 @@ class SmartTradingBot:
         # 1. Update HWM
         if equity > self._high_water_mark:
             self._high_water_mark = equity
-        
-        # Initialize HWM if 0 (first run)
-        if self._high_water_mark <= 0.1:
-             self._high_water_mark = equity 
 
         # 2. Calculate Thresholds
         hard_kill_2_level = self._high_water_mark * 0.85 # 15% Drawdown
@@ -402,6 +400,21 @@ class SmartTradingBot:
             return
         # ---------------------------
 
+        # --- TSLA 80% FLOOR ENFORCEMENT ---
+        # Run before any per-symbol analysis so every cycle enforces the rule.
+        try:
+            tsla_price = self._get_tsla_price()
+            if tsla_price and tsla_price > 0:
+                self.allocation_engine.enforce_tsla_floor(
+                    tsla_price=tsla_price,
+                    equity=equity,
+                    order_executor=self.order_executor,
+                    api=self.api,
+                )
+        except Exception as _tsla_err:
+            log_error(f"TSLA floor enforcement error: {_tsla_err}")
+        # -----------------------------------
+
         # B. Data Fetching
         try:
             closes, volumes = fetch_closes_with_volume(
@@ -612,6 +625,24 @@ class SmartTradingBot:
         self._account_cache = (now, acct)
         return acct
 
+    def _get_tsla_price(self) -> float:
+        """Fetch the latest TSLA close price from YFinance cache.
+
+        Returns 0.0 on any failure so the caller can safely skip the floor
+        enforcement when price data is unavailable.
+        """
+        try:
+            closes, _ = fetch_closes_with_volume(
+                self.api, "TSLA",
+                interval_seconds=60,
+                limit_bars=5,
+            )
+            if closes:
+                return float(closes[-1])
+        except Exception:
+            pass
+        return 0.0
+
     def refresh_universe(self):
         """Phase 13: Update stock list from scanner"""
         try:
@@ -665,8 +696,6 @@ class SmartTradingBot:
         
         # Define Kill Levels based on HWM (15% Hard, 10% Soft)
         # Assuming HWM starts at initial capital (e.g. 100k) or grows.
-        if self._high_water_mark <= 0.1:
-             self._high_water_mark = equity # Initialize if 0
              
         hard_kill_2_level = self._high_water_mark * 0.85 # 15% Drawdown
         dynamic_floor = self._high_water_mark * 0.90 # 10% Drawdown
@@ -717,8 +746,22 @@ class SmartTradingBot:
             raise
         except Exception as e:
             log_error(f"Kill switch error: {e}")
-            
+
         log_info(f"Account Equity: ${equity:.2f} (Cash: ${cash:.2f}) | HWM: ${self._high_water_mark:.2f}")
+
+        # --- TSLA 80% FLOOR ENFORCEMENT (run_cycle path) ---
+        try:
+            tsla_price = self._get_tsla_price()
+            if tsla_price and tsla_price > 0:
+                self.allocation_engine.enforce_tsla_floor(
+                    tsla_price=tsla_price,
+                    equity=equity,
+                    order_executor=self.order_executor,
+                    api=self.api,
+                )
+        except Exception as _tsla_err:
+            log_error(f"TSLA floor enforcement error (run_cycle): {_tsla_err}")
+        # ---------------------------------------------------
         
         # 2. Get Universe
         # Phase 13: Use Dynamic Active Universe

@@ -15,6 +15,7 @@ class TestKillSwitch:
     def bot(self):
         with patch('runner.get_config') as mock_config:
             mock_config.return_value.max_cap_usd = 100.0
+            mock_config.return_value.MAX_OPEN_POSITIONS = 15
             mock_config.return_value.wants_live_mode.return_value = False
             
             # Mock other components to avoid side effects
@@ -28,6 +29,8 @@ class TestKillSwitch:
                 bot = SmartTradingBot()
                 bot.pm = Mock() # Portfolio Manager
                 bot.pm.get_all_positions.return_value = {'AAPL': {'qty': 10, 'avg_entry': 150.0}} # Mock positions
+                bot.pm.get_position_count.return_value = 1
+                bot.pm.get_lowest_confidence_position.return_value = None
                 
                 bot.order_executor = Mock() # Executor
                 bot.allocation_engine = Mock() # Allocation

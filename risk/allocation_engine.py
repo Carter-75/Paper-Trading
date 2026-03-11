@@ -192,6 +192,137 @@ class AllocationEngine:
         W = self.win_rate
         R = self.avg_win_loss_ratio
         if R == 0: return 0.0
-        
+
         k = W - ((1 - W) / R)
-        return max(0.0, k) # Never return negative allocation
+        return max(0.0, k)  # Never return negative allocation
+
+    # ------------------------------------------------------------------
+    # TSLA 80% Floor Enforcement
+    # ------------------------------------------------------------------
+
+    TSLA_FLOOR_PCT: float = 0.80   # 80% of total portfolio value
+    DUST_THRESHOLD_USD: float = 50.0  # Positions smaller than this are fully liquidated
+
+    def enforce_tsla_floor(
+        self,
+        tsla_price: float,
+        equity: float,
+        order_executor,
+        api,
+    ) -> None:
+        """
+        Enforce the rule that TSLA must represent at least 80% of total
+        portfolio value.  Called at the start of every trade cycle.
+
+        Steps:
+          1. Compute current TSLA value and target.
+          2. If already at/above floor → return immediately.
+          3. Calculate deficit (how much TSLA $ we need to buy).
+          4. Cover the deficit with available cash first.
+          5. If still short, sell non-TSLA positions (worst-performers
+             first; locked positions last, overriding locks only if required).
+          6. Submit the TSLA buy for the full deficit.
+        """
+        try:
+            from utils.helpers import log_info, log_warn, log_error
+        except ImportError:
+            import logging
+            log_info = log_warn = log_error = logging.getLogger("AllocationEngine").info
+
+        if equity <= 0 or tsla_price <= 0:
+            return
+
+        # ── 1. Current TSLA value ────────────────────────────────────────
+        tsla_pos = self.pm.get_position("TSLA")
+        tsla_value = float((tsla_pos or {}).get("market_value", 0.0))
+
+        target_tsla_value = equity * self.TSLA_FLOOR_PCT
+
+        # ── 2. Floor already met ─────────────────────────────────────────
+        if tsla_value >= target_tsla_value:
+            return
+
+        deficit = target_tsla_value - tsla_value
+        log_warn(
+            f"TSLA FLOOR: TSLA=${tsla_value:.2f} target=${target_tsla_value:.2f} "
+            f"(equity=${equity:.2f}) — deficit=${deficit:.2f}"
+        )
+
+        # ── 3. Cover with available cash first ───────────────────────────
+        total_invested = self.pm.get_total_market_value()
+        available_cash = max(0.0, equity - total_invested)
+        still_needed = max(0.0, deficit - available_cash)
+
+        # ── 4. Sell non-TSLA positions to fund the remainder ─────────────
+        if still_needed > 0:
+            # Build sorted candidate list
+            all_positions = self.pm.get_all_positions()
+            candidates = []
+            for sym, pos_data in all_positions.items():
+                if sym == "TSLA":
+                    continue
+                mv = float(pos_data.get("market_value", 0.0))
+                if mv <= 0:
+                    continue
+                cost_basis = mv - float(pos_data.get("unrealized_pl", 0.0))
+                pnl_pct = (float(pos_data.get("unrealized_pl", 0.0)) / cost_basis
+                           if cost_basis > 0 else 0.0)
+                locked = bool(pos_data.get("is_locked", False))
+                candidates.append({
+                    "symbol": sym,
+                    "market_value": mv,
+                    "pnl_pct": pnl_pct,
+                    "is_locked": locked,
+                })
+
+            # Sort: unlocked first, then worst PnL, then smallest MV
+            candidates.sort(key=lambda c: (
+                1 if c["is_locked"] else 0,   # unlocked first
+                c["pnl_pct"],                  # worst performer first
+                c["market_value"],             # smallest first on tie
+            ))
+
+            for cand in candidates:
+                if still_needed <= 0:
+                    break
+
+                sym = cand["symbol"]
+                mv = cand["market_value"]
+                sell_amount = min(mv, still_needed)
+
+                # Full liquidation if remainder would be dust
+                remainder = mv - sell_amount
+                full_sell = remainder < self.DUST_THRESHOLD_USD
+
+                if full_sell:
+                    log_info(
+                        f"TSLA FLOOR: Liquidating {sym} (mv=${mv:.2f}) "
+                        f"{'[LOCK OVERRIDE]' if cand['is_locked'] else ''}"
+                    )
+                    if order_executor.liquidate(sym, "TSLA 80% floor rebalance"):
+                        self.pm.remove_position(sym)
+                        still_needed -= mv
+                else:
+                    log_info(
+                        f"TSLA FLOOR: Partial sell ${sell_amount:.2f} of {sym} "
+                        f"{'[LOCK OVERRIDE]' if cand['is_locked'] else ''}"
+                    )
+                    try:
+                        order_executor._submit_notional_market_order(sym, sell_amount, "sell")
+                        still_needed -= sell_amount
+                        # PM will be reconciled on next sync_portfolio_with_alpaca
+                    except Exception as e:
+                        log_error(f"TSLA FLOOR: Partial sell of {sym} failed: {e}")
+
+            if still_needed > 0:
+                log_warn(
+                    f"TSLA FLOOR: Could not fully cover deficit — "
+                    f"${still_needed:.2f} still unmet after selling candidates."
+                )
+
+        # ── 5. Buy TSLA for the full deficit ─────────────────────────────
+        try:
+            log_info(f"TSLA FLOOR: Buying ${deficit:.2f} TSLA @ ~${tsla_price:.2f}")
+            order_executor._submit_notional_market_order("TSLA", deficit, "buy")
+        except Exception as e:
+            log_error(f"TSLA FLOOR: TSLA buy order failed: {e}")
