@@ -37,6 +37,7 @@ It protects capital using institutional-grade risk management (`risk/allocation_
 - `execution/`: Order routing and Alpaca integration (`orders.py`).
 - `utils/`: Locking and helpers (`file_lock.py`, `process_lock.py`, `market_schedule.py`).
 - `templates/`: HTML templates for the dashboard (`dashboard.html`).
+- `static/`: Frontend CSS and JS assets (`css/dashboard.css`, `js/dashboard.js`).
 
 ## ⚙️ Environment Variables
 Configuration is handled via `.env` and typed in `config_validated.py`. Key variables include:

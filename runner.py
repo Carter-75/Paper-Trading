@@ -54,6 +54,7 @@ class SmartTradingBot:
         self._account_cache = None  # (ts, account)
         self._account_cache_ttl = 60  # seconds
         self._error_throttle = {}  # throttle noisy per-symbol exceptions
+        self._peak_prices = {}  # per-symbol intratrade high for trailing exits
 
         # --- Equity cache for market-closed hours (keeps last known total on dashboard) ---
         self._equity_cache_path = 'equity_cache.json'
@@ -93,6 +94,7 @@ class SmartTradingBot:
                 avg_entry = float(p.avg_entry_price)
                 market_value = float(p.market_value)
                 unrealized_pl = float(p.unrealized_pl)
+                current_price = (market_value / qty) if qty > 0 else avg_entry
                 
                 # Keep existing confidence if we have it, else 0.5 default
                 existing = self.pm.get_position(symbol)
@@ -101,6 +103,9 @@ class SmartTradingBot:
                 self.pm.update_position(
                     symbol, qty, avg_entry, market_value, unrealized_pl, confidence
                 )
+                if qty > 0 and current_price > 0:
+                    prev_peak = float(self._peak_prices.get(symbol, 0.0) or 0.0)
+                    self._peak_prices[symbol] = max(prev_peak, current_price)
              
             # 3. Remove Ghost Positions (Local but not in Alpaca)
             local_symbols = self.pm.get_symbols()
@@ -108,6 +113,7 @@ class SmartTradingBot:
                 if sym not in real_positions:
                     log_warn(f"Removing GHOST position: {sym} (Found locally but not in Alpaca)")
                     self.pm.remove_position(sym)
+                    self._peak_prices.pop(sym, None)
             
             log_info("Portfolio sync complete.")
             
@@ -459,28 +465,44 @@ class SmartTradingBot:
             
             if qty > 0 and avg_entry > 0:
                 pnl_pct = (current_price - avg_entry) / avg_entry
-                
-                stop_price = avg_entry * (1.0 - (self.config.stop_loss_percent / 100.0))
-                
+
+                prev_peak = float(self._peak_prices.get(symbol, avg_entry) or avg_entry)
+                peak_price = max(prev_peak, current_price)
+                self._peak_prices[symbol] = peak_price
+
+                static_stop_price = avg_entry * (1.0 - (self.config.stop_loss_percent / 100.0))
+                stop_price = static_stop_price
+
                 if atr > 0:
-                    vol_stop = avg_entry - (2.0 * atr)
+                    vol_stop = avg_entry - (2.5 * atr)
                     stop_price = min(stop_price, vol_stop)
-                    
+
+                if pnl_pct > 0.01:
+                    trail_pct = max(0.004, float(getattr(self.config, "trailing_stop_percent", 0.75) or 0.75) / 100.0)
+                    trail_stop = peak_price * (1.0 - trail_pct)
+                    stop_price = max(stop_price, trail_stop)
+
                 if pnl_pct > 0.02:
                     be_stop = avg_entry * 1.001
                     stop_price = max(stop_price, be_stop)
-                    
+
+                dynamic_take_profit_pct = max(
+                    (self.config.take_profit_percent / 100.0) * 0.75,
+                    (self.config.stop_loss_percent / 100.0) * 1.4,
+                )
+
                 reason = ""
                 if current_price < stop_price:
-                     reason = f"STOP LOSS HIT"
-                elif pnl_pct > (self.config.take_profit_percent / 100.0):
-                     reason = f"TAKE PROFIT HIT"
+                    reason = "PROFIT PROTECT EXIT" if pnl_pct > 0 else "STOP LOSS HIT"
+                elif pnl_pct > dynamic_take_profit_pct:
+                    reason = "TAKE PROFIT HIT"
                 
                 if reason:
                     log_warn(f"??????? BODYGUARD TRIGGER: {symbol} -> {reason}")
                     if self.order_executor.liquidate(symbol, reason):
                         self.pm.log_closed_trade(symbol, avg_entry, current_price, qty, reason)
                         self.pm.remove_position(symbol)
+                        self._peak_prices.pop(symbol, None)
                         self.schedule[symbol] = time.time() + 300 
                         return
 
@@ -759,6 +781,8 @@ class SmartTradingBot:
                     order_executor=self.order_executor,
                     api=self.api,
                 )
+                # Floor rebalancing can place direct orders; immediate sync keeps dashboard positions accurate.
+                self.sync_portfolio_with_alpaca()
         except Exception as _tsla_err:
             log_error(f"TSLA floor enforcement error (run_cycle): {_tsla_err}")
         # ---------------------------------------------------
@@ -957,6 +981,7 @@ class SmartTradingBot:
                 allocation.target_value, 
                 0.0 # PnL update happens next cycle
             )
+            self._peak_prices[symbol] = max(float(current_price), float(self._peak_prices.get(symbol, 0.0) or 0.0))
         
         # E. Dump Dashboard State
         self._dump_dashboard_state(total_equity, symbol, signal)

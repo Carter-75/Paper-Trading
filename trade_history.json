@@ -1263,5 +1263,148 @@
     "pnl": 0.04415804116115469,
     "pnl_pct": 0.025233173692395066,
     "reason": "TAKE PROFIT HIT"
+  },
+  {
+    "timestamp": "2026-03-12T13:29:47.221940+00:00",
+    "symbol": "CMCSA",
+    "action": "SELL",
+    "qty": 0.039059978,
+    "entry_price": 30.978,
+    "exit_price": 30.56999969482422,
+    "pnl": -0.015936482944159364,
+    "pnl_pct": -0.013170647077790134,
+    "reason": "STOP LOSS HIT"
+  },
+  {
+    "timestamp": "2026-03-12T13:45:22.203381+00:00",
+    "symbol": "TSLA",
+    "action": "SELL",
+    "qty": 0.311653842,
+    "entry_price": 410.68,
+    "exit_price": 404.5199890136719,
+    "pnl": -1.9197910906513718,
+    "pnl_pct": -0.014999539754378425,
+    "reason": "STOP LOSS HIT"
+  },
+  {
+    "timestamp": "2026-03-12T18:01:07.052434+00:00",
+    "symbol": "CME",
+    "action": "SELL",
+    "qty": 0.073572348,
+    "entry_price": 304.054447,
+    "exit_price": 311.7099914550781,
+    "pnl": 0.5632363807784795,
+    "pnl_pct": 0.025178202557511496,
+    "reason": "TAKE PROFIT HIT"
+  },
+  {
+    "timestamp": "2026-03-16T15:57:46.991930+00:00",
+    "symbol": "TSLA",
+    "action": "SELL",
+    "qty": 0.313282897,
+    "entry_price": 403.948,
+    "exit_price": 398.6499938964844,
+    "pnl": -1.6597747004330503,
+    "pnl_pct": -0.013115564635833335,
+    "reason": "STOP LOSS HIT"
+  },
+  {
+    "timestamp": "2026-03-18T19:42:16.771348+00:00",
+    "symbol": "TSLA",
+    "action": "SELL",
+    "qty": 0.314972084,
+    "entry_price": 398.702,
+    "exit_price": 393.6000061035156,
+    "pnl": -1.6069856501309632,
+    "pnl_pct": -0.012796509414260207,
+    "reason": "STOP LOSS HIT"
+  },
+  {
+    "timestamp": "2026-03-19T13:46:12.056378+00:00",
+    "symbol": "TSLA",
+    "action": "SELL",
+    "qty": 0.315169501,
+    "entry_price": 393.566,
+    "exit_price": 382.625,
+    "pnl": -3.448269510440992,
+    "pnl_pct": -0.027799657490738466,
+    "reason": "STOP LOSS HIT"
+  },
+  {
+    "timestamp": "2026-03-19T14:27:03.029786+00:00",
+    "symbol": "CB",
+    "action": "SELL",
+    "qty": 0.059228274,
+    "entry_price": 329.91,
+    "exit_price": 325.57501220703125,
+    "pnl": -0.25675384478860985,
+    "pnl_pct": -0.013139910257248264,
+    "reason": "STOP LOSS HIT"
+  },
+  {
+    "timestamp": "2026-03-20T13:45:19.693880+00:00",
+    "symbol": "TSLA",
+    "action": "SELL",
+    "qty": 0.316732859,
+    "entry_price": 382.72,
+    "exit_price": 375.1300048828125,
+    "pnl": -2.404000853262845,
+    "pnl_pct": -0.019831718011046003,
+    "reason": "STOP LOSS HIT"
+  },
+  {
+    "timestamp": "2026-03-23T14:47:48.712532+00:00",
+    "symbol": "TSLA",
+    "action": "SELL",
+    "qty": 0.317667258,
+    "entry_price": 375.078,
+    "exit_price": 384.55999755859375,
+    "pnl": 3.0121201648011793,
+    "pnl_pct": 0.025280068568654456,
+    "reason": "TAKE PROFIT HIT"
+  },
+  {
+    "timestamp": "2026-03-25T14:23:27.644258+00:00",
+    "symbol": "TSLA",
+    "action": "SELL",
+    "qty": 0.316536661,
+    "entry_price": 384.239487,
+    "exit_price": 393.95001220703125,
+    "pnl": 3.0737372255900066,
+    "pnl_pct": 0.0252720647813879,
+    "reason": "TAKE PROFIT HIT"
+  },
+  {
+    "timestamp": "2026-03-25T15:19:05.559398+00:00",
+    "symbol": "CMCSA",
+    "action": "SELL",
+    "qty": 0.648135406,
+    "entry_price": 29.068,
+    "exit_price": 28.674999237060547,
+    "pnl": -0.2547177090460731,
+    "pnl_pct": -0.013520048264051688,
+    "reason": "STOP LOSS HIT"
+  },
+  {
+    "timestamp": "2026-03-26T13:46:24.595054+00:00",
+    "symbol": "DELL",
+    "action": "SELL",
+    "qty": 0.105985243,
+    "entry_price": 181.346,
+    "exit_price": 186.1479949951172,
+    "pnl": 0.5089406064422786,
+    "pnl_pct": 0.02647974035885646,
+    "reason": "TAKE PROFIT HIT"
+  },
+  {
+    "timestamp": "2026-03-26T16:26:26.005731+00:00",
+    "symbol": "BA",
+    "action": "SELL",
+    "qty": 0.09631949,
+    "entry_price": 197.364,
+    "exit_price": 194.82000732421875,
+    "pnl": -0.24503607709498576,
+    "pnl_pct": -0.012889851623301384,
+    "reason": "STOP LOSS HIT"
   }
 ]

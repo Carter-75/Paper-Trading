@@ -1,0 +1,59 @@
+--- DASHBOARD ---
+es (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://192.168.196.111:5000
+Press CTRL+C to quit
+127.0.0.1 - - [14/Mar/2026 14:54:51] "GET / HTTP/1.1" 401 -
+127.0.0.1 - - [14/Mar/2026 14:56:34] "GET / HTTP/1.1" 401 -
+127.0.0.1 - - [14/Mar/2026 14:56:40] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [14/Mar/2026 14:56:40] "GET /static/css/dashboard.css HTTP/1.1" 200 -
+127.0.0.1 - - [14/Mar/2026 14:56:40] "GET /static/js/dashboard.js HTTP/1.1" 200 -
+127.0.0.1 - - [14/Mar/2026 14:56:40] "GET /api/history?_=1773518200582 HTTP/1.1" 200 -
+127.0.0.1 - - [14/Mar/2026 14:56:40] "GET /api/state?_=1773518200581 HTTP/1.1" 200 -
+127.0.0.1 - - [14/Mar/2026 14:56:41] "GET /favicon.ico HTTP/1.1" 404 -
+127.0.0.1 - - [14/Mar/2026 14:56:43] "GET /api/state?_=1773518203344 HTTP/1.1" 200 -
+127.0.0.1 - - [14/Mar/2026 14:56:45] "GET /api/state?_=1773518205039 HTTP/1.1" 200 -
+127.0.0.1 - - [14/Mar/2026 14:56:45] "GET /api/history?_=1773518205584 HTTP/1.1" 200 -
+127.0.0.1 - - [14/Mar/2026 14:56:46] "GET /api/state?_=1773518206584 HTTP/1.1" 200 -
+127.0.0.1 - - [14/Mar/2026 14:56:48] "GET /api/state?_=1773518208583 HTTP/1.1" 200 -
+127.0.0.1 - - [14/Mar/2026 14:56:50] "GET /api/state?_=1773518210585 HTTP/1.1" 200 -
+127.0.0.1 - - [14/Mar/2026 15:56:46] "GET /api/logs?_=1773518203345 HTTP/1.1" 200 -
+127.0.0.1 - - [14/Mar/2026 15:56:48] "GET /api/history?_=1773518210585 HTTP/1.1" 200 -
+127.0.0.1 - - [14/Mar/2026 15:56:49] "GET /api/state?_=1773518212585 HTTP/1.1" 200 -
+127.0.0.1 - - [14/Mar/2026 16:03:29] "GET /api/logs?_=1773518206584 HTTP/1.1" 200 -
+127.0.0.1 - - [14/Mar/2026 16:08:05] "GET /api/logs?_=1773518205039 HTTP/1.1" 200 -
+127.0.0.1 - - [14/Mar/2026 16:13:07] "GET /api/logs?_=1773518210585 HTTP/1.1" 200 -
+127.0.0.1 - - [14/Mar/2026 16:13:07] "GET /api/logs?_=1773518208584 HTTP/1.1" 200 -
+127.0.0.1 - - [14/Mar/2026 16:15:40] "GET /api/logs?_=1773518200582 HTTP/1.1" 200 -
+127.0.0.1 - - [14/Mar/2026 16:35:10] "GET /api/logs?_=1773518212585 HTTP/1.1" 200 -
+
+--- BOT ---
+t is not subscriptable
+WARNING:root:YFinance Vol fetch failed for WMT: 'NoneType' object is not subscriptable
+INFO:root:Processing WMT (Lag: 1773757109.8s)
+WARNING:root:Alpaca get_account failed: HTTPSConnectionPool(host='api.alpaca.markets', port=443): Max retries exceeded with url: /v2/account (Caused by NewConnectionError("HTTPSConnection(host='api.alpaca.markets', port=443): Failed to establish a new connection: [WinError 10051] A socket operation was attempted to an unreachable network"))
+WARNING:root:YFinance Vol fetch failed for TSLA: 'NoneType' object is not subscriptable
+WARNING:root:YFinance Vol fetch failed for WMT: 'NoneType' object is not subscriptable
+INFO:root:Processing WMT (Lag: 1773757109.8s)
+WARNING:root:Alpaca get_account failed: HTTPSConnectionPool(host='api.alpaca.markets', port=443): Max retries exceeded with url: /v2/account (Caused by NewConnectionError("HTTPSConnection(host='api.alpaca.markets', port=443): Failed to establish a new connection: [WinError 10051] A socket operation was attempted to an unreachable network"))
+WARNING:root:YFinance Vol fetch failed for TSLA: 'NoneType' object is not subscriptable
+WARNING:root:YFinance Vol fetch failed for WMT: 'NoneType' object is not subscriptable
+INFO:root:Processing WMT (Lag: 1773757109.8s)
+WARNING:root:Alpaca get_account failed: HTTPSConnectionPool(host='api.alpaca.markets', port=443): Max retries exceeded with url: /v2/account (Caused by NewConnectionError("HTTPSConnection(host='api.alpaca.markets', port=443): Failed to establish a new connection: [WinError 10051] A socket operation was attempted to an unreachable network"))
+WARNING:root:YFinance Vol fetch failed for TSLA: 'NoneType' object is not subscriptable
+WARNING:root:YFinance Vol fetch failed for WMT: 'NoneType' object is not subscriptable
+INFO:root:Processing WMT (Lag: 1773757138.9s)
+WARNING:root:Alpaca get_account failed: HTTPSConnectionPool(host='api.alpaca.markets', port=443): Max retries exceeded with url: /v2/account (Caused by NewConnectionError("HTTPSConnection(host='api.alpaca.markets', port=443): Failed to establish a new connection: [WinError 10051] A socket operation was attempted to an unreachable network"))
+WARNING:root:YFinance Vol fetch failed for TSLA: 'NoneType' object is not subscriptable
+WARNING:root:YFinance Vol fetch failed for WMT: 'NoneType' object is not subscriptable
+INFO:root:Processing WMT (Lag: 1773757139.0s)
+WARNING:root:Alpaca get_account failed: HTTPSConnectionPool(host='api.alpaca.markets', port=443): Max retries exceeded with url: /v2/account (Caused by NewConnectionError("HTTPSConnection(host='api.alpaca.markets', port=443): Failed to establish a new connection: [WinError 10051] A socket operation was attempted to an unreachable network"))
+WARNING:root:YFinance Vol fetch failed for TSLA: 'NoneType' object is not subscriptable
+WARNING:root:YFinance Vol fetch failed for WMT: 'NoneType' object is not subscriptable
+INFO:root:Processing WMT (Lag: 1773757139.0s)
+WARNING:root:Alpaca get_account failed: HTTPSConnectionPool(host='api.alpaca.markets', port=443): Max retries exceeded with url: /v2/account (Caused by NewConnectionError("HTTPSConnection(host='api.alpaca.markets', port=443): Failed to establish a new connection: [WinError 10051] A socket operation was attempted to an unreachable network"))
+WARNING:root:YFinance Vol fetch failed for TSLA: 'NoneType' object is not subscriptable
+WARNING:root:YFinance Vol fetch failed for WMT: 'NoneType' object is not subscriptable
+INFO:root:Processing WMT (Lag: 1773757139.0s)
+WARNING:root:Alpaca get_account failed: HTTPSConnectionPool(host='api.alpaca.markets', port=443): Max retries exceeded with url: /v2/account (Caused by NewConnectionError("HTTPSConnection(host='api.alpaca.markets', port=443): Failed to establish a new connection: [WinError 10051] A socket operation was attempted to an unreachable network"))
+WARNING:root:YFinance Vol fetch failed for TSLA: 'NoneType' object is not subscriptable
