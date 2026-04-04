@@ -386,11 +386,31 @@ function CreateOrUpdateTask([string]$Name, [string]$Trigger, [string]$TimeOpt, [
   }
 }
 
+function Set-Firewall {
+  # We ensure the port 5000 and Discovery ports are open for LAN/Phone access
+  # Native powershell cmdlets are used for reliability, with silent errors if rules exist
+  Write-Host "Configuring Windows Firewall for Discovery and Phone Access..." -ForegroundColor Gray
+  
+  # Rule 1: Dashboard Port 5000
+  if (-not (Get-NetFirewallRule -DisplayName "PaperTrading-Dashboard-Phone" -ErrorAction SilentlyContinue)) {
+    New-NetFirewallRule -DisplayName "PaperTrading-Dashboard-Phone" -Direction Inbound -LocalPort 5000 -Protocol TCP -Action Allow -Profile Any -ErrorAction SilentlyContinue | Out-Null
+  }
+
+  # Rule 2: Discovery (mDNS/NetBIOS/LLMNR)
+  if (-not (Get-NetFirewallRule -DisplayName "PaperTrading-Discovery" -ErrorAction SilentlyContinue)) {
+    New-NetFirewallRule -DisplayName "PaperTrading-Discovery" -Direction Inbound -Protocol UDP -LocalPort 137,138,5353,5355 -Action Allow -Profile Any -ErrorAction SilentlyContinue | Out-Null
+  }
+}
+
 function Ensure-Tasks([string]$BotCommand) {
   Require-Admin
+  
+  # Ensure network access is clear
+  Set-Firewall
 
   Write-BotStartScript $BotCommand
   Write-DashStartScript
+
 
   # Dashboard task 24/7
   CreateOrUpdateTask 'PaperTradingDashboard' 'ONSTART' '' $DashScript
