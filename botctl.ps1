@@ -294,26 +294,33 @@ function CreateOrUpdateTask([string]$Name, [string]$Trigger, [string]$TimeOpt, [
   elseif ($Trigger -eq 'ONSTART') {
     $triggers += New-ScheduledTaskTrigger -AtStartup
     $triggers += New-ScheduledTaskTrigger -AtLogOn # Double-tap to ensure it kicks in
-    
-    # "Wake from Sleep" trigger (Event ID 1, Power-Troubleshooter)
-    # Since New-ScheduledTaskTrigger doesn't support events directly, we'll add it via CIM if possible
-    try {
-      $eventSub = '<QueryList><Query Id="0" Path="System"><Select Path="System">*[System[Provider[@Name=''Microsoft-Windows-Power-Troubleshooter''] and (EventID=1)]]</Select></Query></QueryList>'
-      $wakeTrigger = New-CimInstance -ClassName MSFT_ScheduledTaskTrigger -Namespace Root/Microsoft/Windows/TaskScheduler -ClientOnly
-      $wakeTrigger.Enabled = $true
-      $wakeTrigger.EventSubscription = $eventSub
-      $triggers += $wakeTrigger
-    } catch { 
-      Add-Content -Path .\bot.log -Value "WAKE_TRIGGER_ERROR: Could not add event trigger for $Name"
-    }
   }
 
   # Power Settings: Enforce AC Power Only (User preference: Plugged in=ON, Battery=OFF)
   $settings = New-ScheduledTaskSettings -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 2) -ExecutionTimeLimit (New-TimeSpan -Days 3)
-  # Default $settings should have AllowStartIfOnBatteries=$false and StopIfGoingOnBatteries=$true
-
+  
+  # Register the Task with basic triggers first
   Register-ScheduledTask -TaskName $Name -Action $action -Trigger $triggers -Settings $settings -RunLevel Highest -User "SYSTEM" -Force | Out-Null
+
+  # --- CRITICAL: Add Wake from Sleep Trigger via schtasks (Avoids CIM locking/permission issues) ---
+  if ($Trigger -eq 'ONSTART') {
+    try {
+      # Let's try one more robust CIM approach without -ClientOnly if first Register succeeded
+      $eventSub = '<QueryList><Query Id="0" Path="System"><Select Path="System">*[System[Provider[@Name=''Microsoft-Windows-Power-Troubleshooter''] and (EventID=1)]]</Select></Query></QueryList>'
+      $task = Get-ScheduledTask -TaskName $Name
+      $wakeTrigger = New-CimInstance -ClassName MSFT_ScheduledTaskTrigger -Namespace Root/Microsoft/Windows/TaskScheduler -Property @{
+          EventSubscription = $eventSub
+          Enabled = $true
+      } -ClientOnly
+      $task.Triggers += $wakeTrigger
+      Set-ScheduledTask -InputObject $task | Out-Null
+    } catch {
+       Write-Host "WAKE_TRIGGER_NOTE: Skipping event trigger for $Name. (Wake support will rely on Startup/Logon triggers)." -ForegroundColor Gray
+    }
+  }
 }
+
+
 
 
 
