@@ -12,6 +12,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Ensure task-management module is loaded
+Import-Module ScheduledTasks -ErrorAction SilentlyContinue 
+
+
 $TaskName = 'PaperTradingBot'
 $WorkDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 # Ensure WorkDir is absolute
@@ -45,21 +49,34 @@ function Require-Admin {
 }
 
 function Task-Exists([string]$Name) {
-  schtasks /Query /TN $Name *> $null
+  $ErrorActionPreference = 'SilentlyContinue'
+  & schtasks /Query /TN $Name /NH 2>$null | Out-Null
   return ($LASTEXITCODE -eq 0)
 }
 
 function Task-Stop([string]$Name) {
-  schtasks /End /TN $Name *> $null
+  if (Task-Exists $Name) {
+    $ErrorActionPreference = 'SilentlyContinue'
+    & schtasks /End /TN $Name 2>$null | Out-Null
+  }
 }
 
 function Task-Delete([string]$Name) {
-  schtasks /Delete /TN $Name /F *> $null
+  if (Task-Exists $Name) {
+    $ErrorActionPreference = 'SilentlyContinue'
+    & schtasks /Delete /TN $Name /F 2>$null | Out-Null
+  }
 }
 
 function Task-Run([string]$Name) {
-  schtasks /Run /TN $Name *> $null
+  if (Task-Exists $Name) {
+    $ErrorActionPreference = 'SilentlyContinue'
+    & schtasks /Run /TN $Name 2>$null | Out-Null
+  }
 }
+
+
+
 
 function Get-LocalTimeStringForEastern925 {
   $et = [System.TimeZoneInfo]::FindSystemTimeZoneById('Eastern Standard Time')
@@ -278,51 +295,96 @@ function Write-DashStartScript {
 }
 
 function CreateOrUpdateTask([string]$Name, [string]$Trigger, [string]$TimeOpt, [string]$ScriptPath) {
-  $trArg = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""$ScriptPath"""
+  $xmlPath = Join-Path $WorkDir "$Name-config.xml"
   if (Task-Exists $Name) { Task-Delete $Name }
 
-  $action = New-ScheduledTaskAction -Execute $Pwsh -Argument $trArg
+  $trArg = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""$ScriptPath"""
 
-  $triggers = @()
+  # --- UNIVERSAL XML GENERATION (Bypasses missing PowerShell modules) ---
+  $xml = @"
+<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <Triggers>
+"@
+  
   if ($Trigger -eq 'DAILY') {
-    $st = [DateTime]::ParseExact($TimeOpt, "HH:mm", $null)
-    $triggers += New-ScheduledTaskTrigger -Daily -At $st
+    $xml += @"
+    <CalendarTrigger>
+      <StartBoundary>2020-01-01T$($TimeOpt):00</StartBoundary>
+      <Enabled>true</Enabled>
+      <ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay>
+    </CalendarTrigger>
+"@
   }
   elseif ($Trigger -eq 'ONLOGON') {
-    $triggers += New-ScheduledTaskTrigger -AtLogOn
+    $xml += "    <LogonTrigger><Enabled>true</Enabled></LogonTrigger>"
   }
   elseif ($Trigger -eq 'ONSTART') {
-    $triggers += New-ScheduledTaskTrigger -AtStartup
-    $triggers += New-ScheduledTaskTrigger -AtLogOn # Double-tap to ensure it kicks in
+    $xml += "    <BootTrigger><Enabled>true</Enabled></BootTrigger>"
+    $xml += "    <LogonTrigger><Enabled>true</Enabled></LogonTrigger>"
+    # Event Trigger for Wake (Microsoft-Windows-Power-Troubleshooter, Event ID 1)
+    $xml += @"
+    <EventTrigger>
+      <Enabled>true</Enabled>
+      <Subscription>&lt;QueryList&gt;&lt;Query Id="0" Path="System"&gt;&lt;Select Path="System"&gt;*[System[Provider[@Name='Microsoft-Windows-Power-Troubleshooter'] and (EventID=1)]]&lt;/Select&gt;&lt;/Query&gt;&lt;/QueryList&gt;</Subscription>
+    </EventTrigger>
+"@
   }
 
-  # Power Settings: Enforce AC Power Only (User preference: Plugged in=ON, Battery=OFF)
-  $settings = New-ScheduledTaskSettings -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 2) -ExecutionTimeLimit (New-TimeSpan -Days 3)
-  
-  # Register the Task with basic triggers first
-  Register-ScheduledTask -TaskName $Name -Action $action -Trigger $triggers -Settings $settings -RunLevel Highest -User "SYSTEM" -Force | Out-Null
+  $xml += @"
+  </Triggers>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>true</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>true</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <IdleSettings>
+      <StopOnIdleEnd>true</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>true</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <WakeToRun>false</WakeToRun>
+    <ExecutionTimeLimit>P3D</ExecutionTimeLimit>
+    <Priority>7</Priority>
+    <RestartOnFailure>
+      <Interval>PT2M</Interval>
+      <Count>3</Count>
+    </RestartOnFailure>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>$Pwsh</Command>
+      <Arguments>$trArg</Arguments>
+    </Exec>
+  </Actions>
+  <Principals>
+    <Principal id="Author">
+      <UserId>S-1-5-18</UserId>
+      <RunLevel>HighestAvailable</RunLevel>
+    </Principal>
+  </Principals>
+</Task>
+"@
 
-  # --- CRITICAL: Add Wake from Sleep Trigger via schtasks (Avoids CIM locking/permission issues) ---
-  if ($Trigger -eq 'ONSTART') {
-    try {
-      # Let's try one more robust CIM approach without -ClientOnly if first Register succeeded
-      $eventSub = '<QueryList><Query Id="0" Path="System"><Select Path="System">*[System[Provider[@Name=''Microsoft-Windows-Power-Troubleshooter''] and (EventID=1)]]</Select></Query></QueryList>'
-      $task = Get-ScheduledTask -TaskName $Name
-      $wakeTrigger = New-CimInstance -ClassName MSFT_ScheduledTaskTrigger -Namespace Root/Microsoft/Windows/TaskScheduler -Property @{
-          EventSubscription = $eventSub
-          Enabled = $true
-      } -ClientOnly
-      $task.Triggers += $wakeTrigger
-      Set-ScheduledTask -InputObject $task | Out-Null
-    } catch {
-       Write-Host "WAKE_TRIGGER_NOTE: Skipping event trigger for $Name. (Wake support will rely on Startup/Logon triggers)." -ForegroundColor Gray
-    }
+  # Save XML (UTF-16 for schtasks compatibility)
+  [System.IO.File]::WriteAllText($xmlPath, $xml, [System.Text.Encoding]::Unicode)
+
+  # Import via schtasks
+  schtasks /Create /XML "$xmlPath" /TN "$Name" /F *> $null
+  $success = ($LASTEXITCODE -eq 0)
+
+  # Cleanup
+  if (Test-Path $xmlPath) { Remove-Item $xmlPath -Force }
+
+  if (-not $success) {
+    Write-Host "CRITICAL ERROR: Failed to create task $Name via XML." -ForegroundColor Red
   }
 }
-
-
-
-
 
 function Ensure-Tasks([string]$BotCommand) {
   Require-Admin
