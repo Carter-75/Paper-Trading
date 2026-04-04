@@ -47,7 +47,7 @@ TRAILING_STOP_PERCENT: float = float(os.getenv("TRAILING_STOP_PERCENT", "0.75") 
 
 # Confidence sizing
 CONFIDENCE_MULTIPLIER: float = float(os.getenv("CONFIDENCE_MULTIPLIER", "9.0"))
-MIN_CONFIDENCE_TO_TRADE: float = float(os.getenv("MIN_CONFIDENCE_TO_TRADE", "0.005"))
+MIN_CONFIDENCE_TO_TRADE: float = float(os.getenv("MIN_CONFIDENCE_TO_TRADE", "0.4"))
 
 # Volatility filter (increased threshold from 10% to 15% for more opportunities)
 VOLATILITY_WINDOW: int = int(os.getenv("VOLATILITY_WINDOW", "30"))
@@ -109,6 +109,7 @@ AVOID_LAST_MINUTES: int = int(os.getenv("AVOID_LAST_MINUTES", "15"))  # Don't tr
 # Machine Learning
 ENABLE_ML_PREDICTION: bool = os.getenv("ENABLE_ML_PREDICTION", "1") in ("1", "true", "True")  # ON by default
 ML_CONFIDENCE_THRESHOLD: float = float(os.getenv("ML_CONFIDENCE_THRESHOLD", "0.6"))  # 60% confidence needed
+ML_PREDICTION_HORIZON: int = int(os.getenv("ML_PREDICTION_HORIZON", "3"))  # 3 bars ahead
 ML_MODEL_PATH: str = os.getenv("ML_MODEL_PATH", "ml_model.pkl")
 
 # Runtime clamp bounds for auto-tuning
@@ -183,6 +184,7 @@ MAX_SINGLE_STOCK_PERCENT: float = float(os.getenv("MAX_SINGLE_STOCK_PERCENT", "2
 MIN_ALLOCATION_USD: float = float(os.getenv("MIN_ALLOCATION_USD", "5.0"))  # Minimum $ per stock (below this, skip stock)
 CONFIDENCE_WEIGHT_MULTIPLIER: float = float(os.getenv("CONFIDENCE_WEIGHT_MULTIPLIER", "400.0"))  # How much confidence affects score (best practice: 300-500)
 RESERVE_CASH_PERCENT: float = float(os.getenv("RESERVE_CASH_PERCENT", "25.0"))  # Keep this % in reserve (best practice: 20-30%)
+TSLA_FLOOR_PCT: float = float(os.getenv("TSLA_FLOOR_PCT", "0.50"))  # 50% TSLA floor (reduced from hardcoded 80% for more diversification)
 
 # -------------------
 # Helpers

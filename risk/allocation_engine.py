@@ -38,6 +38,7 @@ class AllocationEngine:
         self.config = get_config()
         self.pm = portfolio_manager
         self.logger = logging.getLogger("AllocationEngine")
+        self.TSLA_FLOOR_PCT = getattr(self.config, 'TSLA_FLOOR_PCT', 0.50)
         
         # Win Rate Statistics (for Kelly)
         # TODO: Load this from a persistent stats file
@@ -200,7 +201,7 @@ class AllocationEngine:
     # TSLA 80% Floor Enforcement
     # ------------------------------------------------------------------
 
-    TSLA_FLOOR_PCT: float = 0.80   # 80% of total portfolio value
+    TSLA_FLOOR_PCT: float = 0.50   # Initial default, will be overridden by config
     DUST_THRESHOLD_USD: float = 50.0  # Positions smaller than this are fully liquidated
 
     def enforce_tsla_floor(

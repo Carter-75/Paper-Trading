@@ -24,7 +24,7 @@ from utils.market_schedule import MarketSchedule
 
 # Import data fetching and cache from the old runner logic (preserved here for simplicity)
 # In a full refactor, these would go to utils/market_data.py
-from runner_data_utils import PriceCache, fetch_closes_with_volume, make_client
+from runner_data_utils import PriceCache, fetch_ohlcv, make_client
 from utils.process_lock import ProcessLock
 import json
 import datetime
@@ -423,17 +423,19 @@ class SmartTradingBot:
 
         # B. Data Fetching
         try:
-            closes, volumes = fetch_closes_with_volume(
+            _, highs, lows, closes, volumes = fetch_ohlcv(
                 self.api, symbol, 
                 interval_seconds=60, 
-                limit_bars=200
+                limit_bars=1000
             )
             # Defensive: ensure closes and volumes are aligned
             try:
                 if closes is not None and volumes is not None and len(closes) != len(volumes):
-                    n = min(len(closes), len(volumes))
+                    n = min(len(closes), len(volumes), len(highs), len(lows))
                     closes = closes[-n:]
                     volumes = volumes[-n:]
+                    highs = highs[-n:]
+                    lows = lows[-n:]
             except Exception:
                 pass
 
@@ -510,7 +512,7 @@ class SmartTradingBot:
         try:
             signal = None
             if closes and len(closes) > 50:
-                signal = self.decision_engine.analyze(symbol, closes, volumes)
+                signal = self.decision_engine.analyze(symbol, closes, volumes, highs, lows)
                 if signal.action != "hold":
                     # Check for restricted mode cap
                     max_exposure_cap = None
@@ -596,6 +598,11 @@ class SmartTradingBot:
             if self.pm.get_position(symbol):
                 new_interval = 30
                 
+            if highs is not None and lows is not None:
+                 atr = self.decision_engine.calculate_atr(closes, highs, lows)
+            else:
+                 atr = self.decision_engine.calculate_atr(closes)
+
             # High Volatility Check (Safe)
             if atr > (current_price * 0.01):
                  new_interval = min(new_interval, 15)
@@ -654,7 +661,7 @@ class SmartTradingBot:
         enforcement when price data is unavailable.
         """
         try:
-            closes, _ = fetch_closes_with_volume(
+            _, highs, lows, closes, _ = fetch_ohlcv(
                 self.api, "TSLA",
                 interval_seconds=60,
                 limit_bars=5,
@@ -809,18 +816,18 @@ class SmartTradingBot:
     def process_symbol(self, symbol: str, total_equity: float, max_exposure_cap: float = None):
         # A. Fetch Data
         # We need ~150 bars for good technicals + ML
-        closes, volumes = fetch_closes_with_volume(
+        _, highs, lows, closes, volumes = fetch_ohlcv(
             self.api, 
             symbol, 
             interval_seconds=int(self.config.default_interval_seconds), 
-            limit_bars=200
+            limit_bars=1000
         )
         
         if not closes or len(closes) < 50:
             return
 
         # B. Make Decision (The "Brain")
-        signal = self.decision_engine.analyze(symbol, closes, volumes)
+        signal = self.decision_engine.analyze(symbol, closes, volumes, highs, lows)
         
         if signal.action == "hold":
             # Optional: Log hold reasoning if verbose

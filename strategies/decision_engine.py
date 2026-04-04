@@ -63,7 +63,7 @@ class DecisionEngine:
             self.logger.warning(f"Could not initialize NewsSentinel: {e}")
             self.news_sentinel = None
     
-    def analyze(self, symbol: str, closes: List[float], volumes: List[float]) -> TradeSignal:
+    def analyze(self, symbol: str, closes: List[float], volumes: List[float], highs: List[float] = None, lows: List[float] = None) -> TradeSignal:
         """
         Analyze a stock and return a reasoned decision.
         """
@@ -79,7 +79,7 @@ class DecisionEngine:
         ml_pred, ml_conf = self.ml_predictor.predict(closes, volumes)
         
         # 3. ATR Calculation
-        atr = self.calculate_atr(closes)
+        atr = self.calculate_atr(closes, highs, lows)
         
         # 4. News Check
         news_score = 1.0
@@ -246,19 +246,26 @@ class DecisionEngine:
         rs = avg_gain / avg_loss
         return 100.0 - (100.0 / (1.0 + rs))
 
-    def calculate_atr(self, closes: List[float], period: int = 14) -> float:
+    def calculate_atr(self, closes: List[float], highs: List[float] = None, lows: List[float] = None, period: int = 14) -> float:
         """
         Calculate Average True Range (ATR).
-        Approximation using close-to-close volatility if High/Low not available.
-        (Since we are passing only closes/volumes here).
-         Ideally we'd have H/L.
+        Uses High/Low if available, otherwise falls back to close-to-close volatility.
         """
         if len(closes) < period + 1:
             return 0.0
             
-        # True Range approx = |Close - PrevClose|
-        # This is strictly just daily volatility if we don't have High/Low.
-        # It's better than nothing.
-        deltas = np.abs(np.diff(closes))
-        atr = np.mean(deltas[-period:])
+        if highs is not None and lows is not None and len(highs) >= period + 1:
+            # True Range = max(H-L, |H-Cp|, |L-Cp|)
+            trs = []
+            for i in range(1, len(closes)):
+                tr1 = highs[i] - lows[i]
+                tr2 = abs(highs[i] - closes[i-1])
+                tr3 = abs(lows[i] - closes[i-1])
+                trs.append(max(tr1, tr2, tr3))
+            atr = np.mean(trs[-period:])
+        else:
+            # Fallback to close-only approximation
+            deltas = np.abs(np.diff(closes))
+            atr = np.mean(deltas[-period:])
+            
         return float(atr)

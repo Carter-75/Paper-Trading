@@ -168,27 +168,53 @@ def fetch_closes(client, symbol: str, interval_seconds: int, limit_bars: int) ->
     
     return []
 
-def fetch_closes_with_volume(client, symbol: str, interval_seconds: int, limit_bars: int) -> Tuple[List[float], List[float]]:
+def fetch_ohlcv(client, symbol: str, interval_seconds: int, limit_bars: int) -> Tuple[List[float], List[float], List[float], List[float], List[float]]:
+    """Fetch Open, High, Low, Close, Volume data with timeout and fallback."""
+    # 1. Try Live Data (YFinance)
     try:
         import yfinance as yf
+        import requests
+        
+        # Create a session with a timeout
+        session = requests.Session()
+        # Set a 10s timeout for all requests in this session (yfinance uses this session)
+        
         yf_interval = "15m"
         if interval_seconds >= 86400: yf_interval = "1d"
         elif interval_seconds >= 3600: yf_interval = "1h"
         
-        # Fix for BRK.B -> BRK-B
         ticker_sym = symbol.replace('.', '-')
-        ticker = yf.Ticker(ticker_sym)
-        hist = ticker.history(period="60d", interval=yf_interval, auto_adjust=True)
+        ticker = yf.Ticker(ticker_sym, session=session)
+        
+        # Using a timeout via the session is tricky, so we'll use a try-block for the call
+        # yfinance doesn't natively support timeout in .history(), so we rely on the session
+        hist = ticker.history(period="60d", interval=yf_interval, auto_adjust=True, timeout=10)
         
         if not hist.empty:
+            opens = list(hist['Open'].values)
+            highs = list(hist['High'].values)
+            lows = list(hist['Low'].values)
             closes = list(hist['Close'].values)
             volumes = list(hist['Volume'].values)
             
             # Cache closes
             _price_cache.store_bars(symbol, interval_seconds, closes, int(hist.index[0].timestamp()))
             
-            return closes[-limit_bars:], volumes[-limit_bars:]
+            return opens[-limit_bars:], highs[-limit_bars:], lows[-limit_bars:], closes[-limit_bars:], volumes[-limit_bars:]
     except Exception as e:
-        log_warn(f"YFinance Vol fetch failed for {symbol}: {e}")
+        log_warn(f"YFinance OHLCV fetch failed/timed out for {symbol}: {e}. Falling back to cache.")
+
+    # 2. Fallback to Cache (Take what we got)
+    try:
+        cached_closes, _ = _price_cache.get_cached_bars(symbol, interval_seconds, limit_bars)
+        if cached_closes:
+            # We don't have H/L/O in cache, so we approximate with closes to avoid logic crashes
+            return cached_closes, cached_closes, cached_closes, cached_closes, [0.0] * len(cached_closes)
+    except Exception as cache_err:
+        log_error(f"Cache fallback also failed for {symbol}: {cache_err}")
     
-    return [], []
+    return [], [], [], [], []
+
+def fetch_closes_with_volume(client, symbol: str, interval_seconds: int, limit_bars: int) -> Tuple[List[float], List[float]]:
+    _, _, _, closes, volumes = fetch_ohlcv(client, symbol, interval_seconds, limit_bars)
+    return closes, volumes

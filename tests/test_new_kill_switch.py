@@ -117,7 +117,7 @@ class TestKillSwitch:
         # We'll call process_symbol directly
         
         bot.config.default_interval_seconds = 60
-        with patch('runner.fetch_closes_with_volume', return_value=([100]*60, [1000]*60)):
+        with patch('runner.fetch_ohlcv', return_value=([100]*60, [100]*60, [100]*60, [100]*60, [1000]*60)):
             bot.decision_engine.analyze.return_value.action = 'buy'
             
             # Setup Allocation Engine mock

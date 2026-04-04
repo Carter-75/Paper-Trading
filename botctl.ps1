@@ -1,4 +1,4 @@
-﻿
+
 # botctl.ps1 (patched v7 - Variable Interpolation Fix)
 
 param(
@@ -131,6 +131,18 @@ function Write-BotStartScript([string]$BotCommand) {
   $content += 'Acquire-AwakeLock'
   $content += 'try {'
   $content += '  while ($true) {'
+  $content += '    # --- LOG TRUNCATION (Safety) ---'
+  $content += '    try {'
+  $content += '      if (Test-Path .\bot.log) {'
+  $content += '        $logInfo = Get-Item .\bot.log'
+  $content += '        if ($logInfo.Length -gt 1MB) {'
+  $content += '          $tail = Get-Content .\bot.log -Tail 1000'
+  $content += '          $tail | Set-Content .\bot.log'
+  $content += '          Add-Content -Path .\bot.log -Value ("BOT_LOG_ROTATED " + (Get-Date).ToString("s"))'
+  $content += '        }'
+  $content += '      }'
+  $content += '    } catch { }'
+  $content += ''
   $content += '    $exitCode = 1'
   $content += '    try {'
   
@@ -215,6 +227,21 @@ function Write-DashStartScript {
   $content += 'Add-Content -Path $logPath -Value ("DASH_INIT " + (Get-Date).ToString("s") + " user=" + [System.Security.Principal.WindowsIdentity]::GetCurrent().Name)'
   $content += ''
   $content += 'while ($true) {'
+  $content += '  # --- PORT 5000 ENFORCER (Nuclear) ---'
+  $content += '  try {'
+  $content += '     $pids = (netstat -ano | Select-String ":5000" | Select-String "LISTENING" | ForEach-Object { '
+  $content += '         $parts = ($_ -split "\s+")'
+  $content += '         $pidPart = $parts[-1]'
+  $content += '         if ($pidPart -match "^\d+$") { [int]$pidPart }'
+  $content += '     } | Where-Object { $_ -ne $null } | Sort-Object -Unique)'
+  $content += '     foreach ($p in $pids) {'
+  $content += '        if ($p -ne $PID) {'
+  $content += '           Add-Content -Path $logPath -Value ("ENFORCER: Killing Port 5000 occupant PID $p")'
+  $content += '           taskkill /F /PID $p | Out-Null'
+  $content += '        }'
+  $content += '     }'
+  $content += '  } catch { }'
+  $content += ''
   $content += '  # --- LOG TRUNCATION (Safety) ---'
   $content += '  try {'
   $content += '    if (Test-Path $logPath) {'
@@ -251,19 +278,44 @@ function Write-DashStartScript {
 }
 
 function CreateOrUpdateTask([string]$Name, [string]$Trigger, [string]$TimeOpt, [string]$ScriptPath) {
-  $tr = '"' + $Pwsh + '" -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $ScriptPath + '"'
+  $trArg = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""$ScriptPath"""
   if (Task-Exists $Name) { Task-Delete $Name }
 
+  $action = New-ScheduledTaskAction -Execute $Pwsh -Argument $trArg
+
+  $triggers = @()
   if ($Trigger -eq 'DAILY') {
-    schtasks /Create /TN $Name /SC DAILY /ST $TimeOpt /TR $tr /RL HIGHEST /RU SYSTEM /F | Out-Null
+    $st = [DateTime]::ParseExact($TimeOpt, "HH:mm", $null)
+    $triggers += New-ScheduledTaskTrigger -Daily -At $st
   }
   elseif ($Trigger -eq 'ONLOGON') {
-    schtasks /Create /TN $Name /SC ONLOGON /TR $tr /RL HIGHEST /RU SYSTEM /F | Out-Null
+    $triggers += New-ScheduledTaskTrigger -AtLogOn
   }
   elseif ($Trigger -eq 'ONSTART') {
-    schtasks /Create /TN $Name /SC ONSTART /TR $tr /RL HIGHEST /RU SYSTEM /F | Out-Null
+    $triggers += New-ScheduledTaskTrigger -AtStartup
+    $triggers += New-ScheduledTaskTrigger -AtLogOn # Double-tap to ensure it kicks in
+    
+    # "Wake from Sleep" trigger (Event ID 1, Power-Troubleshooter)
+    # Since New-ScheduledTaskTrigger doesn't support events directly, we'll add it via CIM if possible
+    try {
+      $eventSub = '<QueryList><Query Id="0" Path="System"><Select Path="System">*[System[Provider[@Name=''Microsoft-Windows-Power-Troubleshooter''] and (EventID=1)]]</Select></Query></QueryList>'
+      $wakeTrigger = New-CimInstance -ClassName MSFT_ScheduledTaskTrigger -Namespace Root/Microsoft/Windows/TaskScheduler -ClientOnly
+      $wakeTrigger.Enabled = $true
+      $wakeTrigger.EventSubscription = $eventSub
+      $triggers += $wakeTrigger
+    } catch { 
+      Add-Content -Path .\bot.log -Value "WAKE_TRIGGER_ERROR: Could not add event trigger for $Name"
+    }
   }
+
+  # Power Settings: Enforce AC Power Only (User preference: Plugged in=ON, Battery=OFF)
+  $settings = New-ScheduledTaskSettings -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 2) -ExecutionTimeLimit (New-TimeSpan -Days 3)
+  # Default $settings should have AllowStartIfOnBatteries=$false and StopIfGoingOnBatteries=$true
+
+  Register-ScheduledTask -TaskName $Name -Action $action -Trigger $triggers -Settings $settings -RunLevel Highest -User "SYSTEM" -Force | Out-Null
 }
+
+
 
 function Ensure-Tasks([string]$BotCommand) {
   Require-Admin
@@ -367,6 +419,18 @@ switch ($cmd) {
         # Use taskkill for better force-kill capability (especially against SYSTEM processes)
         taskkill /F /PID $p.ProcessId | Out-Null
       }
+    }
+    
+    Write-Host "NUCLEAR: Reclaiming Port 5000 from any occupants..." -ForegroundColor Yellow
+    $pids5000 = (netstat -ano | Select-String ":5000" | Select-String "LISTENING" | ForEach-Object { 
+        $parts = ($_ -split "\s+")
+        $pidPart = $parts[-1]
+        if ($pidPart -match '^\d+$') { [int]$pidPart }
+    } | Where-Object { $_ -ne $null } | Sort-Object -Unique)
+    
+    foreach ($p in $pids5000) {
+        Write-Host "Killing Port 5000 occupant PID $p" -ForegroundColor Gray
+        taskkill /F /PID $p | Out-Null
     }
     
     Start-Sleep -Seconds 2

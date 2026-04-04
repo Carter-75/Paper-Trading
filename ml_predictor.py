@@ -259,18 +259,20 @@ def auto_train_model_if_needed(predictor: TradingMLPredictor) -> bool:
         for idx, symbol in enumerate(symbols, 1):
             print(f"  [{idx}/{len(symbols)}] Fetching {symbol}...", end=" ", flush=True)
             try:
-                closes, volumes = fetch_closes_with_volume(client, symbol, interval_seconds, 500)
+                closes, _ = fetch_closes_with_volume(client, symbol, interval_seconds, limit_bars=2000)
                 
                 if len(closes) < 50:
                     print("(insufficient data, skipping)")
                     continue
                 
-                # Create labels: 1 if next price is higher, 0 if lower
+                # Create labels: 1 if price after HORIZON bars is higher, 0 if lower
+                horizon = int(getattr(config, 'ML_PREDICTION_HORIZON', 3))
                 samples_added = 0
-                for i in range(40, len(closes) - 1):
+                for i in range(40, len(closes) - horizon):
                     window_closes = closes[:i]
                     window_volumes = volumes[:i]
-                    label = 1 if closes[i+1] > closes[i] else 0
+                    # Predict direction after 'horizon' bars
+                    label = 1 if closes[i+horizon] > closes[i] else 0
                     training_data.append((window_closes, window_volumes, label))
                     samples_added += 1
                 

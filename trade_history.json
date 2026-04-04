@@ -1406,5 +1406,38 @@
     "pnl": -0.24503607709498576,
     "pnl_pct": -0.012889851623301384,
     "reason": "STOP LOSS HIT"
+  },
+  {
+    "timestamp": "2026-03-27T13:45:54.992206+00:00",
+    "symbol": "TSLA",
+    "action": "SELL",
+    "qty": 0.315410894,
+    "entry_price": 393.994,
+    "exit_price": 365.6700134277344,
+    "pnl": -8.933693926402306,
+    "pnl_pct": -0.07188938555476898,
+    "reason": "STOP LOSS HIT"
+  },
+  {
+    "timestamp": "2026-03-27T17:03:09.177715+00:00",
+    "symbol": "CMCSA",
+    "action": "SELL",
+    "qty": 0.652340218,
+    "entry_price": 28.758,
+    "exit_price": 28.395000457763672,
+    "pnl": -0.2367992005163459,
+    "pnl_pct": -0.01262255867015534,
+    "reason": "STOP LOSS HIT"
+  },
+  {
+    "timestamp": "2026-03-31T15:41:09.071090+00:00",
+    "symbol": "ABT",
+    "action": "SELL",
+    "qty": 0.173365155,
+    "entry_price": 104.75,
+    "exit_price": 101.69000244140625,
+    "pnl": -0.530496951045227,
+    "pnl_pct": -0.02921238719421241,
+    "reason": "STOP LOSS HIT"
   }
 ]

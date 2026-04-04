@@ -61,6 +61,21 @@ catch {
 Add-Content -Path $logPath -Value ("DASH_INIT " + (Get-Date).ToString("s") + " user=" + [System.Security.Principal.WindowsIdentity]::GetCurrent().Name)
 
 while ($true) {
+  # --- PORT 5000 ENFORCER (Nuclear) ---
+  try {
+     $pids = (netstat -ano | Select-String ":5000" | Select-String "LISTENING" | ForEach-Object { 
+         $parts = ($_ -split "\s+")
+         $pidPart = $parts[-1]
+         if ($pidPart -match "^\d+$") { [int]$pidPart }
+     } | Where-Object { $_ -ne $null } | Sort-Object -Unique)
+     foreach ($p in $pids) {
+        if ($p -ne $PID) {
+           Add-Content -Path $logPath -Value ("ENFORCER: Killing Port 5000 occupant PID $p")
+           taskkill /F /PID $p | Out-Null
+        }
+     }
+  } catch { }
+
   # --- LOG TRUNCATION (Safety) ---
   try {
     if (Test-Path $logPath) {

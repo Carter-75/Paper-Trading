@@ -54,6 +54,18 @@ Add-Content -Path .\bot.log -Value ("BOT_INIT " + (Get-Date).ToString("s") + " u
 Acquire-AwakeLock
 try {
   while ($true) {
+    # --- LOG TRUNCATION (Safety) ---
+    try {
+      if (Test-Path .\bot.log) {
+        $logInfo = Get-Item .\bot.log
+        if ($logInfo.Length -gt 1MB) {
+          $tail = Get-Content .\bot.log -Tail 1000
+          $tail | Set-Content .\bot.log
+          Add-Content -Path .\bot.log -Value ("BOT_LOG_ROTATED " + (Get-Date).ToString("s"))
+        }
+      }
+    } catch { }
+
     $exitCode = 1
     try {
       & "C:\Python311\python.exe" -u runner.py 2>&1 | Tee-Object -FilePath .\bot.log -Append
