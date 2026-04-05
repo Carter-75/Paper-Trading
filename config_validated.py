@@ -115,6 +115,12 @@ class TradingBotConfig(BaseSettings):
         description="Max daily loss as % of capital"
     )
     
+    stop_out_cooldown_blocks: int = Field(
+        default=10,
+        ge=0,
+        description="Wait N cycles after stop-loss before re-entering a symbol"
+    )
+    
     max_exposure_pct: float = Field(
         default=75.0,
         ge=1.0,
@@ -287,16 +293,26 @@ class TradingBotConfig(BaseSettings):
         description="Min expected daily USD for risky mode"
     )
     risky_vol_multiplier: float = Field(default=2.0, ge=1.0, le=10.0, description="Risky volatility multiplier")
-    risky_trades_per_day_multiplier: float = Field(
-        default=2.0,
-        ge=1.0,
-        le=10.0,
-        description="Risky trades per day multiplier"
-    )
+    risky_trades_per_day_multiplier: float = Field(default=2.0, ge=1.0, le=10.0, description="Risky trades per day multiplier")
     risky_tp_mult: float = Field(default=1.25, ge=1.0, le=5.0, description="Risky TP multiplier")
     risky_sl_mult: float = Field(default=1.15, ge=0.5, le=5.0, description="Risky SL multiplier")
     risky_size_mult: float = Field(default=1.30, ge=1.0, le=5.0, description="Risky size multiplier")
     risky_max_frac_cap: float = Field(default=0.95, ge=0.1, le=1.0, description="Risky max fraction cap")
+    reserve_cash_percent: float = Field(default=25.0, ge=0.0, le=100.0, description="Keep this % in reserve")
+    tsla_floor_pct: float = Field(default=0.50, ge=0.0, le=1.0, description="Min TSLA floor fraction")
+
+    # =====================
+    # Partial Take Profit (PTP)
+    # =====================
+    enable_partial_take_profit: bool = Field(default=True, description="Enable partial take profit")
+    ptp_quantity_percent: float = Field(default=50.0, ge=1.0, le=99.0, description="Sell % at first target")
+    ptp_profit_mult: float = Field(default=1.5, ge=0.5, description="Target ATR multiplier for partial profit")
+
+    # =====================
+    # ATR-Based Risk
+    # =====================
+    atr_stop_multiplier: float = Field(default=2.0, ge=0.5, description="ATR multiplier for initial stop")
+    atr_tp_multiplier: float = Field(default=3.0, ge=1.0, description="ATR multiplier for final profit target")
     
     # =====================
     # Profitability Gates

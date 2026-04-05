@@ -170,7 +170,9 @@ const fetchState = async () => {
       // Portfolio
       if (data.positions && Object.keys(data.positions).length > 0) {
         UI.portfolioBody.innerHTML = Object.entries(data.positions).map(([sym, pos]) => {
-          const mktVal = pos.market_value || 0;
+          const sl = pos.stop_loss || 0;
+          const tp = pos.take_profit || 0;
+          const ptp = pos.ptp_executed ? '<span class="status-dot sm" style="background:var(--success); display:inline-block; margin-right:4px;" title="PTP Executed"></span>' : '';
           const pl = pos.unrealized_pl || 0;
           const isPositive = pl >= 0;
           const plColorClass = isPositive ? 'text-success' : 'text-danger';
@@ -178,10 +180,10 @@ const fetchState = async () => {
           return `
             <tr>
               <td style="font-weight: 500">${sym}</td>
-              <td class="text-right">${pos.qty}</td>
+              <td class="text-right">${Number(pos.qty).toFixed(2)}</td>
               <td class="text-right">${formatMoney(pos.avg_entry)}</td>
-              <td class="text-right">---</td>
-              <td class="text-right">${formatMoney(mktVal)}</td>
+              <td class="text-right text-danger">${formatMoney(sl)}</td>
+              <td class="text-right text-success">${ptp}${formatMoney(tp)}</td>
               <td class="text-right ${plColorClass}">${formatMoney(pl)}</td>
             </tr>
           `;

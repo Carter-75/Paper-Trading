@@ -400,6 +400,18 @@ class SmartTradingBot:
         except Exception:
             equity = 100000.0  # Fallback
 
+        # --- COOLDOWN CHECK ---
+        current_pos = self.pm.get_position(symbol)
+        if not current_pos:
+            last_stop_out = float(self.pm.positions.get(symbol, {}).get('last_stop_out', 0.0))
+            if last_stop_out > 0:
+                elapsed_blocks = (time.time() - last_stop_out) / self.config.default_interval_seconds
+                cooldown_needed = getattr(self.config, 'stop_out_cooldown_blocks', 10)
+                if elapsed_blocks < cooldown_needed:
+                    log_warn(f"COOLDOWN: Skipping {symbol} (Stopped out {elapsed_blocks:.1f}/{cooldown_needed} blocks ago)")
+                    self.schedule[symbol] = time.time() + self.config.default_interval_seconds
+                    return
+
         # --- CHECK KILL SWITCHES ---
         if self._check_kill_switches(equity):
             self.schedule[symbol] = time.time() + 60
@@ -435,74 +447,81 @@ class SmartTradingBot:
                     closes = closes[-n:]
                     volumes = volumes[-n:]
                     highs = highs[-n:]
-                    lows = lows[-n:]
-            except Exception:
-                pass
-
-            if closes:
-                current_price = float(closes[-1])
-            else:
+        # --- DATA FETCH ---
+        try:
+            # 1. Prices & Data
+            closes, volumes, highs, lows = self._fetch_comprehensive_data(symbol)
+            if not closes or len(closes) < 10:
+                log_warn(f"Insufficient for {symbol}")
                 return
+            
+            current_price = float(closes[-1])
+            
+            # 2. Calculate ATR (Always needed for risk/targets)
+            atr = 0.0
+            try:
+                raw_atr = self.decision_engine.calculate_atr(closes, highs, lows)
+                atr = float(raw_atr)
+            except Exception:
+                atr = current_price * 0.02 # Fallback
+            
         except Exception as e:
             log_error(f"Data fetch failed for {symbol}: {e}")
             return
-
-        # --- RISK A: BODYGUARD CHECK ---
-        current_pos = self.pm.get_position(symbol)
-        
-        # Calculate ATR safe
-        atr = 0.0
-        try:
-            raw_atr = self.decision_engine.calculate_atr(closes)
-            if isinstance(raw_atr, (list, tuple, bytes, str)):
-                atr = float(raw_atr[0])
-            else:
-                atr = float(raw_atr)
-        except:
-            atr = current_price * 0.02 # Fallback 2%
-
+ 
+        # --- RISK A: PRODUCTION BODYGUARD ---
         if current_pos and current_price > 0:
-            avg_entry = current_pos.get('avg_entry', 0.0)
-            qty = current_pos.get('qty', 0)
+            avg_entry = float(current_pos.get('avg_entry', 0.0))
+            qty = float(current_pos.get('qty', 0.0))
+            sl_price = float(current_pos.get('stop_loss', 0.0))
+            tp_price = float(current_pos.get('take_profit', 0.0))
+            ptp_done = bool(current_pos.get('ptp_executed', False))
             
             if qty > 0 and avg_entry > 0:
                 pnl_pct = (current_price - avg_entry) / avg_entry
-
+                
+                # Update peak for trailing stop if needed
                 prev_peak = float(self._peak_prices.get(symbol, avg_entry) or avg_entry)
                 peak_price = max(prev_peak, current_price)
                 self._peak_prices[symbol] = peak_price
 
-                static_stop_price = avg_entry * (1.0 - (self.config.stop_loss_percent / 100.0))
-                stop_price = static_stop_price
-
-                if atr > 0:
-                    vol_stop = avg_entry - (2.5 * atr)
-                    stop_price = min(stop_price, vol_stop)
-
-                if pnl_pct > 0.01:
-                    trail_pct = max(0.004, float(getattr(self.config, "trailing_stop_percent", 0.75) or 0.75) / 100.0)
-                    trail_stop = peak_price * (1.0 - trail_pct)
-                    stop_price = max(stop_price, trail_stop)
-
-                if pnl_pct > 0.02:
-                    be_stop = avg_entry * 1.001
-                    stop_price = max(stop_price, be_stop)
-
-                dynamic_take_profit_pct = max(
-                    (self.config.take_profit_percent / 100.0) * 0.75,
-                    (self.config.stop_loss_percent / 100.0) * 1.4,
-                )
-
-                reason = ""
-                if current_price < stop_price:
-                    reason = "PROFIT PROTECT EXIT" if pnl_pct > 0 else "STOP LOSS HIT"
-                elif pnl_pct > dynamic_take_profit_pct:
-                    reason = "TAKE PROFIT HIT"
+                # 1. STOP LOSS CHECK
+                exit_reason = ""
+                if sl_price > 0 and current_price < sl_price:
+                    exit_reason = "STOP LOSS HIT"
                 
-                if reason:
-                    log_warn(f"??????? BODYGUARD TRIGGER: {symbol} -> {reason}")
-                    if self.order_executor.liquidate(symbol, reason):
-                        self.pm.log_closed_trade(symbol, avg_entry, current_price, qty, reason)
+                # 2. PARTIAL TAKE PROFIT (PTP) CHECK
+                elif not ptp_done and getattr(self.config, 'enable_partial_take_profit', True):
+                    # Target 1.5x ATR from entry
+                    ptp_trigger = avg_entry + (atr * getattr(self.config, 'ptp_profit_mult', 1.5))
+                    if current_price >= ptp_trigger:
+                        log_info(f"$$$ PTP TRIGGERED for {symbol} at ${current_price:.2f} (Target ${ptp_trigger:.2f})")
+                        if self.order_executor.partial_liquidate(symbol, getattr(self.config, 'ptp_quantity_percent', 50.0), "Partial Take Profit"):
+                            # Move stop to breakeven + update PTP flag
+                            new_sl = avg_entry * 1.001 # Breakeven plus tiny buffer
+                            self.pm.update_position(symbol, qty * 0.5, avg_entry, current_price * (qty * 0.5), 0.0, 
+                                                   stop_loss=new_sl, ptp_executed=True)
+                            log_info(f"PTP EXEC: {symbol} half sold, SL moved to breakeven (${new_sl:.2f})")
+                            # Don't exit yet, let the rest run
+                
+                # 3. FINAL TAKE PROFIT CHECK
+                elif tp_price > 0 and current_price >= tp_price:
+                    exit_reason = "FINAL TAKE PROFIT HIT"
+                
+                # 4. TRAILING STOP (Secondary safeguard)
+                elif pnl_pct > 0.03: # Only trail if up 3%
+                    trail_pct = getattr(self.config, "trailing_stop_percent", 0.75) / 100.0
+                    trail_stop = peak_price * (1.0 - trail_pct)
+                    if current_price < trail_stop:
+                        exit_reason = "TRAILING STOP TRIGGERED"
+
+                if exit_reason:
+                    log_warn(f"!!!!!!! BODYGUARD EXIT: {symbol} -> {exit_reason}")
+                    if self.order_executor.liquidate(symbol, exit_reason):
+                        self.pm.log_closed_trade(symbol, avg_entry, current_price, qty, exit_reason)
+                        # Mark cooldown on stop out
+                        if "STOP LOSS" in exit_reason or "TRAILING" in exit_reason:
+                             self.pm.update_position(symbol, 0, 0, 0, 0, last_stop_out=time.time())
                         self.pm.remove_position(symbol)
                         self._peak_prices.pop(symbol, None)
                         self.schedule[symbol] = time.time() + 300 
@@ -570,19 +589,35 @@ class SmartTradingBot:
                             pass
                         placed = self.order_executor.execute_allocation(allocation)
                         if placed:
-                            # Update portfolio from Alpaca position if available (avoid assuming instant fills)
+                            # 1. Calculate Targets
+                            sl_mult = getattr(self.config, 'atr_stop_multiplier', 2.0)
+                            tp_mult = getattr(self.config, 'atr_tp_multiplier', 3.0)
+                            
+                            init_sl = 0.0
+                            init_tp = 0.0
+                            if atr > 0:
+                                if signal.action == "buy":
+                                    init_sl = current_price - (atr * sl_mult)
+                                    init_tp = current_price + (atr * tp_mult)
+                                else: # Sell signal (shorting) - not fully supported but logic ready
+                                    init_sl = current_price + (atr * sl_mult)
+                                    init_tp = current_price - (atr * tp_mult)
+                            
+                            # 2. Update portfolio from Alpaca position if available
                             try:
                                 pos = self.api.get_position(symbol)
                                 qty = float(pos.qty)
                                 avg_entry = float(getattr(pos, 'avg_entry_price', current_price))
                                 mv = float(getattr(pos, 'market_value', allocation.target_value))
                                 upl = float(getattr(pos, 'unrealized_pl', 0.0))
-                                self.pm.update_position(symbol, qty, avg_entry, mv, upl, confidence=signal.confidence)
+                                self.pm.update_position(symbol, qty, avg_entry, mv, upl, confidence=signal.confidence,
+                                                       stop_loss=init_sl, take_profit=init_tp)
                             except Exception:
                                 # If position isn't visible yet, record intended allocation
                                 intended_value = allocation.target_value if allocation.target_value else notional
-                                intended_qty = allocation.target_quantity if allocation.target_quantity else (notional / current_price if current_price else 0.0)
-                                self.pm.update_position(symbol, intended_qty, current_price, intended_value, 0.0, confidence=signal.confidence)
+                                intended_qty = (intended_value / current_price) if current_price > 0 else 0
+                                self.pm.update_position(symbol, intended_qty, current_price, intended_value, 0.0, 
+                                                       confidence=signal.confidence, stop_loss=init_sl, take_profit=init_tp)
                         else:
                             log_warn(f"ORDER NOT PLACED for {symbol} (see earlier warnings).")
                             try:

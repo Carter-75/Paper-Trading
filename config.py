@@ -62,6 +62,9 @@ MAX_POSITION_AGE_HOURS: float = float(os.getenv("MAX_POSITION_AGE_HOURS", "72.0"
 DAILY_LOSS_LIMIT_USD: float = float(os.getenv("DAILY_LOSS_LIMIT_USD", "100.0") or 0.0)
 MAX_DAILY_LOSS_PERCENT: float = float(os.getenv("MAX_DAILY_LOSS_PERCENT", "5.0"))
 
+# Cooldown settings
+STOP_OUT_COOLDOWN_BLOCKS: int = int(os.getenv("STOP_OUT_COOLDOWN_BLOCKS", "10")) # Wait 10 cycles after stop-loss
+
 # Exposure limits - prevent going all-in on one idea
 MAX_EXPOSURE_PCT: float = float(os.getenv("MAX_EXPOSURE_PCT", "75.0"))  # Keep 25% in cash for opportunities
 MAX_OPEN_POSITIONS: int = int(os.getenv("MAX_OPEN_POSITIONS", "15"))
@@ -185,6 +188,15 @@ MIN_ALLOCATION_USD: float = float(os.getenv("MIN_ALLOCATION_USD", "5.0"))  # Min
 CONFIDENCE_WEIGHT_MULTIPLIER: float = float(os.getenv("CONFIDENCE_WEIGHT_MULTIPLIER", "400.0"))  # How much confidence affects score (best practice: 300-500)
 RESERVE_CASH_PERCENT: float = float(os.getenv("RESERVE_CASH_PERCENT", "25.0"))  # Keep this % in reserve (best practice: 20-30%)
 TSLA_FLOOR_PCT: float = float(os.getenv("TSLA_FLOOR_PCT", "0.50"))  # 50% TSLA floor (reduced from hardcoded 80% for more diversification)
+
+# Partial Take Profit (PTP) settings
+ENABLE_PARTIAL_TAKE_PROFIT: bool = os.getenv("ENABLE_PARTIAL_TAKE_PROFIT", "1") in ("1", "true", "True")
+PTP_QUANTITY_PERCENT: float = float(os.getenv("PTP_QUANTITY_PERCENT", "50.0"))  # Sell 50% at first target
+PTP_PROFIT_MULT: float = float(os.getenv("PTP_PROFIT_MULT", "1.5"))  # Target 1.5x ATR for partial profit
+
+# ATR-based Risk Settings
+ATR_STOP_MULTIPLIER: float = float(os.getenv("ATR_STOP_MULTIPLIER", "2.0"))  # 2.0x ATR for initial stop
+ATR_TP_MULTIPLIER: float = float(os.getenv("ATR_TP_MULTIPLIER", "3.0"))    # 3.0x ATR for final profit target
 
 # -------------------
 # Helpers

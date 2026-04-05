@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 Portfolio Manager - Tracks and manages multiple stock positions.
 """
@@ -86,7 +86,9 @@ class PortfolioManager:
     def update_position(self, symbol: str, qty: float, avg_entry: float,
                        market_value: float, unrealized_pl: float,
                        confidence: float = 0.0, expected_return: float = 0.0,
-                       is_locked: bool = False):
+                       is_locked: bool = False, stop_loss: float = 0.0,
+                       take_profit: float = 0.0, ptp_executed: bool = False,
+                       last_stop_out: float = 0.0):
         """Update or add a position."""
         existing = self.positions.get(symbol, {})
 
@@ -95,9 +97,12 @@ class PortfolioManager:
         if first_opened is None:
             first_opened = datetime.now(pytz.UTC).isoformat()
 
-        # Preserve is_locked if caller passes False (default) and position is already locked.
-        # Callers that explicitly want to unlock must pass is_locked=False AND the position
-        # must not have been locked by a different code path (use set_locked() for that).
+        # Preserve SL/TP/PTP if not provided (non-zero)
+        # This allows updating qty/mv without recalculating targets if they already exist
+        effective_sl = stop_loss if stop_loss > 0 else existing.get("stop_loss", 0.0)
+        effective_tp = take_profit if take_profit > 0 else existing.get("take_profit", 0.0)
+        effective_ptp = ptp_executed or existing.get("ptp_executed", False)
+        # Preserve lock
         preserved_lock = existing.get("is_locked", False)
         effective_lock = is_locked or preserved_lock
 
@@ -111,6 +116,10 @@ class PortfolioManager:
             "confidence": confidence,
             "expected_return": expected_return,
             "is_locked": effective_lock,
+            "stop_loss": effective_sl,
+            "take_profit": effective_tp,
+            "ptp_executed": effective_ptp,
+            "last_stop_out": last_stop_out or existing.get("last_stop_out", 0.0)
         }
         self.save()
     

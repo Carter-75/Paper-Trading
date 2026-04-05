@@ -259,7 +259,7 @@ def auto_train_model_if_needed(predictor: TradingMLPredictor) -> bool:
         for idx, symbol in enumerate(symbols, 1):
             print(f"  [{idx}/{len(symbols)}] Fetching {symbol}...", end=" ", flush=True)
             try:
-                closes, _ = fetch_closes_with_volume(client, symbol, interval_seconds, limit_bars=2000)
+                closes, volumes = fetch_closes_with_volume(client, symbol, interval_seconds, limit_bars=2000)
                 
                 if len(closes) < 50:
                     print("(insufficient data, skipping)")

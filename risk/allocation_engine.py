@@ -132,6 +132,16 @@ class AllocationEngine:
             if alloc_value <= 0:
                  return AllocationResult(signal.symbol, 0, 0.0, 0.0, f"Restricted Mode: Max Exposure Cap ${max_exposure_cap:.2f} reached", False)
              
+        # 5.1.8 Single Stock Exposure Cap
+        max_single_stock_cap = total_equity * (getattr(self.config, 'max_single_stock_percent', 20.0) / 100.0)
+        current_pos = self.pm.get_position(signal.symbol)
+        current_symbol_val = float(current_pos.get('market_value', 0.0) if current_pos else 0.0)
+        
+        if (current_symbol_val + alloc_value) > max_single_stock_cap:
+            alloc_value = max(0.0, max_single_stock_cap - current_symbol_val)
+            if alloc_value <= 0:
+                 return AllocationResult(signal.symbol, 0, 0.0, 0.0, f"Max Single Stock Cap ({getattr(self.config, 'max_single_stock_percent', 20.0)}%) reached", False)
+
         # 5.2 Max Loss per Trade (Stop Loss Risk)
         # Risk = Value * StopLoss%
         # We want Risk < Equity * MaxRisk%
@@ -151,23 +161,42 @@ class AllocationEngine:
             scaler = max_risk_dollars / implied_risk_dollars
             alloc_value *= scaler
         
-        # 6. Fee & Slippage Guard (Net Profit Check)
-        if self.config.simulate_fees_enabled:
-            # Estimate costs
-            fee = self.config.fee_per_trade_usd
-            slippage_cost = alloc_value * (self.config.slippage_percent / 100.0) if self.config.simulate_slippage_enabled else 0
-            total_cost = fee + slippage_cost
+        # 6. Fee & Slippage Guard (Production-Ready Net Profit Check)
+        if self.config.simulate_fees_enabled or self.config.wants_live_mode():
+            # Estimate total friction (Entry Fee + Exit Fee + Spread + Slippage)
+            # Alpaca is commission-free but has TAF/SEC fees on sells (~$0.00002 per share)
+            # Spread is the bigger cost (~1-5 bps for liquid stocks)
             
-            # [MOD] Live mode optimization: Use ATR as proxy for expected move instead of hardcoded 0.5%
-            # This ensures we don't 'double check' ourselves into rejection when live stop-losses are also ATR-based.
-            expected_move_pct = 0.005 # 0.5% fallback
-            if self.config.wants_live_mode() and getattr(signal, 'atr', 0) > 0 and current_price > 0:
-                expected_move_pct = float(signal.atr) / current_price
+            entry_fee = getattr(self.config, 'fee_per_trade_usd', 0.0)
+            exit_fee = entry_fee # conservative
+            
+            # Spread + Slippage (estimated at 10 bps total for conservative safety)
+            friction_pct = (getattr(self.config, 'slippage_percent', 0.05) + 0.05) / 100.0
+            total_friction_usd = entry_fee + exit_fee + (alloc_value * friction_pct)
+            
+            # Use ATR to estimate expected target profit
+            atr = float(getattr(signal, 'atr', 0.0) or 0.0)
+            expected_move_usd = 0.0
+            if atr > 0 and current_price > 0:
+                # Expect at least 1.5x ATR move for a quality trade
+                expected_move_usd = atr * getattr(self.config, 'ptp_profit_mult', 1.5)
+                expected_move_pct = expected_move_usd / current_price
+            else:
+                expected_move_pct = 0.005 # fallback
             
             expected_gross_profit = alloc_value * expected_move_pct
             
-            if expected_gross_profit < (total_cost * 1.5):
-                return AllocationResult(signal.symbol, 0, 0.0, 0.0, f"Fees too high ({total_cost:.2f} > profit {expected_gross_profit:.2f}, move {expected_move_pct:.2%})", False)
+            if expected_gross_profit < (total_friction_usd * 2.0): # Expect 2x cover for friction
+                return AllocationResult(signal.symbol, 0, 0.0, 0.0, f"Friction too high (${total_friction_usd:.2f} > 50% of expected profit ${expected_gross_profit:.2f})", False)
+
+        # 7. Risk / Reward Filter
+        atr = float(getattr(signal, 'atr', 0.0) or 0.0)
+        if atr > 0 and current_price > 0:
+            target_tp = atr * getattr(self.config, 'atr_tp_multiplier', 3.0)
+            target_sl = atr * getattr(self.config, 'atr_stop_multiplier', 2.0)
+            rr_ratio = target_tp / target_sl if target_sl > 0 else 0
+            if rr_ratio < 1.4: # Filter poor setups
+                return AllocationResult(signal.symbol, 0, 0.0, 0.0, f"Poor R:R ratio ({rr_ratio:.2f} < 1.4)", False)
 
         # Final Allocation (FRACTIONAL / NOTIONAL ONLY)
         min_notional = float(getattr(self.config, 'min_notional_usd', 1.0))

@@ -1,4 +1,4 @@
-﻿
+
 import logging
 import time
 import datetime
@@ -113,7 +113,7 @@ class OrderExecutor:
             try:
                 pos = self.api.get_position(symbol)
                 qty = float(pos.qty)
-            except APIError:
+            except Exception:
                 # Position might not exist
                 return False
                 
@@ -132,6 +132,47 @@ class OrderExecutor:
             
         except Exception as e:
             log_error(f"Failed to liquidate {symbol}: {e}")
+            return False
+
+    def partial_liquidate(self, symbol: str, qty_percent: float, reason: str) -> bool:
+        """
+        Partially liquidate a position (e.g. for Take Profit).
+        """
+        try:
+            # 1. Check position
+            try:
+                pos = self.api.get_position(symbol)
+                current_qty = float(pos.qty)
+            except Exception:
+                # No position
+                return False
+                
+            if current_qty <= 0:
+                return False
+                
+            qty_to_sell = current_qty * (qty_percent / 100.0)
+            
+            if self._block_if_market_closed('PARTIAL_LIQUIDATE', symbol):
+                return False
+
+            log_info(f"PARTIAL LIQUIDATION {symbol}: {qty_to_sell:.4f} shares ({qty_percent}%)")
+            log_info(f"  Reason: {reason}")
+            
+            # 2. Cancel existing orders
+            self.cancel_open_orders(symbol)
+            
+            # 3. Submit Sell Order
+            self.api.submit_order(
+                symbol=symbol,
+                qty=qty_to_sell,
+                side='sell',
+                type='market',
+                time_in_force='day'
+            )
+            return True
+            
+        except Exception as e:
+            log_error(f"Failed to partial liquidate {symbol}: {e}")
             return False
 
     def _submit_limit_order(self, symbol: str, qty: int, side: str, limit_price: float):
