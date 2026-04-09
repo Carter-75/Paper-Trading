@@ -1,4 +1,4 @@
-﻿# start_dashboard.ps1
+# start_dashboard.ps1
 # Runs dashboard.py 24/7 with restart-on-crash.
 # Aggressive Takeover logic included.
 

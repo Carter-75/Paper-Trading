@@ -239,9 +239,9 @@ def auto_train_model_if_needed(predictor: TradingMLPredictor) -> bool:
     print("")
     
     try:
-        # Import here to avoid circular dependency
+        # Import from data utils to avoid circular dependency and find missing functions
         import config
-        from runner import make_client, fetch_closes_with_volume
+        from runner_data_utils import make_client, fetch_closes_with_volume
         
         # FULL training set (17 diverse symbols - same as train_ml_model.py)
         symbols = [

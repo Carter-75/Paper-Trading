@@ -435,26 +435,28 @@ class SmartTradingBot:
 
         # B. Data Fetching
         try:
+            # Fetch OHLCV (Open, High, Low, Close, Volume)
+            # fetch_ohlcv returns (opens, highs, lows, closes, volumes)
             _, highs, lows, closes, volumes = fetch_ohlcv(
                 self.api, symbol, 
                 interval_seconds=60, 
                 limit_bars=1000
             )
-            # Defensive: ensure closes and volumes are aligned
-            try:
-                if closes is not None and volumes is not None and len(closes) != len(volumes):
-                    n = min(len(closes), len(volumes), len(highs), len(lows))
-                    closes = closes[-n:]
-                    volumes = volumes[-n:]
-                    highs = highs[-n:]
-        # --- DATA FETCH ---
-        try:
-            # 1. Prices & Data
-            closes, volumes, highs, lows = self._fetch_comprehensive_data(symbol)
-            if not closes or len(closes) < 10:
-                log_warn(f"Insufficient for {symbol}")
-                return
             
+            # 1. Validation & Alignment
+            if not closes or len(closes) < 10:
+                log_warn(f"Insufficient data for {symbol} (count: {len(closes) if closes else 0})")
+                self.schedule[symbol] = time.time() + 300 # Wait longer for data
+                return
+
+            # Ensure all lists have identical length for indicator calculation
+            n = min(len(closes), len(volumes), len(highs), len(lows))
+            if n < len(closes):
+                closes = closes[-n:]
+                volumes = volumes[-n:]
+                highs = highs[-n:]
+                lows = lows[-n:]
+
             current_price = float(closes[-1])
             
             # 2. Calculate ATR (Always needed for risk/targets)
@@ -462,11 +464,14 @@ class SmartTradingBot:
             try:
                 raw_atr = self.decision_engine.calculate_atr(closes, highs, lows)
                 atr = float(raw_atr)
-            except Exception:
-                atr = current_price * 0.02 # Fallback
+            except Exception as atr_err:
+                log_warn(f"ATR calculation fallback for {symbol}: {atr_err}")
+                atr = current_price * 0.02 # 2% Default Fallback
             
         except Exception as e:
-            log_error(f"Data fetch failed for {symbol}: {e}")
+            log_error(f"Critical data fetch failure for {symbol}: {e}")
+            log_error(traceback.format_exc())
+            self.schedule[symbol] = time.time() + 60
             return
  
         # --- RISK A: PRODUCTION BODYGUARD ---
