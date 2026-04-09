@@ -63,6 +63,7 @@ class SmartTradingBot:
         self._high_water_mark = 0.0 # Track max equity seen
         self._restricted_mode = False
         self._restricted_mode_start = 0.0
+        self._last_portfolio_sync = 0.0
         self._load_equity_cache()
         
         # Initialize Universe immediatley
@@ -397,6 +398,11 @@ class SmartTradingBot:
         # A. Account Update
         try:
             equity = self._get_equity_for_dashboard()
+            
+            # --- PERIODIC PORTFOLIO SYNC (60s Throttle) ---
+            if time.time() - self._last_portfolio_sync > 60:
+                self.sync_portfolio_with_alpaca()
+                self._last_portfolio_sync = time.time()
         except Exception:
             equity = 100000.0  # Fallback
 
@@ -429,6 +435,8 @@ class SmartTradingBot:
                     order_executor=self.order_executor,
                     api=self.api,
                 )
+                # Force IMMEDIATE sync after floor enforcement
+                self.sync_portfolio_with_alpaca()
         except Exception as _tsla_err:
             log_error(f"TSLA floor enforcement error: {_tsla_err}")
         # -----------------------------------

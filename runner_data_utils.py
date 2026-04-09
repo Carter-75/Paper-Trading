@@ -184,11 +184,11 @@ def fetch_ohlcv(client, symbol: str, interval_seconds: int, limit_bars: int) -> 
         elif interval_seconds >= 3600: yf_interval = "1h"
         
         ticker_sym = symbol.replace('.', '-')
-        ticker = yf.Ticker(ticker_sym, session=session)
+        ticker = yf.Ticker(ticker_sym)
         
-        # Using a timeout via the session is tricky, so we'll use a try-block for the call
-        # yfinance doesn't natively support timeout in .history(), so we rely on the session
-        hist = ticker.history(period="60d", interval=yf_interval, auto_adjust=True, timeout=10)
+        # Using a timeout via the try-block for the call
+        # yfinance doesn't natively support timeout in .history(), so we rely on the implementation
+        hist = ticker.history(period="60d", interval=yf_interval, auto_adjust=True)
         
         if not hist.empty:
             opens = list(hist['Open'].values)
