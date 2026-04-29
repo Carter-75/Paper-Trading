@@ -79,13 +79,18 @@ def get_history():
 def get_logs():
     try:
         if os.path.exists(LOG_FILE):
-            for _ in range(3):
-                try:
-                    with open(LOG_FILE, 'r') as f:
-                        lines = f.readlines()[-50:]
-                        return jsonify({"logs": lines})
-                except IOError:
-                    time.sleep(0.1)
+            file_size = os.path.getsize(LOG_FILE)
+            with open(LOG_FILE, 'rb') as f:
+                # If file is bigger than 50KB, jump to near the end
+                if file_size > 50000:
+                    f.seek(-50000, os.SEEK_END)
+                
+                # Read the chunk and convert to lines
+                chunk = f.read().decode('utf-8', errors='replace')
+                lines = chunk.splitlines()
+                
+                # Return the last 50 lines
+                return jsonify({"logs": lines[-50:]})
     except Exception as e:
         return jsonify({"error": str(e)})
     return jsonify({"logs": []})

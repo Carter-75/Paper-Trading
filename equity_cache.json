@@ -1,7 +1,7 @@
 {
-  "timestamp": "2026-04-09T14:38:27.807971",
-  "equity": 139.09,
-  "high_water_mark": 156.6,
-  "restricted_mode": true,
-  "restricted_mode_start": 1775757280.4665954
+  "timestamp": "2026-04-29T14:47:12.577296",
+  "equity": 145.24,
+  "high_water_mark": 147.17,
+  "restricted_mode": false,
+  "restricted_mode_start": 0.0
 }

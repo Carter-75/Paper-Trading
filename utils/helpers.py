@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 import os
 import sys
 from logging.handlers import RotatingFileHandler
@@ -21,15 +21,38 @@ logging.basicConfig(
 )
 
 
+def _prune_log_if_needed():
+    """Keeps the log file under 10MB by trimming the top (FIFO)."""
+    log_path = "bot.log"
+    max_size = 10 * 1024 * 1024  # 10 MB
+    target_size = 2 * 1024 * 1024 # Keep latest 2 MB
+    
+    try:
+        if os.path.exists(log_path) and os.path.getsize(log_path) > max_size:
+            with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
+                f.seek(os.path.getsize(log_path) - target_size)
+                # Skip the first (likely partial) line to keep it clean
+                f.readline()
+                latest_content = f.read()
+            
+            with open(log_path, 'w', encoding='utf-8') as f:
+                f.write("--- LOG PRUNED (FIFO) ---\n" + latest_content)
+    except Exception:
+        pass # Don't crash the bot because of logging
+
+
 def log_info(msg: str):
+    _prune_log_if_needed()
     logging.info(msg)
 
 
 def log_warn(msg: str):
+    _prune_log_if_needed()
     logging.warning(msg)
 
 
 def log_error(msg: str):
+    _prune_log_if_needed()
     logging.error(msg)
 
 
