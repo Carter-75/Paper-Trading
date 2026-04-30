@@ -38,7 +38,7 @@ class AllocationEngine:
         self.config = get_config()
         self.pm = portfolio_manager
         self.logger = logging.getLogger("AllocationEngine")
-        self.TSLA_FLOOR_PCT = getattr(self.config, 'TSLA_FLOOR_PCT', 0.50)
+        self.TSLA_FLOOR_PCT = getattr(self.config, 'tsla_floor_pct', 0.50)
         
         # Win Rate Statistics (for Kelly)
         # TODO: Load this from a persistent stats file
@@ -227,7 +227,7 @@ class AllocationEngine:
         return max(0.0, k)  # Never return negative allocation
 
     # ------------------------------------------------------------------
-    # TSLA 80% Floor Enforcement
+    # TSLA 50% Floor Enforcement
     # ------------------------------------------------------------------
 
     TSLA_FLOOR_PCT: float = 0.50   # Initial default, will be overridden by config
@@ -241,7 +241,7 @@ class AllocationEngine:
         api,
     ) -> None:
         """
-        Enforce the rule that TSLA must represent at least 80% of total
+        Enforce the rule that TSLA must represent at least 50% of total
         portfolio value.  Called at the start of every trade cycle.
 
         Steps:

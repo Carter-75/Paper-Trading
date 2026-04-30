@@ -424,7 +424,7 @@ class SmartTradingBot:
             return
         # ---------------------------
 
-        # --- TSLA 80% FLOOR ENFORCEMENT ---
+        # --- TSLA 50% FLOOR ENFORCEMENT ---
         # Run before any per-symbol analysis so every cycle enforces the rule.
         try:
             tsla_price = self._get_tsla_price()
@@ -513,7 +513,7 @@ class SmartTradingBot:
                             # Move stop to breakeven + update PTP flag
                             new_sl = avg_entry * 1.001 # Breakeven plus tiny buffer
                             self.pm.update_position(symbol, qty * 0.5, avg_entry, current_price * (qty * 0.5), 0.0, 
-                                                   stop_loss=new_sl, ptp_executed=True)
+                                                   stop_loss=new_sl, take_profit=tp_price, ptp_executed=True)
                             log_info(f"PTP EXEC: {symbol} half sold, SL moved to breakeven (${new_sl:.2f})")
                             # Don't exit yet, let the rest run
                 
@@ -539,6 +539,21 @@ class SmartTradingBot:
                         self._peak_prices.pop(symbol, None)
                         self.schedule[symbol] = time.time() + 300 
                         return
+
+            # --- AUTO-REPAIR MISSING TARGETS ---
+            # If position exists but SL/TP are missing, calculate them now.
+            # We skip TSLA to avoid conflicting with the floor enforcement requirement.
+            if (sl_price == 0 or tp_price == 0) and symbol != "TSLA":
+                log_info(f"Repairing missing targets for {symbol} (SL: ${sl_price}, TP: ${tp_price})")
+                sl_mult = getattr(self.config, 'atr_stop_multiplier', 2.0)
+                tp_mult = getattr(self.config, 'atr_tp_multiplier', 3.0)
+                
+                if atr > 0:
+                    new_sl = current_price - (atr * sl_mult)
+                    new_tp = current_price + (atr * tp_mult)
+                    self.pm.update_position(symbol, qty, avg_entry, current_price * qty, 0.0, 
+                                           stop_loss=new_sl, take_profit=new_tp)
+                    log_info(f"Targets Repaired for {symbol}: SL=${new_sl:.2f}, TP=${new_tp:.2f}")
 
         # C. Analyze Strategy
         try:
