@@ -14,3 +14,6 @@ pytest-timeout>=2.1.0
 pytest-mock>=3.11.1
 pydantic>=2.0.0
 pydantic-settings>=2.0.0
+flask
+python-dotenv
+alpha_vantage

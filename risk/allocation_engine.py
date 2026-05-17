@@ -116,7 +116,6 @@ class AllocationEngine:
         if (current_exposure + alloc_value) > (total_equity * (self.config.max_exposure_pct / 100.0)):
              reduction = (total_equity * (self.config.max_exposure_pct / 100.0)) - current_exposure
              if reduction < 0: reduction = 0
-             if reduction < 0: reduction = 0
              alloc_value = min(alloc_value, reduction)
              
         # 5.1.5 Restricted Mode Cap (Soft Kill Recovery)

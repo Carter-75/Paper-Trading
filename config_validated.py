@@ -516,7 +516,3 @@ if __name__ == "__main__":
         print(f"Risk Controls: {len([k for k, v in config.model_dump().items() if 'enabled' in k and v])} enabled")
     except Exception as e:
         print(f"[X] Configuration validation failed:\n{e}")
-
-    def wants_live_mode(self) -> bool:
-        """Helper to check if live mode is enabled via confirm_go_live"""
-        return self.confirm_go_live.upper() == "YES"

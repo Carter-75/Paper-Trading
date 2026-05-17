@@ -312,9 +312,6 @@ class SmartTradingBot:
                 if ny_time.hour >= 20 or ny_time.hour < 4:
                      # log_info("Market closed (Night Mode). Sleeping 60s...") 
                      time.sleep(60)
-                if ny_time.hour >= 20 or ny_time.hour < 4:
-                     # log_info("Market closed (Night Mode). Sleeping 60s...") 
-                     time.sleep(60)
                      continue
                 
                 # Morning Routine (4 AM - 5 AM): Check if we need to learn

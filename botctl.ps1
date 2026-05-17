@@ -29,12 +29,19 @@ $Pwsh = (Get-Command pwsh -ErrorAction SilentlyContinue).Source
 if (-not $Pwsh) { $Pwsh = 'C:\Program Files\PowerShell\7\pwsh.exe' }
 
 # --- Resolve Python ONCE at generation time ---
-$GlobalPy = (Get-Command python -ErrorAction SilentlyContinue).Source
-if (-not $GlobalPy) { 
-    # Fallback/Guess if not in PATH
-    if (Test-Path "C:\Python311\python.exe") { $GlobalPy = "C:\Python311\python.exe" }
-    else { $GlobalPy = "python" } 
+$GlobalPy = $null
+if (Test-Path ".\venv\Scripts\python.exe") { $GlobalPy = (Resolve-Path ".\venv\Scripts\python.exe").Path }
+elseif (Test-Path ".\.venv\Scripts\python.exe") { $GlobalPy = (Resolve-Path ".\.venv\Scripts\python.exe").Path }
+else {
+    $GlobalPy = (Get-Command python -ErrorAction SilentlyContinue).Source
+    if (-not $GlobalPy) { 
+        # Fallback/Guess if not in PATH
+        if (Test-Path "C:\Python311\python.exe") { $GlobalPy = "C:\Python311\python.exe" }
+        else { $GlobalPy = "python" } 
+    }
 }
+
+$UserSite = (& "$GlobalPy" -m site --user-site)
 
 function Test-Administrator {
   $id = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -96,6 +103,7 @@ function Write-BotStartScript([string]$BotCommand) {
   $content += "Set-Location '$WorkDir'"
   $content += '$env:SCHEDULED_TASK_MODE="1"'
   $content += '$env:BOT_TEE_LOG="1"'
+  if ($UserSite) { $content += "`$env:PYTHONPATH=`"$UserSite`"" }
   $content += ''
   $content += '# --- Hardcoded Python Path from Generator ---'
   $content += '$py = "' + $GlobalPy + '"'
@@ -187,6 +195,7 @@ function Write-DashStartScript {
   $content += '$ErrorActionPreference = "Continue"'
   # Hardcode Working Directory
   $content += "Set-Location '$WorkDir'"
+  if ($UserSite) { $content += "`$env:PYTHONPATH=`"$UserSite`"" }
   $content += ''
   $content += '$logPath = ".\dashboard.log"'
   $content += ''

@@ -2,9 +2,10 @@ $ErrorActionPreference = "Continue"
 Set-Location 'C:\Users\carte\OneDrive\Desktop\Code\Portfolio-Websites (Mostly)\Paper-Trading'
 $env:SCHEDULED_TASK_MODE="1"
 $env:BOT_TEE_LOG="1"
+$env:PYTHONPATH="C:\Users\carte\AppData\Roaming\Python\Python314\site-packages"
 
 # --- Hardcoded Python Path from Generator ---
-$py = "C:\Python311\python.exe"
+$py = "C:\Python314\python.exe"
 Add-Content -Path .\bot.log -Value ("BOT_INIT_SCRIPT " + (Get-Date).ToString("s") + " using python: $py")
 
 # --- Aggressive Takeover (Supervisor Killer) ---
@@ -68,7 +69,7 @@ try {
 
     $exitCode = 1
     try {
-      & "C:\Python311\python.exe" -u runner.py 2>&1 | Tee-Object -FilePath .\bot.log -Append
+      & "C:\Python314\python.exe" -u runner.py 2>&1 | Tee-Object -FilePath .\bot.log -Append
       $exitCode = $LASTEXITCODE
     } catch { $exitCode = 1 }
     if ($exitCode -eq 0) { Add-Content -Path .\bot.log -Value "Market closed - releasing sleep lock and exiting"; break }

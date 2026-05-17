@@ -4,11 +4,12 @@
 
 $ErrorActionPreference = "Continue"
 Set-Location 'C:\Users\carte\OneDrive\Desktop\Code\Portfolio-Websites (Mostly)\Paper-Trading'
+$env:PYTHONPATH="C:\Users\carte\AppData\Roaming\Python\Python314\site-packages"
 
 $logPath = ".\dashboard.log"
 
 # --- Hardcoded Python Path from Generator ---
-$py = "C:\Python311\python.exe"
+$py = "C:\Python314\python.exe"
 Add-Content -Path $logPath -Value ("DASH_INIT_SCRIPT " + (Get-Date).ToString("s") + " using python: $py")
 
 # --- Aggressive Takeover (Supervisor Killer) ---
@@ -89,7 +90,7 @@ while ($true) {
   } catch { }
 
   try {
-    & "C:\Python311\python.exe" -u dashboard.py 2>&1 | Tee-Object -FilePath $logPath -Append
+    & "C:\Python314\python.exe" -u dashboard.py 2>&1 | Tee-Object -FilePath $logPath -Append
     $exitCode = $LASTEXITCODE
   }
   catch {
